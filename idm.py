@@ -1,3 +1,13 @@
+# Based upon the fantastic Beacon eddy current scanner support
+#
+# Copyright (C) 2020-2023 Matt Baker <baker.matt.j@gmail.com>
+# Copyright (C) 2020-2023 Lasse Dalegaard <dalegaard@gmail.com>
+# Copyright (C) 2023 Beacon <beacon3d.com>
+#
+# This file may be distributed under the terms of the GNU GPLv3 license.
+
+
+
 import threading
 import logging
 import chelper
