@@ -21,20 +21,14 @@ echo "Cartographer: installing python requirements to env, this may take 10+ min
 "${KENV}/bin/pip" install -r "${BKDIR}/requirements.txt"
 
 # update link to idm.py
-echo "Cartographer: linking klippy to the cartographer.py."
-if [ -e "${KDIR}/klippy/extras/idm.py" ]; then
-    rm "${KDIR}/klippy/extras/idm.py"
-fi
-if [ -e "${KDIR}/klippy/extras/cartographer.py" ]; then
-    rm "${KDIR}/klippy/extras/cartographer.py"
-fi
-ln -s "${BKDIR}/cartographer.py" "${KDIR}/klippy/extras/cartographer.py"
-ln -s "${BKDIR}/cartographer.py" "${KDIR}/klippy/extras/cartographer.py"
-# exclude idm.py from klipper git tracking
-if ! grep -q "klippy/extras/idm.py" "${KDIR}/.git/info/exclude"; then
-    echo "klippy/extras/idm.py" >> "${KDIR}/.git/info/exclude"
-fi
-if ! grep -q "klippy/extras/cartographer.py" "${KDIR}/.git/info/exclude"; then
-    echo "klippy/extras/cartographer.py" >> "${KDIR}/.git/info/exclude"
-fi
+echo "Cartographer: linking modules into klipper"
+for file in idm.py cartographer.py; do
+    if [ -e "${KDIR}/klippy/extras/${file}" ]; then
+        rm "${KDIR}/klippy/extras/${file}"
+    fi
+    ln -s "${BKDIR}/${file}" "${KDIR}/klippy/extras/${file}"
+    if ! grep -q "klippy/extras/${file}" "${KDIR}/.git/info/exclude"; then
+        echo "klippy/extras/${file}" >> "${KDIR}/.git/info/exclude"
+    fi
+done
 echo "Cartographer Probe: installation successful."
