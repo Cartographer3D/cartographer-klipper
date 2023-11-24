@@ -1693,7 +1693,7 @@ def load_config_prefix(config):
     cartographer = config.get_printer().lookup_object('cartographer')
     name = config.get_name()
     if name.startswith('cartographer model '):
-        name = name[10:]
+        name = name[19:]
         model = CartographerModel.load(name, config, cartographer)
         cartographer._register_model(name, model)
         return model
