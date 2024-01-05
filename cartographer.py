@@ -18,6 +18,7 @@ import json
 import struct
 import numpy as np
 import copy
+import os
 from numpy.polynomial import Polynomial
 from . import manual_probe
 from . import probe
@@ -673,7 +674,7 @@ class CartographerProbe:
         else:
             f = None
             completion_cb = None
-            fn = gcmd.get("FILENAME")
+            fn = os.path.join("/tmp", gcmd.get("FILENAME"))
             f = open(fn, "w")
             def close_file():
                 f.close()
