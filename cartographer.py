@@ -1218,8 +1218,14 @@ class CartographerEndstopWrapper:
         expire_timeout = TRSYNC_TIMEOUT
         if len(self._trsyncs) == 1:
             expire_timeout = TRSYNC_SINGLE_MCU_TIMEOUT
-        for trsync in self._trsyncs:
-            trsync.start(print_time, self._trigger_completion, expire_timeout)
+        for i, trsync in enumerate(self._trsyncs):
+            try:
+                trsync.start(print_time, self._trigger_completion, expire_timeout)
+            except TypeError:
+                offset = float(i) / len(self._trsyncs)
+                trsync.start(
+                    print_time, offset, self._trigger_completion, expire_timeout
+                )
         etrsync = self._trsyncs[0]
         ffi_main, ffi_lib = chelper.get_ffi()
         ffi_lib.trdispatch_start(self._trdispatch, etrsync.REASON_HOST_REQUEST)
