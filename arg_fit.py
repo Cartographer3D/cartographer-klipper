@@ -1,3 +1,4 @@
+# 打开文件
 from scipy.optimize import curve_fit
 import numpy as np
 import matplotlib.pyplot as plt
@@ -5,45 +6,30 @@ import pandas as pd
 import warnings
 warnings.filterwarnings("ignore")
 class TempModel:
-    def __init__(self, amfg, tcc, tcfl, tctl, fmin, fmin_temp):
-        self.amfg = amfg
-        self.tcc = tcc
-        self.tcfl = tcfl
-        self.tctl = tctl
+    def __init__(self, a_a, a_b, b_a, b_b, fmin, fmin_temp):
+        self.a_a=a_a
+        self.a_b=a_b
+        self.b_a=b_a
+        self.b_b=b_b
         self.fmin = fmin
         self.fmin_temp = fmin_temp
 
-    def _tcf(self, f, df, dt, tctl):
-        tctl = self.tctl if tctl is None else tctl
-        tc = self.tcc + self.tcfl * df + tctl * df * df
-        return f + self.amfg * tc * dt * f
-
-    def compensate(self, freq, temp_source, temp_target, tctl=None):
-        dt = temp_target - temp_source
-        dfmin = self.fmin * self.amfg * self.tcc * \
-                (temp_source - self.fmin_temp)
-        df = freq - (self.fmin + dfmin)
-        if dt < 0.:
-            f2 = self._tcf(freq, df, dt, tctl)
-            dfmin2 = self.fmin * self.amfg * self.tcc * \
-                    (temp_target - self.fmin_temp)
-            df2 = f2 - (self.fmin + dfmin2)
-            f3 = self._tcf(f2, df2, -dt, tctl)
-            ferror = freq - f3
-            freq = freq + ferror
-            df = freq - (self.fmin + dfmin)
-        return self._tcf(freq, df, dt, tctl)
+    def compensate(self, freq, temp_source, temp_target):
+        if self.a_a == None or self.a_b == None or self.b_a == None or self.b_b == None:
+            return freq
+        A=4*(temp_source*self.a_a)**2+4*temp_source*self.a_a*self.b_a+self.b_a**2+4*self.a_a
+        B=8*temp_source**2*self.a_a*self.a_b+4*temp_source*(self.a_a*self.b_b+self.a_b*self.b_a)+2*self.b_a*self.b_b+4*self.a_b-4*(freq-model.fmin)*self.a_a
+        C=4*(temp_source*self.a_b)**2+4*temp_source*self.a_b*self.b_b+self.b_b**2-4*(freq-model.fmin)*self.a_b
+        ax=(np.sqrt(B**2-4*A*C)-B)/2/A
+        param_a=param_linear(ax,self.a_a,self.a_b)
+        param_b=param_linear(ax,self.b_a,self.b_b)
+        return param_a*(temp_target+param_b/2/param_a)**2+ax+model.fmin
+        #print(-param_linear(ax,self.b_a,self.b_b)/2/param_linear(ax,self.a_a,self.a_b))
+        #param_c=freq-param_linear(freq-model.fmin,self.a_a,self.a_b)*temp_source**2-param_linear(freq-model.fmin,self.b_a,self.b_b)*temp_source
+        #return param_linear(freq-model.fmin,self.a_a,self.a_b)*temp_target**2+param_linear(freq-model.fmin,self.b_a,self.b_b)*temp_target+param_c
 def line_fit(x,a,b,c):
     return a*x**2+b*x+c
-def fit(data,tcc,tcfl,tctl):
-    result=[]
-    model.tcc=tcc
-    model.tcfl=tcfl
-    model.tctl-tctl
-    for j in range(len(datas)):
-        for i in range(len(data)):
-            result.append(model.compensate(datas[j][3000],35,data[i]))
-    return result
+
 def area_find(temp,freq):
     middle=int(len(temp)/100/2)*100
     i=j=100
@@ -70,46 +56,64 @@ def area_find(temp,freq):
     return linear_params
 def data_process(path):
     data=[]
-    file_path = path  
+    file_path = path  # 替换为你的文件路径
     with open(file_path, 'r') as file:
+        # 逐行读取文件内容
         lines = file.readlines()
+        # 遍历每行内容
         for line in lines:
             data.append(line.split(','))
     file.close()
     full_data=pd.DataFrame(data[1:-1],columns=data[0])
     temp=np.array(full_data['temp']).astype(np.float32)
     freq=np.array(full_data['freq']).astype(np.float32)
-    freq=freq[::100]
-    temp=temp[::100]
-    plt.plot(temp[10:],freq[10:])
-    linear_params=area_find(temp,freq)
-    plt.plot(temp,line_fit(temp,linear_params[0],linear_params[1],linear_params[2]))
-    data0=line_fit(np.arange(5,80,0.01),linear_params[0],linear_params[1],linear_params[2])
-    return data0
+    dv=int(len(temp)/1000)
+    if dv>1:
+        freq=freq[::dv]
+        temp=temp[::dv]
+    plt.plot(temp[20:],freq[20:])
+    linear_params=area_find(temp[20:],freq[20:])
+    plt.plot(temp[20:],line_fit(temp[20:],linear_params[0],linear_params[1],linear_params[2]))
+    linear_params[2]=line_fit(-1*linear_params[1]/2/linear_params[0],linear_params[0],linear_params[1],linear_params[2])
+    return linear_params
+def param_linear(x,a,b):
+    return a*x+b
 while(1):
     plt.figure(figsize=(25, 15))
     paths=['./data1','./data2','./data3','./data4']
-    datas=[]
+    a=[]
+    b=[]
+    freqs=[]
     num=241
-    threshold=int(input('threshold set(recommend start from 250):'))
+    threshold=int(input('threshold set(recommend start from 1000):\n请输入阈值设置(默认推荐1000):\n'))
     try:
         for path in paths:
             plt.subplot(num)
             num+=1
-            datas.append(data_process(path))
+            temp=data_process(path)
+            a.append(temp[0])
+            b.append(temp[1])
+            freqs.append(temp[2])
     except:
-        print("please make sure you have move the 4 data file to Cartographer folder")
+        print("please make sure you have move the 4 data file to IDM folder\n请确认你有把4个文件拷到IDM文件夹内")
         break
-    model=TempModel(1,-2.1429828e-05,-1.8980091e-10,3.6738370e-16,2943053.84,20.33)
-    p0=[-2.1429828e-05,-1.8980091e-10,3.6738370e-16]
-    params, params_covariance = curve_fit(fit,np.arange(5,80,0.01),np.hstack(datas),p0=p0,maxfev=1000000,ftol=1e-10,xtol=1e-10)
+    #反向求值
+    model=TempModel(None,None,None,None,2943053,23.33)
+    linear_params, params_covariance = curve_fit(param_linear, np.array(freqs)-model.fmin,a,maxfev=100000,ftol=1e-10,xtol=1e-20)
+    model.a_a=linear_params[0]
+    model.a_b=linear_params[1]
+    linear_params, params_covariance = curve_fit(param_linear, np.array(freqs)-model.fmin,b,maxfev=100000,ftol=1e-10,xtol=1e-20)
+    model.b_a=linear_params[0]
+    model.b_b=linear_params[1]
     for path in paths:
         plt.subplot(num)
         num+=1
         data=[]
-        file_path = path 
+        file_path = path  # 替换为你的文件路径
         with open(file_path, 'r') as file:
+            # 逐行读取文件内容
             lines = file.readlines()
+            # 遍历每行内容
             for line in lines:
                 data.append(line.split(','))
         file.close()
@@ -120,9 +124,9 @@ while(1):
         temp=temp[::100]
         result0=[]
         for i in range(len(temp)):
-            result0.append(model.compensate(freq[i],temp[i],20.66))
+            result0.append(model.compensate(freq[i],temp[i],50))
         plt.plot(temp[10:],result0[10:])
     plt.savefig('fit.png')
     print('fit result:')
-    print('tc_tcc:'+str(params[0])+'\ntc_tcfl:'+str(params[1])+'\ntc_tctl:'+str(params[2]))
+    print('tc_a_a:'+str(model.a_a)+'\ntc_a_b:'+str(model.a_b)+'\ntc_b_a:'+str(model.b_a)+'\ntc_b_b:'+str(model.b_b))
     break
