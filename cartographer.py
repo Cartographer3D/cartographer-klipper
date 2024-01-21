@@ -1015,6 +1015,9 @@ class CartographerTempModel:
     def compensate(self, freq, temp_source, temp_target, tctl=None):
         if self.a_a == None or self.a_b == None or self.b_a == None or self.b_b == None:
             return freq
+        if(self.a_a==self.a_b==0):
+            param_b=self.param_linear(freq-self.fmin,self.b_a,self.b_b)
+            return freq-param_b*temp_source+param_b*temp_target
         A=4*(temp_source*self.a_a)**2+4*temp_source*self.a_a*self.b_a+self.b_a**2+4*self.a_a
         B=8*temp_source**2*self.a_a*self.a_b+4*temp_source*(self.a_a*self.b_b+self.a_b*self.b_a)+2*self.b_a*self.b_b+4*self.a_b-4*(freq-self.fmin)*self.a_a
         C=4*(temp_source*self.a_b)**2+4*temp_source*self.a_b*self.b_b+self.b_b**2-4*(freq-self.fmin)*self.a_b
