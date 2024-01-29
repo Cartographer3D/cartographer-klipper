@@ -468,11 +468,18 @@ class CartographerProbe:
         self._check_hardware(sample)
 
     def _enrich_sample(self, sample):
-        sample["dist"] = self.freq_to_dist(sample["freq"], sample["temp"])
         pos, vel = self._get_trapq_position(sample["time"])
-
+        # get z compensation from axis_twist_compensation        
         if pos is None:
+            sample["dist"] = self.freq_to_dist(sample["freq"], sample["temp"])
             return
+        axis_twist_compensation = self.printer.lookup_object(
+            'axis_twist_compensation', None)
+        z_compensation = 0
+        if axis_twist_compensation is not None:
+            z_compensation = (
+                axis_twist_compensation.get_z_compensation_value(pos))
+        sample["dist"] = self.freq_to_dist(sample["freq"], sample["temp"])+z_compensation
         sample["pos"] = pos
         sample["vel"] = vel
 
