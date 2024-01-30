@@ -1823,14 +1823,17 @@ class CartographerMeshHelper:
         params["max_y"] = self.max_y
         params["x_count"] = self.res_x
         params["y_count"] = self.res_y
-        mesh = bed_mesh.ZMesh(params)
+        try:
+            mesh = bed_mesh.ZMesh(params)
+        except TypeError:
+            mesh = bed_mesh.ZMesh(params, self.profile_name)
         try:
             mesh.build_mesh(matrix)
         except bed_mesh.BedMeshError as e:
             raise self.gcode.error(str(e))
         self.bm.set_mesh(mesh)
         self.gcode.respond_info("Mesh calibration complete")
-        self.bm.save_profile(gcmd.get("PROFILE", "default"))
+        self.bm.save_profile(self.profile_name)
 
 class Region:
     def __init__(self, x_min, x_max, y_min, y_max):
