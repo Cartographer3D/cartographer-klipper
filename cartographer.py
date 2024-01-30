@@ -1572,6 +1572,7 @@ class CartographerMeshHelper:
                 self.def_max_x, self.def_max_y, lambda v, d: min(v, d))
         self.res_x, self.res_y = coord_fallback(gcmd, "PROBE_COUNT", int,
                 self.def_res_x, self.def_res_y, lambda v, _d: max(v, 3))
+        self.profile_name = gcmd.get("PROFILE", "default")
 
         if self.min_x > self.max_x:
             self.min_x, self.max_x = (max(self.max_x, self.def_min_x),
