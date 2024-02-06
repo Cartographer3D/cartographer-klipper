@@ -1,4 +1,4 @@
-# Cartographer 3D Script v2.3 w/ Temperature Compensation
+# Cartographer 3D Script v1.0.0.30 w/ Temperature Compensation
 # To buy affordable bed scanners, check out https://cartographer3d.com
 # 
 # Based on the outstanding work from the Beacon3D Team, with modifications made by the Cartographer and IDM team. 
@@ -1860,8 +1860,8 @@ class CartographerMeshHelper:
             inputs = np.array(start)
             inputs += [dx,dy]
             while ((inputs >= 0).all() and (inputs <= [xi_max,yi_max]).all()):
-                if clusters[tuple(inputs)] is not None:
-                    return (abs(inputs-start[0]).sum(), median(clusters[tuple(inputs)]))
+                if clusters.get(tuple(inputs),None) is not None:
+                    return (abs(inputs-np.array(start)).sum(), median(clusters[tuple(inputs)]))
                 inputs += [dx,dy]
             return None
 
