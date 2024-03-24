@@ -1,4 +1,4 @@
-# Cartographer 3D Script v1.0.0.30 w/ Temperature Compensation
+# Cartographer 3D Script v1.0.0.34 w/ Temperature Compensation
 # To buy affordable bed scanners, check out https://cartographer3d.com
 # 
 # Based on the outstanding work from the Beacon3D Team, with modifications made by the Cartographer and IDM team. 
@@ -557,7 +557,7 @@ class CartographerProbe:
                     temp = sample["temp"]
                     if self.model_temp is not None and not (-40 < temp < 180):
                         msg = ("cartographer temperature sensor faulty(read %.2f C),"
-                                " disabling temperaure compensation" % (temp,))
+                                " disabling temperature compensation" % (temp,))
                         logging.error(msg)
                         self.gcode.respond_raw("!! " + msg + "\n")
                         self.model_temp = None

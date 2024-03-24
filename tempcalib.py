@@ -1,4 +1,7 @@
-# 打开文件
+# Cartographer Temperature Calibration 
+# Temperature Calibration Script by Viv & RichardTHF
+
+
 from scipy.optimize import curve_fit
 import numpy as np
 import matplotlib.pyplot as plt
@@ -14,9 +17,6 @@ class TempModel:
     def compensate(self, freq, temp_source, temp_target):
         if self.a_a == None or self.a_b == None or self.b_a == None or self.b_b == None:
             return freq
-        if(self.a_a==self.a_b==0):
-            param_b=param_linear(freq-model.fmin,self.b_a,self.b_b)
-            return freq-param_b*temp_source+param_b*temp_target
         A=4*(temp_source*self.a_a)**2+4*temp_source*self.a_a*self.b_a+self.b_a**2+4*self.a_a
         B=8*temp_source**2*self.a_a*self.a_b+4*temp_source*(self.a_a*self.b_b+self.a_b*self.b_a)+2*self.b_a*self.b_b+4*self.a_b-4*(freq-model.fmin)*self.a_a
         C=4*(temp_source*self.a_b)**2+4*temp_source*self.a_b*self.b_b+self.b_b**2-4*(freq-model.fmin)*self.a_b
@@ -27,12 +27,12 @@ class TempModel:
         param_a=param_linear(ax,self.a_a,self.a_b)
         param_b=param_linear(ax,self.b_a,self.b_b)
         return param_a*(temp_target+param_b/2/param_a)**2+ax+model.fmin
-        #print(-param_linear(ax,self.b_a,self.b_b)/2/param_linear(ax,self.a_a,self.a_b))
-        #param_c=freq-param_linear(freq-model.fmin,self.a_a,self.a_b)*temp_source**2-param_linear(freq-model.fmin,self.b_a,self.b_b)*temp_source
-        #return param_linear(freq-model.fmin,self.a_a,self.a_b)*temp_target**2+param_linear(freq-model.fmin,self.b_a,self.b_b)*temp_target+param_c
 def line_fit(x,a,b,c):
     return a*x**2+b*x+c
-
+def line0(x,a,c):
+    return a*x**2+c
+def line120(x,a,c):
+    return a*x**2-240*a*x+c
 def area_find(temp,freq):
     middle=int(len(temp)/100/2)*100
     i=j=100
@@ -76,22 +76,28 @@ def data_process(path):
         temp=np.array(temp[::dv])
     plt.plot(temp[20:],freq[20:])
     #linear_params=area_find(temp[20:],freq[20:])
-    param_bounds=([0,-np.inf,-np.inf],[100,np.inf,np.inf])
+    param_bounds=([0,-np.inf,-np.inf],[np.inf,np.inf,np.inf])
     linear_params, params_covariance = curve_fit(line_fit, temp[20:],freq[20:],bounds=param_bounds,maxfev=100000,ftol=1e-10,xtol=1e-10)
-    plt.plot(temp[20:],line_fit(temp[20:],linear_params[0],linear_params[1],linear_params[2]))
+
     try:
         plt.title("Range:"+str(int(np.max(freq[20:])-np.min(freq[20:]))))
     except:
         pass
     axis=-1*linear_params[1]/2/linear_params[0]
     if(axis>120):
-        linear_params1, params_covariance = curve_fit(param_linear, temp[20:],freq[20:],maxfev=100000,ftol=1e-10,xtol=1e-10)
-        axis=120
-        return [0,linear_params1[0],param_linear(axis,linear_params1[0],linear_params1[1])]
+        linear_params1, params_covariance = curve_fit(line120, temp[20:],freq[20:],bounds=([0,-np.inf],[np.inf,np.inf]),maxfev=100000,ftol=1e-10,xtol=1e-10)
+        plt.plot(temp[20:],line120(temp[20:],linear_params1[0],linear_params1[1]))
+        return [linear_params1[0],-240*linear_params1[0],line120(120,linear_params1[0],linear_params1[1])]
+    elif(axis<0):
+        linear_params1, params_covariance = curve_fit(line0, temp[20:],freq[20:],bounds=([0,-np.inf],[np.inf,np.inf]),maxfev=100000,ftol=1e-10,xtol=1e-10)
+        plt.plot(temp[20:],line0(temp[20:],linear_params1[0],linear_params1[1]))
+        return [linear_params1[0],0,line0(axis,linear_params1[0],linear_params1[1])]
+    plt.plot(temp[20:],line_fit(temp[20:],linear_params[0],linear_params[1],linear_params[2]))
     linear_params[2]=line_fit(axis,linear_params[0],linear_params[1],linear_params[2])
     return linear_params
 def param_linear(x,a,b):
     return a*x+b
+
 while(1):
     plt.figure(figsize=(25, 15))
     paths=['./data1','./data2','./data3','./data4']
@@ -109,21 +115,14 @@ while(1):
             b.append(temp[1])
             freqs.append(temp[2])
     except:
-        print("please make sure you have move the 4 data file to IDM folder\n请确认你有把4个文件拷到IDM文件夹内")
+        print("please make sure you have move the 4 data file to Cartographer-Klipper folder")
         break
     #反向求值
-    model=TempModel(None,None,None,None,2943053,23.33)
-    param_bounds_a=([0,-np.inf],[np.inf,np.inf])
-    if(np.sum(np.array(a)==0)==4):
-        model.a_a=0
-        model.a_b=0
-        linear_params1, params_covariance = curve_fit(param_linear, np.array(freqs)-model.fmin,b,maxfev=100000,ftol=1e-10,xtol=1e-10)
-    else:
-        linear_params, params_covariance = curve_fit(param_linear, np.array(freqs)-model.fmin,a,bounds=param_bounds_a,maxfev=100000,ftol=1e-10,xtol=1e-10)
-        model.a_a=linear_params[0]
-        model.a_b=linear_params[1]
-        param_bounds_b=([-np.inf,-np.inf],[0,np.inf])
-        linear_params1, params_covariance = curve_fit(param_linear, np.array(freqs)-model.fmin,b,bounds=param_bounds_b,maxfev=100000,ftol=1e-10,xtol=1e-10)
+    model=TempModel(None,None,None,None,2943053.8415908813,23.33)
+    linear_params, params_covariance = curve_fit(param_linear, np.array(freqs)-model.fmin,a,maxfev=100000,ftol=1e-10,xtol=1e-10)
+    model.a_a=linear_params[0]
+    model.a_b=linear_params[1]
+    linear_params1, params_covariance = curve_fit(param_linear, np.array(freqs)-model.fmin,b,maxfev=100000,ftol=1e-10,xtol=1e-10)
     model.b_a=linear_params1[0]
     model.b_b=linear_params1[1]
     for path in paths:
@@ -156,6 +155,6 @@ while(1):
         except:
             pass
     plt.savefig('fit_output.png')
-    print('fit result:')
+    print('Add the following fit result to your printer.cfg:')
     print('tc_a_a:'+str(model.a_a)+'\ntc_a_b:'+str(model.a_b)+'\ntc_b_a:'+str(model.b_a)+'\ntc_b_b:'+str(model.b_b))
     break
