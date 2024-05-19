@@ -131,6 +131,7 @@ while(1):
                 data=line.split(',')
                 try:
                     freq.append(float(data[3]))
+                    temp.append(float(data[5]))
                 except:pass
         dv=int(len(temp)/10000)
         if dv>1:
