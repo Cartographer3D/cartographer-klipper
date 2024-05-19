@@ -61,9 +61,7 @@ def data_process(path):
     freq=[]
     temp=[]
     with open(path, 'r') as file:
-        # 逐行读取文件内容
         lines = file.readlines()
-        # 遍历每行内容
         for line in lines:
             data=line.split(',')
             try:
@@ -75,7 +73,6 @@ def data_process(path):
         freq=np.array(freq[::dv])
         temp=np.array(temp[::dv])
     plt.plot(temp[20:],freq[20:])
-    #linear_params=area_find(temp[20:],freq[20:])
     param_bounds=([0,-np.inf,-np.inf],[np.inf,np.inf,np.inf])
     linear_params, params_covariance = curve_fit(line_fit, temp[20:],freq[20:],bounds=param_bounds,maxfev=100000,ftol=1e-10,xtol=1e-10)
 
@@ -91,7 +88,7 @@ def data_process(path):
     elif(axis<0):
         linear_params1, params_covariance = curve_fit(line0, temp[20:],freq[20:],bounds=([0,-np.inf],[np.inf,np.inf]),maxfev=100000,ftol=1e-10,xtol=1e-10)
         plt.plot(temp[20:],line0(temp[20:],linear_params1[0],linear_params1[1]))
-        return [linear_params1[0],0,line0(axis,linear_params1[0],linear_params1[1])]
+        return [linear_params1[0],0,line0(0,linear_params1[0],linear_params1[1])]
     plt.plot(temp[20:],line_fit(temp[20:],linear_params[0],linear_params[1],linear_params[2]))
     linear_params[2]=line_fit(axis,linear_params[0],linear_params[1],linear_params[2])
     return linear_params
@@ -100,12 +97,11 @@ def param_linear(x,a,b):
 
 while(1):
     plt.figure(figsize=(25, 15))
-    paths=['./data1','./data2','./data3','./data4']
+    paths=['./data1','./data2','./data3']
     a=[]
     b=[]
     freqs=[]
-    num=241
-    #threshold=int(input('threshold set(recommend start from 1000):\n请输入阈值设置(默认推荐1000):\n'))
+    num=231
     try:
         for path in paths:
             plt.subplot(num)
@@ -115,9 +111,8 @@ while(1):
             b.append(temp[1])
             freqs.append(temp[2])
     except:
-        print("please make sure you have move the 4 data file to Cartographer-Klipper folder")
+        print("please make sure you have move the 3 data file to cartographer-klipper folder\n if the files have been moved, are you running this from the cartographer-klipper folder?")
         break
-    #反向求值
     model=TempModel(None,None,None,None,2943053.8415908813,23.33)
     linear_params, params_covariance = curve_fit(param_linear, np.array(freqs)-model.fmin,a,maxfev=100000,ftol=1e-10,xtol=1e-10)
     model.a_a=linear_params[0]
@@ -131,14 +126,11 @@ while(1):
         freq=[]
         temp=[]
         with open(path, 'r') as file:
-            # 逐行读取文件内容
             lines = file.readlines()
-            # 遍历每行内容
             for line in lines:
                 data=line.split(',')
                 try:
                     freq.append(float(data[3]))
-                    temp.append(float(data[5]))
                 except:pass
         dv=int(len(temp)/10000)
         if dv>1:
@@ -155,6 +147,6 @@ while(1):
         except:
             pass
     plt.savefig('fit_output.png')
-    print('Add the following fit result to your printer.cfg:')
+    print('fit result:')
     print('tc_a_a:'+str(model.a_a)+'\ntc_a_b:'+str(model.a_b)+'\ntc_b_a:'+str(model.b_a)+'\ntc_b_b:'+str(model.b_b))
     break
