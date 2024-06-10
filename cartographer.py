@@ -1244,7 +1244,15 @@ class CartographerProbeWrapper:
         return self.cartographer.get_lift_speed(gcmd)
     def run_probe(self, gcmd):
         return self.cartographer.run_probe(gcmd)
-
+    def get_probe_params(self, gcmd=None):
+        lift_speed = self.cartographer.get_lift_speed(gcmd)
+        return {"lift_speed": lift_speed}
+    def start_probe_session(self, gcmd):
+        self.multi_probe_begin()
+        return self
+    def end_probe_session(self):
+        self.multi_probe_end()
+        
 class CartographerTempWrapper:
     def __init__(self, cartographer):
         self.cartographer = cartographer
