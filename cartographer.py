@@ -1,7 +1,7 @@
 # Cartographer 3D Script v1.0.0.34 w/ Temperature Compensation
 # To buy affordable bed scanners, check out https://cartographer3d.com
-# 
-# Based on the outstanding work from the Beacon3D Team, with modifications made by the Cartographer and IDM team. 
+#
+# Based on the outstanding work from the Beacon3D Team, with modifications made by the Cartographer and IDM team.
 #
 # Copyright (C) 2020-2023 Matt Baker <baker.matt.j@gmail.com>
 # Copyright (C) 2020-2023 Lasse Dalegaard <dalegaard@gmail.com>
@@ -33,6 +33,7 @@ from clocksync import SecondarySync
 STREAM_BUFFER_LIMIT_DEFAULT = 100
 STREAM_TIMEOUT = 2.0
 
+
 class CartographerProbe:
     def __init__(self, config):
         self.printer = config.get_printer()
@@ -47,7 +48,8 @@ class CartographerProbe:
         self.y_offset = config.getfloat("y_offset", 0.0)
 
         self.trigger_distance = config.getfloat("trigger_distance", 2.0)
-        self.trigger_dive_threshold = config.getfloat("trigger_dive_threshold", 1.0)
+        self.trigger_dive_threshold = config.getfloat(
+            "trigger_dive_threshold", 1.0)
         self.trigger_hysteresis = config.getfloat("trigger_hysteresis", 0.006)
         self.z_settling_time = config.getint("z_settling_time", 5, minval=0)
 
@@ -78,7 +80,8 @@ class CartographerProbe:
         self.mesh_helper = CartographerMeshHelper.create(self, config)
 
         self._stream_en = 0
-        self._stream_timeout_timer = self.reactor.register_timer(self._stream_timeout)
+        self._stream_timeout_timer = self.reactor.register_timer(
+            self._stream_timeout)
         self._stream_callbacks = {}
         self._stream_latency_requests = {}
         self._stream_buffer = []
@@ -93,7 +96,7 @@ class CartographerProbe:
         )
         self.trapq = None
         self._last_trapq_move = None
-        self.mod_axis_twist_comp = None	
+        self.mod_axis_twist_comp = None
 
         mainsync = self.printer.lookup_object("mcu")._clocksync
         self._mcu = MCU(config, SecondarySync(self.reactor, mainsync))
@@ -109,11 +112,13 @@ class CartographerProbe:
         self.printer.register_event_handler("klippy:mcu_identify",
                                             self._handle_mcu_identify)
         self._mcu.register_config_callback(self._build_config)
-        self._mcu.register_response(self._handle_cartographer_data, "cartographer_data")
+        self._mcu.register_response(
+            self._handle_cartographer_data, "cartographer_data")
         # Register webhooks
         webhooks = self.printer.lookup_object("webhooks")
         self._api_dump_helper = APIDumpHelper(self)
-        webhooks.register_endpoint("cartographer/status", self._handle_req_status)
+        webhooks.register_endpoint(
+            "cartographer/status", self._handle_req_status)
         webhooks.register_endpoint("cartographer/dump", self._handle_req_dump)
         # Register gcode commands
         self.gcode = self.printer.lookup_object("gcode")
@@ -156,7 +161,7 @@ class CartographerProbe:
     def _handle_mcu_identify(self):
         constants = self._mcu.get_constants()
         if self._mcu._mcu_freq < 20000000:
-            self.sensor_freq =  self._mcu._mcu_freq
+            self.sensor_freq = self._mcu._mcu_freq
         elif self._mcu._mcu_freq < 100000000:
             self.sensor_freq = self._mcu._mcu_freq/2
         else:
@@ -185,7 +190,7 @@ class CartographerProbe:
             cq=self.cmd_queue)
 
     def stats(self, eventtime):
-        return False, "%s: coil_temp=%.1f refs=%s" % (	
+        return False, "%s: coil_temp=%.1f refs=%s" % (
             self.name,
             self.last_temp,
             self._stream_en,
@@ -195,7 +200,8 @@ class CartographerProbe:
 
     def setup_pin(self, pin_type, pin_params):
         if pin_type != "endstop" or pin_params["pin"] != "z_virtual_endstop":
-            raise pins.error("Probe virtual endstop only useful as endstop pin")
+            raise pins.error(
+                "Probe virtual endstop only useful as endstop pin")
         if pin_params["invert"] or pin_params["pullup"]:
             raise pins.error("Can not pullup/invert probe virtual endstop")
         return self.mcu_probe
@@ -211,10 +217,37 @@ class CartographerProbe:
     def get_offsets(self):
         return self.x_offset, self.y_offset, self.trigger_distance
 
-    def get_lift_speed(self, gcmd=None):
-        if gcmd is not None:
-            return gcmd.get_float("LIFT_SPEED", self.lift_speed, above=0.0)
-        return self.lift_speed
+    def get_probe_params(self, gcmd=None):
+        if gcmd is None:
+            gcmd = self.dummy_gcode_cmd
+        probe_speed = gcmd.get_float("PROBE_SPEED", self.speed, above=0.)
+        lift_speed = gcmd.get_float("LIFT_SPEED", self.lift_speed, above=0.)
+        samples = gcmd.get_int("SAMPLES", 10, minval=1)
+        sample_retract_dist = gcmd.get_float(
+            "SAMPLE_RETRACT_DIST",
+            0,
+            above=0.,
+        )
+        samples_tolerance = gcmd.get_float(
+            "SAMPLES_TOLERANCE",
+            0,
+            minval=0.,
+        )
+        samples_retries = gcmd.get_int(
+            "SAMPLES_TOLERANCE_RETRIES",
+            0,
+            minval=0,
+        )
+        samples_result = gcmd.get("SAMPLES_RESULT", 0)
+        return {
+            'probe_speed': probe_speed,
+            'lift_speed': lift_speed,
+            'samples': samples,
+            'sample_retract_dist': sample_retract_dist,
+            'samples_tolerance': samples_tolerance,
+            'samples_tolerance_retries': samples_retries,
+            'samples_result': samples_result,
+        }
 
     def run_probe(self, gcmd):
         if self.model is None:
@@ -222,7 +255,7 @@ class CartographerProbe:
 
         speed = gcmd.get_float("PROBE_SPEED", self.speed, above=0.0)
         allow_faulty = gcmd.get_int("ALLOW_FAULTY_COORDINATE", 0) != 0
-        lift_speed = self.get_lift_speed(gcmd)
+        lift_speed = self.get_probe_params(gcmd)["lift_speed"]
         toolhead = self.printer.lookup_object("toolhead")
         curtime = self.reactor.monotonic()
         if "z" not in toolhead.get_status(curtime)["homed_axes"]:
@@ -334,14 +367,15 @@ class CartographerProbe:
                 self.toolhead.set_position(pos, homing_axes=[2])
                 forced_z = True
 
-            cb = lambda kin_pos: self._calibrate(gcmd, kin_pos, forced_z)
+            def cb(kin_pos): return self._calibrate(gcmd, kin_pos, forced_z)
             manual_probe.ManualProbeHelper(self.printer, gcmd, cb)
+
     def _calibrate(self, gcmd, kin_pos, forced_z):
         if kin_pos is None:
             if forced_z:
                 kin = self.toolhead.get_kinematics()
                 if hasattr(kin, "note_z_not_homed"):
-                        kin.note_z_not_homed()
+                    kin.note_z_not_homed()
             return
 
         gcmd.respond_info("cartographer calibration starting")
@@ -362,15 +396,16 @@ class CartographerProbe:
         curpos = self.toolhead.get_position()
 
         curpos[2] = cal_max_z + self.backlash_comp
-        toolhead.manual_move(curpos, move_speed) # Up
+        toolhead.manual_move(curpos, move_speed)  # Up
         curpos[0] -= self.x_offset
         curpos[1] -= self.y_offset
-        toolhead.manual_move(curpos, move_speed) # Over
+        toolhead.manual_move(curpos, move_speed)  # Over
         curpos[2] = cal_max_z
-        toolhead.manual_move(curpos, move_speed) # Down
+        toolhead.manual_move(curpos, move_speed)  # Down
         toolhead.wait_moves()
 
         samples = []
+
         def cb(sample):
             samples.append(sample)
 
@@ -396,8 +431,8 @@ class CartographerProbe:
         poly = Polynomial.fit(inv_freq, z_offset, 9)
         temp_median = median(temp)
         self.model = CartographerModel("default",
-                                 self, poly, temp_median,
-                                 min(z_offset), max(z_offset))
+                                       self, poly, temp_median,
+                                       min(z_offset), max(z_offset))
         self.models[self.model.name] = self.model
         self.model.save(self)
         self._apply_threshold()
@@ -408,7 +443,8 @@ class CartographerProbe:
         self.toolhead.set_position(pos)
 
         # Dump calibration curve
-        fn = "/tmp/cartographer-calibrate-"+time.strftime("%Y%m%d_%H%M%S")+".csv"
+        fn = "/tmp/cartographer-calibrate-" + \
+            time.strftime("%Y%m%d_%H%M%S")+".csv"
         f = open(fn, "w")
         f.write("freq,z,temp\n")
         for i in range(len(freq)):
@@ -418,12 +454,13 @@ class CartographerProbe:
         gcmd.respond_info("cartographer calibrated at %.3f,%.3f from "
                           "%.3f to %.3f, speed %.2f mm/s, temp %.2fC"
                           % (pos[0], pos[1],
-                          cal_min_z, cal_max_z, cal_speed, temp_median))
+                             cal_min_z, cal_max_z, cal_speed, temp_median))
 
     # Internal
 
     def _update_thresholds(self, moving_up=False):
-        self.trigger_freq = self.dist_to_freq(self.trigger_distance, self.last_temp)
+        self.trigger_freq = self.dist_to_freq(
+            self.trigger_distance, self.last_temp)
         self.untrigger_freq = self.trigger_freq * (1-self.trigger_hysteresis)
 
     def _apply_threshold(self, moving_up=False):
@@ -479,11 +516,12 @@ class CartographerProbe:
     def _enrich_sample(self, sample):
         sample["dist"] = self.freq_to_dist(sample["freq"], sample["temp"])
         pos, vel = self._get_trapq_position(sample["time"])
-        
+
         if pos is None:
             return
         if sample["dist"] is not None and self.mod_axis_twist_comp:
-            sample["dist"] -= self.mod_axis_twist_comp.get_z_compensation_value(pos)
+            sample["dist"] -= self.mod_axis_twist_comp.get_z_compensation_value(
+                pos)
         sample["pos"] = pos
         sample["vel"] = vel
 
@@ -492,15 +530,16 @@ class CartographerProbe:
             self.cartographer_stream_cmd.send([1])
             curtime = self.reactor.monotonic()
             self.reactor.update_timer(self._stream_timeout_timer,
-                    curtime + STREAM_TIMEOUT)
+                                      curtime + STREAM_TIMEOUT)
         self._stream_en += 1
         self._data_filter.reset()
         self._stream_flush()
+
     def _stop_streaming(self):
         self._stream_en -= 1
         if self._stream_en == 0:
             self.reactor.update_timer(self._stream_timeout_timer,
-                    self.reactor.NEVER)
+                                      self.reactor.NEVER)
             self.cartographer_stream_cmd.send([0])
         self._stream_flush()
 
@@ -550,14 +589,14 @@ class CartographerProbe:
                     if not updated_timer:
                         curtime = self.reactor.monotonic()
                         self.reactor.update_timer(self._stream_timeout_timer,
-                                curtime + STREAM_TIMEOUT)
+                                                  curtime + STREAM_TIMEOUT)
                         updated_timer = True
 
                     self._enrich_sample_temp(sample)
                     temp = sample["temp"]
                     if self.model_temp is not None and not (-40 < temp < 180):
                         msg = ("cartographer temperature sensor faulty(read %.2f C),"
-                                " disabling temperature compensation" % (temp,))
+                               " disabling temperature compensation" % (temp,))
                         logging.error(msg)
                         self.gcode.respond_raw("!! " + msg + "\n")
                         self.model_temp = None
@@ -579,7 +618,7 @@ class CartographerProbe:
                 return
 
     def _stream_flush_schedule(self):
-        force = self._stream_en == 0 # When streaming is disabled, let all through
+        force = self._stream_en == 0  # When streaming is disabled, let all through
         if self._stream_buffer_limit_new != self._stream_buffer_limit:
             force = True
             self._stream_buffer_limit = self._stream_buffer_limit_new
@@ -609,7 +648,8 @@ class CartographerProbe:
         if move is None:
             ffi_main, ffi_lib = chelper.get_ffi()
             data = ffi_main.new("struct pull_move[1]")
-            count = ffi_lib.trapq_extract_old(self.trapq, data, 1, 0.0, print_time)
+            count = ffi_lib.trapq_extract_old(
+                self.trapq, data, 1, 0.0, print_time)
             if not count:
                 return None, None
             self._last_trapq_move = data
@@ -650,6 +690,7 @@ class CartographerProbe:
 
     def _sample_async(self, count=1):
         samples = []
+
         def cb(sample):
             samples.append(sample)
             if len(samples) >= count:
@@ -708,15 +749,18 @@ class CartographerProbe:
     # GCode command handlers
 
     cmd_PROBE_help = "Probe Z-height at current XY position"
+
     def cmd_PROBE(self, gcmd):
         pos = self.run_probe(gcmd)
         gcmd.respond_info("Result is z=%.6f" % (pos[2],))
 
     cmd_CARTOGRAPHER_CALIBRATE_help = "Calibrate cartographer response curve"
-    def cmd_CARTOGRAPHER_CALIBRATE(self,gcmd):
+
+    def cmd_CARTOGRAPHER_CALIBRATE(self, gcmd):
         self._start_calibration(gcmd)
 
     cmd_CARTOGRAPHER_ESTIMATE_BACKLASH_help = "Estimate Z axis backlash"
+
     def cmd_CARTOGRAPHER_ESTIMATE_BACKLASH(self, gcmd):
         # Get to correct Z height
         overrun = gcmd.get_float("OVERRUN", 1.0)
@@ -725,7 +769,7 @@ class CartographerProbe:
         self.toolhead.manual_move([None, None, cur_z+overrun], speed)
         self.run_probe(gcmd)
 
-        lift_speed = self.get_lift_speed(gcmd)
+        lift_speed = self.get_probe_params(gcmd)["lift_speed"]
         target = gcmd.get_float("Z", self.trigger_distance)
 
         num_samples = gcmd.get_int("SAMPLES", 20)
@@ -770,6 +814,7 @@ class CartographerProbe:
                            num_samples))
 
     cmd_CARTOGRAPHER_QUERY_help = "Take a sample from the sensor"
+
     def cmd_CARTOGRAPHER_QUERY(self, gcmd):
         sample = self._sample_async()
         last_value = sample["freq"]
@@ -789,6 +834,7 @@ class CartographerProbe:
                               (last_value, temp, dist))
 
     cmd_CARTOGRAPHER_STREAM_help = "Enable cartographer Streaming"
+
     def cmd_CARTOGRAPHER_STREAM(self, gcmd):
         if self._log_stream is not None:
             self._log_stream.stop()
@@ -799,6 +845,7 @@ class CartographerProbe:
             completion_cb = None
             fn = gcmd.get("FILENAME")
             f = open(fn, "w")
+
             def close_file():
                 f.close()
             completion_cb = close_file
@@ -824,9 +871,10 @@ class CartographerProbe:
             gcmd.respond_info("cartographer Streaming enabled")
 
     cmd_PROBE_ACCURACY_help = "Probe Z-height accuracy at current XY position"
+
     def cmd_PROBE_ACCURACY(self, gcmd):
         speed = gcmd.get_float("PROBE_SPEED", self.speed, above=0.0)
-        lift_speed = self.get_lift_speed(gcmd)
+        lift_speed = self.get_probe_params(gcmd)["lift_speed"]
         sample_count = gcmd.get_int("SAMPLES", 10, minval=1)
         sample_retract_dist = gcmd.get_float("SAMPLE_RETRACT_DIST", 0)
         allow_faulty = gcmd.get_int("ALLOW_FAULTY_COORDINATE", 0) != 0
@@ -865,9 +913,10 @@ class CartographerProbe:
         gcmd.respond_info(
             "probe accuracy results: maximum %.6f, minimum %.6f, range %.6f, "
             "average %.6f, median %.6f, standard deviation %.6f" % (
-            max_value, min_value, range_value, avg_value, median_, sigma))
+                max_value, min_value, range_value, avg_value, median_, sigma))
 
     cmd_Z_OFFSET_APPLY_PROBE_help = "Adjust the probe's z_offset"
+
     def cmd_Z_OFFSET_APPLY_PROBE(self, gcmd):
         gcode_move = self.printer.lookup_object("gcode_move")
         offset = gcode_move.get_status()["homing_origin"].z
@@ -890,9 +939,10 @@ class CartographerProbe:
         self.model.offset += offset
         self.model.save(self, False)
         gcmd.respond_info(f"Cartographer model offset has been updated to {self.model.offset}.\n"
-                "You must run the SAVE_CONFIG command now to update the\n"
-                "printer config file and restart the printer.")
+                          "You must run the SAVE_CONFIG command now to update the\n"
+                          "printer config file and restart the printer.")
         self.model.offset = old_offset
+
 
 class CartographerModel:
     @classmethod
@@ -928,9 +978,9 @@ class CartographerModel:
         configfile.set(section, "model_offset", "%.5f" % (self.offset,))
         if show_message:
             cartographer.gcode.respond_info("cartographer calibration for model '%s' has "
-                    "been updated\nfor the current session. The SAVE_CONFIG "
-                    "command will\nupdate the printer config file and restart "
-                    "the printer." % (self.name,))
+                                            "been updated\nfor the current session. The SAVE_CONFIG "
+                                            "command will\nupdate the printer config file and restart "
+                                            "the printer." % (self.name,))
 
     def freq_to_dist_raw(self, freq):
         [begin, end] = self.poly.domain
@@ -944,15 +994,15 @@ class CartographerModel:
 
     def freq_to_dist(self, freq, temp):
         if self.temp is not None and \
-            self.cartographer.model_temp is not None:
+                self.cartographer.model_temp is not None:
             freq = self.cartographer.model_temp.compensate(
-                            freq, temp, self.temp)
+                freq, temp, self.temp)
         return self.freq_to_dist_raw(freq)
 
     def dist_to_freq_raw(self, dist, max_e=0.00000001):
         if dist < self.min_z or dist > self.max_z:
             msg = ("Attempted to map out-of-range distance %f, valid range "
-                    "[%.3f, %.3f]" % (dist, self.min_z, self.max_z))
+                   "[%.3f, %.3f]" % (dist, self.min_z, self.max_z))
             raise self.cartographer.printer.command_error(msg)
         dist += self.offset
         [begin, end] = self.poly.domain
@@ -960,29 +1010,30 @@ class CartographerModel:
             f = (end + begin) / 2
             v = self.poly(f)
             if abs(v-dist) < max_e:
-                return float(1.0 /f)
+                return float(1.0 / f)
             elif v < dist:
                 begin = f
             else:
                 end = f
         raise self.cartographer.printer.command_error(
-                "cartographer model convergence error")
+            "cartographer model convergence error")
 
     def dist_to_freq(self, dist, temp, max_e=0.00000001):
         freq = self.dist_to_freq_raw(dist, max_e)
         if self.temp is not None and \
-            self.cartographer.model_temp is not None:
+                self.cartographer.model_temp is not None:
             freq = self.cartographer.model_temp.compensate(
-                            freq, self.temp, temp)
+                freq, self.temp, temp)
         return freq
+
 
 class CartographerTempModelBuilder:
     _DEFAULTS = {"a_a": None,
-                "a_b": None,
-                "b_a": None,
-                "b_b": None,
-                "fmin" : None,
-                "fmin_temp" : None}
+                 "a_b": None,
+                 "b_a": None,
+                 "b_b": None,
+                 "fmin": None,
+                 "fmin_temp": None}
 
     @classmethod
     def load(cls, config):
@@ -997,7 +1048,7 @@ class CartographerTempModelBuilder:
 
     def build(self):
         if self.parameters["fmin"] is None or \
-            self.parameters["fmin_temp"] is None:
+                self.parameters["fmin_temp"] is None:
             return None
         logging.info("cartographer: built tempco model %s", self.parameters)
         return CartographerTempModel(**self.parameters)
@@ -1009,17 +1060,18 @@ class CartographerTempModelBuilder:
             if self.parameters["fmin"] is None:
                 self.parameters["fmin"] = cartographer.count_to_freq(f_count)
                 logging.info("cartographer: loaded fmin=%.2f from base",
-                    self.parameters["fmin"])
+                             self.parameters["fmin"])
             if self.parameters["fmin_temp"] is None:
                 temp_adc = float(adc_count) / cartographer.temp_smooth_count * \
                     cartographer.inv_adc_max
                 self.parameters["fmin_temp"] = \
                     cartographer.thermistor.calc_temp(temp_adc)
                 logging.info("cartographer: loaded fmin_temp=%.2f from base",
-                    self.parameters["fmin_temp"])
+                             self.parameters["fmin_temp"])
         else:
             logging.info("cartographer: fmin parameters not found in base")
         return self.build()
+
 
 class CartographerTempModel:
     def __init__(self, a_a, a_b, b_a, b_b, fmin, fmin_temp):
@@ -1029,21 +1081,30 @@ class CartographerTempModel:
         self.b_b = b_b
         self.fmin = fmin
         self.fmin_temp = fmin_temp
-    def param_linear(self,x,a,b):
+
+    def param_linear(self, x, a, b):
         return a*x+b
+
     def compensate(self, freq, temp_source, temp_target, tctl=None):
         if self.a_a == None or self.a_b == None or self.b_a == None or self.b_b == None:
             return freq
-        A=4*(temp_source*self.a_a)**2+4*temp_source*self.a_a*self.b_a+self.b_a**2+4*self.a_a
-        B=8*temp_source**2*self.a_a*self.a_b+4*temp_source*(self.a_a*self.b_b+self.a_b*self.b_a)+2*self.b_a*self.b_b+4*self.a_b-4*(freq-self.fmin)*self.a_a
-        C=4*(temp_source*self.a_b)**2+4*temp_source*self.a_b*self.b_b+self.b_b**2-4*(freq-self.fmin)*self.a_b
-        if(B**2-4*A*C<0):
-            param_c=freq-self.param_linear(freq-self.fmin,self.a_a,self.a_b)*temp_source**2-self.param_linear(freq-self.fmin,self.b_a,self.b_b)*temp_source
-            return self.param_linear(freq-self.fmin,self.a_a,self.a_b)*temp_target**2+self.param_linear(freq-self.fmin,self.b_a,self.b_b)*temp_target+param_c
-        ax=(np.sqrt(B**2-4*A*C)-B)/2/A
-        param_a=self.param_linear(ax,self.a_a,self.a_b)
-        param_b=self.param_linear(ax,self.b_a,self.b_b)
+        A = 4*(temp_source*self.a_a)**2+4*temp_source * \
+            self.a_a*self.b_a+self.b_a**2+4*self.a_a
+        B = 8*temp_source**2*self.a_a*self.a_b+4*temp_source * \
+            (self.a_a*self.b_b+self.a_b*self.b_a)+2*self.b_a * \
+            self.b_b+4*self.a_b-4*(freq-self.fmin)*self.a_a
+        C = 4*(temp_source*self.a_b)**2+4*temp_source*self.a_b * \
+            self.b_b+self.b_b**2-4*(freq-self.fmin)*self.a_b
+        if (B**2-4*A*C < 0):
+            param_c = freq-self.param_linear(freq-self.fmin, self.a_a, self.a_b)*temp_source**2 - \
+                self.param_linear(freq-self.fmin, self.b_a,
+                                  self.b_b)*temp_source
+            return self.param_linear(freq-self.fmin, self.a_a, self.a_b)*temp_target**2+self.param_linear(freq-self.fmin, self.b_a, self.b_b)*temp_target+param_c
+        ax = (np.sqrt(B**2-4*A*C)-B)/2/A
+        param_a = self.param_linear(ax, self.a_a, self.a_b)
+        param_b = self.param_linear(ax, self.b_a, self.b_b)
         return param_a*(temp_target+param_b/2/param_a)**2+ax+self.fmin
+
 
 class ModelManager:
     def __init__(self, cartographer):
@@ -1063,6 +1124,7 @@ class ModelManager:
                                     desc=self.cmd_CARTOGRAPHER_MODEL_LIST_help)
 
     cmd_CARTOGRAPHER_MODEL_SELECT_help = "Load named cartographer model"
+
     def cmd_CARTOGRAPHER_MODEL_SELECT(self, gcmd):
         name = gcmd.get("NAME")
         model = self.cartographer.models.get(name, None)
@@ -1072,6 +1134,7 @@ class ModelManager:
         gcmd.respond_info("Selected cartographer model '%s'" % (name,))
 
     cmd_CARTOGRAPHER_MODEL_SAVE_help = "Save current cartographer model"
+
     def cmd_CARTOGRAPHER_MODEL_SAVE(self, gcmd):
         model = self.cartographer.model
         if model is None:
@@ -1086,6 +1149,7 @@ class ModelManager:
             self.cartographer.models[name] = model
 
     cmd_CARTOGRAPHER_MODEL_REMOVE_help = "Remove saved cartographer model"
+
     def cmd_CARTOGRAPHER_MODEL_REMOVE(self, gcmd):
         name = gcmd.get("NAME")
         model = self.cartographer.models.get(name, None)
@@ -1102,6 +1166,7 @@ class ModelManager:
             self.cartographer.model = None
 
     cmd_CARTOGRAPHER_MODEL_LIST_help = "Remove saved cartographer model"
+
     def cmd_CARTOGRAPHER_MODEL_LIST(self, gcmd):
         if not self.cartographer.models:
             gcmd.respond_info("No cartographer models loaded")
@@ -1147,6 +1212,7 @@ class AlphaBetaFilter:
     def value(self):
         return self.xl
 
+
 class StreamingHelper:
     def __init__(self, cartographer, callback, completion_callback, latency):
         self.cartographer = cartographer
@@ -1156,7 +1222,8 @@ class StreamingHelper:
 
         self.latency_key = None
         if latency is not None:
-            self.latency_key = self.cartographer.request_stream_latency(latency)
+            self.latency_key = self.cartographer.request_stream_latency(
+                latency)
 
         self.cartographer._stream_callbacks[self] = self._handle
         self.cartographer._start_streaming()
@@ -1186,6 +1253,7 @@ class StreamingHelper:
     def wait(self):
         self.completion.wait()
         self.stop()
+
 
 class StopStreaming(Exception):
     pass
@@ -1230,20 +1298,33 @@ class APIDumpHelper:
         self._start_stop()
         web_request.send({"header": self.fields})
 
+
 class CartographerProbeWrapper:
     def __init__(self, cartographer):
         self.cartographer = cartographer
 
     def multi_probe_begin(self):
         return self.cartographer.multi_probe_begin()
+
     def multi_probe_end(self):
         return self.cartographer.multi_probe_end()
+
     def get_offsets(self):
         return self.cartographer.get_offsets()
-    def get_lift_speed(self, gcmd=None):
-        return self.cartographer.get_lift_speed(gcmd)
+
+    def get_probe_params(self, gcmd=None):
+        return self.cartographer.get_probe_params(gcmd)
+
     def run_probe(self, gcmd):
         return self.cartographer.run_probe(gcmd)
+
+    def start_probe_session(self, gcmd=None):
+        self.cartographer.multi_probe_begin()
+        return self
+
+    def end_probe_session(self):
+        self.cartographer.multi_probe_end()
+
 
 class CartographerTempWrapper:
     def __init__(self, cartographer):
@@ -1259,8 +1340,10 @@ class CartographerTempWrapper:
             "measured_max_temp": round(self.cartographer.measured_max, 2)
         }
 
+
 TRSYNC_TIMEOUT = 0.025
 TRSYNC_SINGLE_MCU_TIMEOUT = 0.250
+
 
 class CartographerEndstopWrapper:
     def __init__(self, cartographer):
@@ -1268,7 +1351,8 @@ class CartographerEndstopWrapper:
         self._mcu = cartographer._mcu
 
         ffi_main, ffi_lib = chelper.get_ffi()
-        self._trdispatch = ffi_main.gc(ffi_lib.trdispatch_alloc(), ffi_lib.free)
+        self._trdispatch = ffi_main.gc(
+            ffi_lib.trdispatch_alloc(), ffi_lib.free)
         self._trsyncs = [MCU_trsync(self.cartographer._mcu, self._trdispatch)]
 
         printer = self.cartographer.printer
@@ -1304,11 +1388,13 @@ class CartographerEndstopWrapper:
 
         # After homing Z we perform a measurement and adjust the toolhead
         # kinematic position.
-        (dist, samples) = self.cartographer._sample(self.cartographer.z_settling_time, 10)
+        (dist, samples) = self.cartographer._sample(
+            self.cartographer.z_settling_time, 10)
         if math.isinf(dist):
-            logging.error("Post-homing adjustment measured samples %s", samples)
+            logging.error(
+                "Post-homing adjustment measured samples %s", samples)
             raise self.cartographer.printer.command_error(
-                    "Toolhead stopped below model range")
+                "Toolhead stopped below model range")
         homing_state.set_homed_position([None, None, dist])
 
     def get_mcu(self):
@@ -1339,13 +1425,15 @@ class CartographerEndstopWrapper:
     def home_start(self, print_time, sample_time, sample_count, rest_time,
                    triggered=True):
         if self.cartographer.model is None:
-            raise self.cartographer.printer.command_error("No cartographer model loaded")
+            raise self.cartographer.printer.command_error(
+                "No cartographer model loaded")
 
         self.is_homing = True
         self.cartographer._apply_threshold()
         self.cartographer._sample_async()
         clock = self._mcu.print_time_to_clock(print_time)
-        rest_ticks = self._mcu.print_time_to_clock(print_time+rest_time) - clock
+        rest_ticks = self._mcu.print_time_to_clock(
+            print_time+rest_time) - clock
         self._rest_ticks = rest_ticks
         reactor = self._mcu.get_printer().get_reactor()
         self._trigger_completion = reactor.completion()
@@ -1354,7 +1442,8 @@ class CartographerEndstopWrapper:
             expire_timeout = TRSYNC_SINGLE_MCU_TIMEOUT
         for i, trsync in enumerate(self._trsyncs):
             try:
-                trsync.start(print_time, self._trigger_completion, expire_timeout)
+                trsync.start(print_time, self._trigger_completion,
+                             expire_timeout)
             except TypeError:
                 offset = float(i) / len(self._trsyncs)
                 trsync.start(
@@ -1401,6 +1490,7 @@ class CartographerEndstopWrapper:
     def get_position_endstop(self):
         return self.cartographer.trigger_distance
 
+
 class CartographerMeshHelper:
     @classmethod
     def create(cls, cartographer, config):
@@ -1415,44 +1505,46 @@ class CartographerMeshHelper:
     def __init__(self, cartographer, config, mesh_config):
         self.cartographer = cartographer
         mesh_config = self.mesh_config = config.getsection("bed_mesh")
-        self.bm = self.cartographer.printer.load_object(mesh_config, "bed_mesh")
+        self.bm = self.cartographer.printer.load_object(
+            mesh_config, "bed_mesh")
 
         self.speed = mesh_config.getfloat("speed", 50.0, above=0.0,
                                           note_valid=False)
         self.def_min_x, self.def_min_y = mesh_config.getfloatlist("mesh_min",
-            count=2, note_valid=False)
+                                                                  count=2, note_valid=False)
         self.def_max_x, self.def_max_y = mesh_config.getfloatlist("mesh_max",
-            count=2, note_valid=False)
+                                                                  count=2, note_valid=False)
         self.def_res_x, self.def_res_y = mesh_config.getintlist("probe_count",
-            count=2, note_valid=False)
+                                                                count=2, note_valid=False)
         self.rri = mesh_config.getint("relative_reference_index", None,
-            note_valid=False)
+                                      note_valid=False)
         self.zero_ref_pos = mesh_config.getfloatlist("zero_reference_position",
-            None, count=2)
+                                                     None, count=2)
         self.zero_ref_pos_cluster_size = config.getfloat(
             "zero_reference_cluster_size", 1, minval=0)
         self.dir = config.getchoice("mesh_main_direction",
-            {"x": "x", "X": "x", "y": "y", "Y": "y"}, "y")
+                                    {"x": "x", "X": "x", "y": "y", "Y": "y"}, "y")
         self.overscan = config.getfloat("mesh_overscan", -1, minval=0)
         self.cluster_size = config.getfloat("mesh_cluster_size", 1, minval=0)
         self.runs = config.getint("mesh_runs", 1, minval=1)
         self.adaptive_margin = mesh_config.getfloat(
             "adaptive_margin", 0, note_valid=False
         )
-        
+
         if self.zero_ref_pos is not None and self.rri is not None:
             logging.info("Cartographer: both 'zero_reference_position' and "
-                    "'relative_reference_index' options are specified. The"
-                    " former will be used")
+                         "'relative_reference_index' options are specified. The"
+                         " former will be used")
 
         self.faulty_region_ = []
         self.faulty_regions = []
         for i in list(range(1, 100, 1)):
             start = mesh_config.getfloatlist("faulty_region_%d_min" % (i,), None,
-                                        count=2)
+                                             count=2)
             if start is None:
                 break
-            end = mesh_config.getfloatlist("faulty_region_%d_max" % (i,), count=2)
+            end = mesh_config.getfloatlist(
+                "faulty_region_%d_max" % (i,), count=2)
             x_min = min(start[0], end[0])
             x_max = max(start[0], end[0])
             y_min = min(start[1], end[1])
@@ -1466,7 +1558,8 @@ class CartographerMeshHelper:
         )
 
         self.gcode = self.cartographer.printer.lookup_object("gcode")
-        self.prev_gcmd = self.gcode.register_command("BED_MESH_CALIBRATE", None)
+        self.prev_gcmd = self.gcode.register_command(
+            "BED_MESH_CALIBRATE", None)
         self.gcode.register_command(
             "BED_MESH_CALIBRATE", self.cmd_BED_MESH_CALIBRATE,
             desc=self.cmd_BED_MESH_CALIBRATE_help)
@@ -1477,6 +1570,7 @@ class CartographerMeshHelper:
                                            self._handle_mcu_identify)
 
     cmd_BED_MESH_CALIBRATE_help = "Perform Mesh Bed Leveling"
+
     def cmd_BED_MESH_CALIBRATE(self, gcmd):
         method = gcmd.get("METHOD", "cartographer").lower()
         if method == "cartographer":
@@ -1485,7 +1579,8 @@ class CartographerMeshHelper:
             self.prev_gcmd(gcmd)
 
     def _handle_connect(self):
-        self.exclude_object = self.cartographer.printer.lookup_object("exclude_object", None)
+        self.exclude_object = self.cartographer.printer.lookup_object(
+            "exclude_object", None)
 
     def _handle_mcu_identify(self):
         # Auto determine a safe overscan amount
@@ -1515,7 +1610,7 @@ class CartographerMeshHelper:
         self.overscan = min([
             max(0, r[0]-m[0]),
             max(0, m[1]-r[1]),
-            space+2.0, # A half circle with 2mm lead in/out
+            space+2.0,  # A half circle with 2mm lead in/out
         ])
 
     def _generate_path(self):
@@ -1546,11 +1641,11 @@ class CartographerMeshHelper:
         corner_radius = min(step/2, self.overscan)
         for i in range(0, settings["count"]):
             pos_p = begin_p + step * i
-            even = i % 2 == 0 # If even we are going "right", else "left'
+            even = i % 2 == 0  # If even we are going "right", else "left'
             pa = (begin_a, pos_p) if even else (end_a, pos_p)
             pb = (end_a, pos_p) if even else (begin_a, pos_p)
 
-            l = (pa,pb)
+            l = (pa, pb)
 
             if len(points) > 0 and corner_radius > 0:
                 # We need to insert an overscan corner. Basically we insert
@@ -1568,33 +1663,33 @@ class CartographerMeshHelper:
                 if even:
                     center = begin_a - self.overscan + corner_radius
                     points += arc_points(center, pos_p - step + corner_radius,
-                            corner_radius, -90, -90)
+                                         corner_radius, -90, -90)
                     points += arc_points(center, pos_p - corner_radius,
-                            corner_radius, -180, -90)
+                                         corner_radius, -180, -90)
                 else:
                     center = end_a + self.overscan - corner_radius
                     points += arc_points(center, pos_p - step + corner_radius,
-                            corner_radius, -90, 90)
+                                         corner_radius, -90, 90)
                     points += arc_points(center, pos_p - corner_radius,
-                            corner_radius, 0, 90)
+                                         corner_radius, 0, 90)
 
             points.append(l[0])
             points.append(l[1])
 
         if swap_coord:
             for i in range(len(points)):
-                (x,y) = points[i]
-                points[i] = (y,x)
+                (x, y) = points[i]
+                points[i] = (y, x)
 
         return points
 
     def calibrate(self, gcmd):
         self.min_x, self.min_y = coord_fallback(gcmd, "MESH_MIN", convert_float,
-                self.def_min_x, self.def_min_y, lambda v, d: max(v, d))
+                                                self.def_min_x, self.def_min_y, lambda v, d: max(v, d))
         self.max_x, self.max_y = coord_fallback(gcmd, "MESH_MAX", convert_float,
-                self.def_max_x, self.def_max_y, lambda v, d: min(v, d))
+                                                self.def_max_x, self.def_max_y, lambda v, d: min(v, d))
         self.res_x, self.res_y = coord_fallback(gcmd, "PROBE_COUNT", int,
-                self.def_res_x, self.def_res_y, lambda v, _d: max(v, 3))
+                                                self.def_res_x, self.def_res_y, lambda v, _d: max(v, 3))
         self.profile_name = gcmd.get("PROFILE", "default")
 
         if self.min_x > self.max_x:
@@ -1617,11 +1712,12 @@ class CartographerMeshHelper:
             self.zero_ref_mode = ("rri", self.rri)
         else:
             self.zero_ref_mode = None
-                    
+
         # If the user requested adaptive meshing, try to shrink the values we just configured
         if gcmd.get_int("ADAPTIVE", 0):
             if self.exclude_object is not None:
-                margin = gcmd.get_float("ADAPTIVE_MARGIN", self.adaptive_margin)
+                margin = gcmd.get_float(
+                    "ADAPTIVE_MARGIN", self.adaptive_margin)
                 self._shrink_to_excluded_objects(gcmd, margin)
             else:
                 gcmd.respond_info(
@@ -1634,7 +1730,8 @@ class CartographerMeshHelper:
         self.toolhead = self.cartographer.toolhead
         path = self._generate_path()
 
-        probe_speed = gcmd.get_float("PROBE_SPEED", self.cartographer.speed, above=0.0)
+        probe_speed = gcmd.get_float(
+            "PROBE_SPEED", self.cartographer.speed, above=0.0)
         self.cartographer._move_to_probing_height(probe_speed)
 
         speed = gcmd.get_float("SPEED", self.speed, above=0.0)
@@ -1644,13 +1741,13 @@ class CartographerMeshHelper:
             self.cartographer._start_streaming()
 
             # Move to first location
-            (x,y) = path[0]
+            (x, y) = path[0]
             self.toolhead.manual_move([x, y, None], speed)
             self.toolhead.wait_moves()
 
             self.cartographer._sample_printtime_sync(5)
             clusters = self._sample_mesh(gcmd, path, speed, runs)
-            
+
             if self.zero_ref_mode and self.zero_ref_mode[0] == "pos":
                 # If we didn't collect anything, hop over to the zero point
                 # and sample. Otherwise, grab the median of what we collected.
@@ -1699,8 +1796,10 @@ class CartographerMeshHelper:
             self.max_y = bound_max_y
 
         # Update resolution to retain approximately the same step size as before
-        self.res_x = math.ceil(self.res_x * (self.max_x - self.min_x) / orig_span_x)
-        self.res_y = math.ceil(self.res_y * (self.max_y - self.min_y) / orig_span_y)
+        self.res_x = math.ceil(
+            self.res_x * (self.max_x - self.min_x) / orig_span_x)
+        self.res_y = math.ceil(
+            self.res_y * (self.max_y - self.min_y) / orig_span_y)
         # Guard against bicubic interpolation with 3 points on one axis
         min_res = 3
         if max(self.res_x, self.res_y) > 6 and min(self.res_x, self.res_y) < 4:
@@ -1714,7 +1813,7 @@ class CartographerMeshHelper:
         # Run through the path
         for i in range(runs):
             p = path if i % 2 == 0 else reversed(path)
-            for (x,y) in p:
+            for (x, y) in p:
                 self.toolhead.manual_move([x, y, None], speed)
         self.toolhead.dwell(0.251)
         self.toolhead.wait_moves()
@@ -1725,7 +1824,7 @@ class CartographerMeshHelper:
         self.toolhead.manual_move([x-xo, y-yo, None], speed)
         (dist, _samples) = self.cartographer._sample(50, 10)
         self.zero_ref_val = dist
-    
+
     def _is_valid_position(self, x, y):
         return self.min_x <= x <= self.max_x and self.min_y <= y <= self.min_y
 
@@ -1776,7 +1875,7 @@ class CartographerMeshHelper:
                 dist = math.sqrt(dx*dx+dy*dy)
                 if dist <= zcs:
                     self.zero_ref_bin.append(d)
-            
+
             k = (xi, yi)
 
             if k not in clusters:
@@ -1789,17 +1888,19 @@ class CartographerMeshHelper:
         gcmd.respond_info("Sampled %d total points over %d runs" %
                           (total_samples[0], runs))
         if invalid_samples[0]:
-            gcmd.respond_info("!! Encountered %d invalid samples!" % (invalid_samples[0],))
+            gcmd.respond_info("!! Encountered %d invalid samples!" %
+                              (invalid_samples[0],))
         gcmd.respond_info("Samples binned in %d clusters" % (len(clusters),))
 
         return clusters
-    
+
     def _process_clusters(self, raw_clusters, gcmd):
         parent_conn, child_conn = multiprocessing.Pipe()
 
         def do():
             try:
-                child_conn.send((False, self._do_process_clusters(raw_clusters)))
+                child_conn.send(
+                    (False, self._do_process_clusters(raw_clusters)))
             except:
                 child_conn.send((True, traceback.format_exc()))
             child_conn.close()
@@ -1826,7 +1927,7 @@ class CartographerMeshHelper:
     def _do_process_clusters(self, raw_clusters):
         clusters = self._interpolate_faulty(raw_clusters)
         return self._generate_matrix(clusters)
-  
+
     def _is_faulty_coordinate(self, x, y, add_offsets=False):
         if add_offsets:
             xo, yo = self.cartographer.x_offset, self.cartographer.y_offset
@@ -1840,29 +1941,32 @@ class CartographerMeshHelper:
     def _interpolate_faulty(self, clusters):
         faulty_indexes = []
         position = np.array(list(clusters.keys()))
-        (xi_max,yi_max) = position.T.max(axis = 1)
-        pos_temp = (position.T*[[self.step_x],[self.step_y]]+[[self.min_x],[self.min_y]])
+        (xi_max, yi_max) = position.T.max(axis=1)
+        pos_temp = (position.T*[[self.step_x],
+                    [self.step_y]]+[[self.min_x], [self.min_y]])
         if len(self.faulty_region_.shape) > 1:
-            length=self.faulty_region_.shape[1]
+            length = self.faulty_region_.shape[1]
             flag = np.array(
                 [
-                    (pos_temp > self.faulty_region_[:2].reshape(1,2,length).T).T.all(axis=1),
-                    (pos_temp < self.faulty_region_[2:].reshape(1,2,length).T).T.all(axis=1)
+                    (pos_temp > self.faulty_region_[:2].reshape(
+                        1, 2, length).T).T.all(axis=1),
+                    (pos_temp < self.faulty_region_[2:].reshape(
+                        1, 2, length).T).T.all(axis=1)
                 ]
-            ).all(axis = 0).any(axis = 1)
+            ).all(axis=0).any(axis=1)
             for i in range(len(flag)):
-                if(flag[i]):
+                if (flag[i]):
                     clusters[tuple(position[i])] = None
                     faulty_indexes.append(tuple(position[i]))
         del pos_temp
 
         def get_nearest(start, dx, dy):
             inputs = np.array(start)
-            inputs += [dx,dy]
-            while ((inputs >= 0).all() and (inputs <= [xi_max,yi_max]).all()):
-                if clusters.get(tuple(inputs),None) is not None:
+            inputs += [dx, dy]
+            while ((inputs >= 0).all() and (inputs <= [xi_max, yi_max]).all()):
+                if clusters.get(tuple(inputs), None) is not None:
                     return (abs(inputs-np.array(start)).sum(), median(clusters[tuple(inputs)]))
-                inputs += [dx,dy]
+                inputs += [dx, dy]
             return None
 
         def interp_weighted(lower, higher):
@@ -1905,7 +2009,8 @@ class CartographerMeshHelper:
                 if cluster is None or len(cluster) == 0:
                     xc = xi * self.step_x + self.min_x
                     yc = yi * self.step_y + self.min_y
-                    empty_clusters.append("  (%.3f,%.3f)[%d,%d]" % (xc, yc, xi, yi))
+                    empty_clusters.append(
+                        "  (%.3f,%.3f)[%d,%d]" % (xc, yc, xi, yi))
                 else:
                     data = [td - d for d in cluster]
                     line.append(median(data))
@@ -1934,7 +2039,7 @@ class CartographerMeshHelper:
             for i, line in enumerate(matrix):
                 matrix[i] = [z - z_offset for z in line]
         return (False, matrix)
-    
+
     def _apply_mesh(self, matrix, gcmd):
         params = self.bm.bmc.mesh_config
         params["min_x"] = self.min_x
@@ -1956,6 +2061,7 @@ class CartographerMeshHelper:
         if self.profile_name is not None:
             self.bm.save_profile(self.profile_name)
 
+
 class Region:
     def __init__(self, x_min, x_max, y_min, y_max):
         self.x_min = x_min
@@ -1966,6 +2072,7 @@ class Region:
     def is_point_within(self, x, y):
         return ((x > self.x_min and x < self.x_max) and
                 (y > self.y_min and y < self.y_max))
+
 
 def arc_points(cx, cy, r, start_angle, span):
     # Angle delta is determined by a max deviation(md) from 0.1mm:
@@ -1987,16 +2094,19 @@ def arc_points(cx, cy, r, start_angle, span):
         ang = start_angle + d_a*float(i)
         x = cx + math.cos(ang)*r
         y = cy + math.sin(ang)*r
-        points.append((x,y))
+        points.append((x, y))
 
     return points
-    
+
+
 def convert_float(data):
-    toFloat=float(data)
+    toFloat = float(data)
     if np.isinf(toFloat) or np.isnan(toFloat):
-        raise ValueError(f"convert error when convert string:{data} into float")
+        raise ValueError(f"convert error when convert string:{
+                         data} into float")
     return toFloat
-    
+
+
 def coord_fallback(gcmd, name, parse, def_x, def_y, map=lambda v, d: v):
     param = gcmd.get(name, None)
     if param is not None:
@@ -2008,8 +2118,10 @@ def coord_fallback(gcmd, name, parse, def_x, def_y, map=lambda v, d: v):
     else:
         return def_x, def_y
 
+
 def median(samples):
     return float(np.median(samples))
+
 
 def opt_min(a, b):
     if a is None:
@@ -2021,7 +2133,8 @@ def opt_max(a, b):
     if a is None:
         return b
     return max(a, b)
-    
+
+
 def load_config(config):
     cartographer = CartographerProbe(config)
     config.get_printer().add_object("probe", CartographerProbeWrapper(cartographer))
@@ -2030,6 +2143,7 @@ def load_config(config):
     pheaters = cartographer.printer.load_object(config, "heaters")
     pheaters.available_sensors.append("temperature_sensor cartographer_coil")
     return cartographer
+
 
 def load_config_prefix(config):
     cartographer = config.get_printer().lookup_object("cartographer")
@@ -2041,4 +2155,5 @@ def load_config_prefix(config):
         cartographer._register_model(name, model)
         return model
     else:
-        raise config.error("Unknown cartographer config directive '%s'" % (name[7:],))
+        raise config.error(
+            "Unknown cartographer config directive '%s'" % (name[7:],))
