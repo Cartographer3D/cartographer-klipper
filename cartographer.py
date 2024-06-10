@@ -1288,7 +1288,10 @@ class CartographerEndstopWrapper:
         for stepper in kin.get_steppers():
             if stepper.is_active_axis("z"):
                 self.add_stepper(stepper)
-
+                
+    def get_probe_params(self, gcmd=None):
+        return self.probe_session.get_probe_params(gcmd)
+        
     def _handle_home_rails_begin(self, homing_state, rails):
         self.is_homing = False
 
