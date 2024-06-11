@@ -94,6 +94,7 @@ class CartographerProbe:
         self.trapq = None
         self._last_trapq_move = None
         self.mod_axis_twist_comp = None	
+        self.raw_axis_twist_comp = None
 
         mainsync = self.printer.lookup_object("mcu")._clocksync
         self._mcu = MCU(config, SecondarySync(self.reactor, mainsync))
@@ -142,7 +143,15 @@ class CartographerProbe:
         self.mod_axis_twist_comp = self.printer.lookup_object(
             "axis_twist_compensation", None
         )
-
+        if self.mod_axis_twist_comp is not None:
+            if not hasattr(self.mod_axis_twist_comp, "get_z_compensation_value"):
+                self.raw_axis_twist_comp = self.mod_axis_twist_comp
+                def get_z_compensation_value(self, pos):
+                    temp = list(pos)
+                    self.raw_axis_twist_comp._update_z_compensation_value(temp)
+                    return temp[2]-pos[2]
+                axis_twist_comp = type("class",(object,),{"get_z_compensation_value" : get_z_compensation_value, "raw_axis_twist_comp" : self.raw_axis_twist_comp})
+                self.mod_axis_twist_comp = axis_twist_comp()
         # Ensure streaming mode is stopped
         self.cartographer_stream_cmd.send([0])
 
@@ -1245,14 +1254,14 @@ class CartographerProbeWrapper:
     def run_probe(self, gcmd):
         return self.cartographer.run_probe(gcmd)
     def get_probe_params(self, gcmd=None):
-        lift_speed = self.cartographer.get_lift_speed(gcmd)
-        return {"lift_speed": lift_speed}
+        return {'probe_speed': self.cartographer.speed,
+            'lift_speed': self.cartographer.lift_speed}
     def start_probe_session(self, gcmd):
         self.multi_probe_begin()
         return self
     def end_probe_session(self):
         self.multi_probe_end()
-        
+
 class CartographerTempWrapper:
     def __init__(self, cartographer):
         self.cartographer = cartographer
