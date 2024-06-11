@@ -93,7 +93,8 @@ class CartographerProbe:
         )
         self.trapq = None
         self._last_trapq_move = None
-        self.mod_axis_twist_comp = None	
+        self.mod_axis_twist_comp = None
+        self.get_z_compensation_value = lambda pos: 0.0	
 
         mainsync = self.printer.lookup_object("mcu")._clocksync
         self._mcu = MCU(config, SecondarySync(self.reactor, mainsync))
@@ -142,6 +143,19 @@ class CartographerProbe:
         self.mod_axis_twist_comp = self.printer.lookup_object(
             "axis_twist_compensation", None
         )
+        if self.mod_axis_twist_comp:
+            if hasattr(self.mod_axis_twist_comp, "get_z_compensation_value"):
+                self.get_z_compensation_value = (
+                    lambda pos: self.get_z_compensation_value(pos)
+                )
+            else:
+
+                def _update_compensation(pos):
+                    cpos = list(pos)
+                    self.mod_axis_twist_comp._update_z_compensation_value(cpos)
+                    return cpos[2] - pos[2]
+
+                self.get_z_compensation_value = _update_compensation
 
         # Ensure streaming mode is stopped
         self.cartographer_stream_cmd.send([0])
@@ -482,8 +496,7 @@ class CartographerProbe:
         
         if pos is None:
             return
-        if sample["dist"] is not None and self.mod_axis_twist_comp:
-            sample["dist"] -= self.mod_axis_twist_comp.get_z_compensation_value(pos)
+        sample["dist"] -= self.get_z_compensation_value(pos)
         sample["pos"] = pos
         sample["vel"] = vel
 
