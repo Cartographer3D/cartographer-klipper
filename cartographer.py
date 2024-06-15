@@ -97,8 +97,15 @@ class CartographerProbe:
         self.raw_axis_twist_comp = None
 
         mainsync = self.printer.lookup_object("mcu")._clocksync
-        self._mcu = MCU(config, SecondarySync(self.reactor, mainsync))
-        self.printer.add_object("mcu " + self.name, self._mcu)
+        mcu = config.get("mcu",None)
+        if not mcu is None:
+            if mcu == "mcu":
+                self._mcu = self.printer.lookup_object("mcu")
+            else:
+                self._mcu = self.printer.lookup_object("mcu " + mcu)
+        else:
+            self._mcu = MCU(config, SecondarySync(self.reactor, mainsync))
+            self.printer.add_object("mcu " + self.name, self._mcu)
         self.cmd_queue = self._mcu.alloc_command_queue()
         self.mcu_probe = CartographerEndstopWrapper(self)
 
@@ -111,6 +118,10 @@ class CartographerProbe:
                                             self._handle_mcu_identify)
         self._mcu.register_config_callback(self._build_config)
         self._mcu.register_response(self._handle_cartographer_data, "cartographer_data")
+
+        # Probe results
+        self.results = []
+
         # Register webhooks
         webhooks = self.printer.lookup_object("webhooks")
         self._api_dump_helper = APIDumpHelper(self)
@@ -239,7 +250,9 @@ class CartographerProbe:
 
         self._start_streaming()
         try:
-            return self._probe(speed, allow_faulty=allow_faulty)
+            epos = self._probe(speed, allow_faulty=allow_faulty)
+            self.results.append(epos)
+            return epos
         finally:
             self._stop_streaming()
 
@@ -1258,9 +1271,15 @@ class CartographerProbeWrapper:
             'lift_speed': self.cartographer.lift_speed}
     def start_probe_session(self, gcmd):
         self.multi_probe_begin()
+        self.cartographer.results = []
         return self
     def end_probe_session(self):
+        self.cartographer.results = []
         self.multi_probe_end()
+    def pull_probed_results(self):
+        res = self.cartographer.results
+        self.cartographer.results = []
+        return res
 
 class CartographerTempWrapper:
     def __init__(self, cartographer):
