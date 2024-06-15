@@ -43,6 +43,8 @@ class CartographerProbe:
         self.lift_speed = config.getfloat("lift_speed", self.speed, above=0.0)
         self.backlash_comp = config.getfloat("backlash_comp", 0.5)
 
+        self.probe_results = []
+
         self.x_offset = config.getfloat("x_offset", 0.0)
         self.y_offset = config.getfloat("y_offset", 0.0)
 
@@ -239,7 +241,9 @@ class CartographerProbe:
 
         self._start_streaming()
         try:
-            return self._probe(speed, allow_faulty=allow_faulty)
+            result = self._probe(speed, allow_faulty=allow_faulty)
+            self.probe_results.append(result)
+            return result
         finally:
             self._stop_streaming()
 
@@ -1259,6 +1263,13 @@ class CartographerProbeWrapper:
     def start_probe_session(self, gcmd):
         self.multi_probe_begin()
         return self
+    def pull_probed_results(self):
+        if self.CartographerProbe.probe_results is None:
+            return []
+        else: 
+            for epos in self.CartographerProbe.probe_results:
+                self.CartographerProbe.printer.send_event("probe:update_results")
+            return self.CartographerProbe.probe_results
     def end_probe_session(self):
         self.multi_probe_end()
 
