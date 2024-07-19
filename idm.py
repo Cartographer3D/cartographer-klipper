@@ -1,4 +1,4 @@
-# Cartographer 3D Script v1.0.30 w/ Temperature Compensation
+# Cartographer 3D Script v1.0.0.36 w/ Temperature Compensation
 # To buy affordable bed scanners, check out https://cartographer3d.com
 # 
 # Based on the outstanding work from the Beacon3D Team, with modifications made by the Cartographer and IDM team. 
@@ -27,6 +27,7 @@ from . import probe
 from . import bed_mesh
 from . import thermistor
 from . import adc_temperature
+from . import manual_probe
 from mcu import MCU, MCU_trsync
 from clocksync import SecondarySync
 
@@ -45,6 +46,13 @@ class IDMProbe:
 
         self.x_offset = config.getfloat("x_offset", 0.0)
         self.y_offset = config.getfloat("y_offset", 0.0)
+        self.z_offset = config.getfloat("z_offset", 0.0)
+        self.probe_calibrate_z = 0.
+
+        self.probe_speed = config.getfloat("probe_speed", 5.0)
+        self.tap_location = config.get("tap_location").split(",")
+        self.calibration_method = config.get("calibration_method","scan")
+        self.trigger_method = 0
 
         self.trigger_distance = config.getfloat("trigger_distance", 2.0)
         self.trigger_dive_threshold = config.getfloat("trigger_dive_threshold", 1.0)
@@ -94,13 +102,31 @@ class IDMProbe:
         self.trapq = None
         self._last_trapq_move = None
         self.mod_axis_twist_comp = None
-        
+        self.raw_axis_twist_comp = None
+
         mainsync = self.printer.lookup_object("mcu")._clocksync
-        self._mcu = MCU(config, SecondarySync(self.reactor, mainsync))
-        self.printer.add_object("mcu " + self.name, self._mcu)
+        mcu = config.get("mcu",None)
+        if not mcu is None:
+            if mcu == "mcu":
+                self._mcu = self.printer.lookup_object("mcu")
+            else:
+                self._mcu = self.printer.lookup_object("mcu " + mcu)
+        else:
+            self._mcu = MCU(config, SecondarySync(self.reactor, mainsync))
+            self.printer.add_object("mcu " + self.name, self._mcu)
         self.cmd_queue = self._mcu.alloc_command_queue()
         self.mcu_probe = IDMEndstopWrapper(self)
 
+        ppins = self.printer.lookup_object('pins')
+        probe_pin = config.get('probe_pin',"none")
+        if probe_pin != "none":
+            pin_params = ppins.lookup_pin(probe_pin, can_invert=True, can_pullup=True)
+            endstop_mcu = pin_params['chip']
+            self.endstop_mcu_endstop = endstop_mcu.setup_pin('endstop', pin_params)
+            self.endstop_add_stepper = self.endstop_mcu_endstop.add_stepper
+        else:
+            self.endstop_mcu_endstop = None
+            self.endstop_add_stepper  = None
         # Register z_virtual_endstop
         self.printer.lookup_object("pins").register_chip("probe", self)
         # Register event handlers
@@ -110,6 +136,8 @@ class IDMProbe:
                                             self._handle_mcu_identify)
         self._mcu.register_config_callback(self._build_config)
         self._mcu.register_response(self._handle_idm_data, "idm_data")
+        # Probe results
+        self.results = []
         # Register webhooks
         webhooks = self.printer.lookup_object("webhooks")
         self._api_dump_helper = APIDumpHelper(self)
@@ -131,18 +159,138 @@ class IDMProbe:
                                     desc=self.cmd_PROBE_help)
         self.gcode.register_command("PROBE_ACCURACY", self.cmd_PROBE_ACCURACY,
                                     desc=self.cmd_PROBE_ACCURACY_help)
+        self.gcode.register_command('PROBE_CALIBRATE', self.cmd_PROBE_CALIBRATE,
+                                    desc=self.cmd_PROBE_CALIBRATE_help)
+        self.gcode.register_command('PROBE_SWITCH', self.cmd_PROBE_SWITCH,
+                                    desc=self.cmd_PROBE_SWITCH_help)
         self.gcode.register_command("Z_OFFSET_APPLY_PROBE",
                                     self.cmd_Z_OFFSET_APPLY_PROBE,
                                     desc=self.cmd_Z_OFFSET_APPLY_PROBE_help)
 
     # Event handlers
 
+    def _move(self, coord, speed):
+        self.printer.lookup_object('toolhead').manual_move(coord, speed)
+    cmd_PROBE_CALIBRATE_help = "Calibrate the probe's z_offset"
+
+    def tap_probe(self, speed):
+        toolhead = self.printer.lookup_object('toolhead')
+        curtime = self.printer.get_reactor().monotonic()
+        status = self.toolhead.get_kinematics().get_status(curtime)
+        if 'z' not in toolhead.get_status(curtime)['homed_axes']:
+            raise self.printer.command_error("Must home before probe")
+        pos = toolhead.get_position()
+        pos[2] = status["axis_minimum"][2]
+        try:
+            epos = self.phoming.probing_move(self.mcu_probe, pos, speed)
+        except self.printer.command_error as e:
+            reason = str(e)
+            if "Timeout during endstop homing" in reason:
+                reason += HINT_TIMEOUT
+            raise self.printer.command_error(reason)
+        self.gcode.respond_info("probe at %.3f,%.3f is z=%.6f"
+                                % (epos[0], epos[1], epos[2] + self.z_offset))
+        return epos[:3]
+    def _calc_median(self, positions):
+        z_sorted = sorted(positions, key=(lambda p: p[2]))
+        middle = len(positions) // 2
+        if (len(positions) & 1) == 1:
+            # odd number of samples
+            return z_sorted[middle]
+        # even number of samples
+        return self._calc_mean(z_sorted[middle-1:middle+1])
+    def _calc_mean(self, positions):
+        count = float(len(positions))
+        return [sum([pos[i] for pos in positions]) / count
+                for i in range(3)]
+    def run_tap_probe(self, gcmd):
+        speed = gcmd.get_float("PROBE_SPEED", self.probe_speed, above=0.)
+        lift_speed = self.get_lift_speed(gcmd)
+        sample_count = gcmd.get_int("SAMPLES", 4, minval=1)
+        sample_retract_dist = gcmd.get_float("SAMPLE_RETRACT_DIST",
+                                             5, above=0.)
+        samples_tolerance = gcmd.get_float("SAMPLES_TOLERANCE",
+                                           1, minval=0.)
+        samples_retries = gcmd.get_int("SAMPLES_TOLERANCE_RETRIES",
+                                       4, minval=0)
+        samples_result = gcmd.get("SAMPLES_RESULT", "median")
+        probexy = self.printer.lookup_object('toolhead').get_position()[:2]
+        retries = 0
+        positions = []
+        while len(positions) < sample_count:
+            # Probe position
+            pos = self.tap_probe(speed)
+            positions.append(pos)
+            # Check samples tolerance
+            z_positions = [p[2] for p in positions]
+            if max(z_positions) - min(z_positions) > samples_tolerance:
+                if retries >= samples_retries:
+                    raise gcmd.error("Probe samples exceed samples_tolerance")
+                gcmd.respond_info("Probe samples exceed tolerance. Retrying...")
+                retries += 1
+                positions = []
+            # Retract
+            if len(positions) < sample_count:
+                self._move(probexy + [pos[2] + sample_retract_dist], lift_speed)
+        # Calculate and return result
+        if samples_result == 'median':
+            return self._calc_median(positions)
+        return self._calc_mean(positions)
+
+    def probe_calibrate_finalize(self, kin_pos):
+        if kin_pos is None:
+            return
+        z_offset = kin_pos[2] - self.probe_calibrate_z
+        self.gcode.run_script_from_command("SET_GCODE_OFFSET Z_ADJUST=%s" % (z_offset))
+        gcode_move = self.printer.lookup_object("gcode_move")
+        offset = gcode_move.get_status()["homing_origin"].z
+        configfile = self.printer.lookup_object('configfile')
+        configfile.set("idm model " + self.model.name, 'model_offset', "%.3f" % (z_offset,))
+
+    def cmd_PROBE_CALIBRATE(self, gcmd):
+        if gcmd.get("METHOD","MANUAL").lower() == "auto":
+            if self.calibration_method == "voron_tap":
+                self.trigger_method = 2
+            else:
+                return
+            #self.gcode.run_script_from_command("G28 Z")
+            self._move([float(self.tap_location[0]), float(self.tap_location[1]), None], self.speed)
+            curpos = self.run_tap_probe(gcmd)
+            gcode_move = self.printer.lookup_object("gcode_move")
+            offset = gcode_move.get_status()["homing_origin"].z
+            self.probe_calibrate_z = offset - curpos[2]
+            self.probe_calibrate_finalize([0,0,self.z_offset])
+            self.trigger_method = 0
+            curpos[2] = 5
+            self._move(curpos, self.lift_speed)
+            return
+        self.trigger_method = 0
+        manual_probe.verify_no_manual_probe(self.printer)
+        lift_speed = self.get_lift_speed(gcmd)
+        # Perform initial probe
+        curpos = self.run_probe(gcmd)
+        self.probe_calibrate_z = curpos[2] - self.trigger_distance
+        # Move the nozzle over the probe point
+        curpos[0] += self.x_offset
+        curpos[1] += self.y_offset
+        self._move(curpos, self.speed)
+        # Start manual probe
+        manual_probe.ManualProbeHelper(self.printer, gcmd,
+                                       self.probe_calibrate_finalize)
     def _handle_connect(self):
         self.phoming = self.printer.lookup_object("homing")
         self.mod_axis_twist_comp = self.printer.lookup_object(
             "axis_twist_compensation", None
         )
-        
+        if self.mod_axis_twist_comp is not None:
+            if not hasattr(self.mod_axis_twist_comp, "get_z_compensation_value"):
+                self.raw_axis_twist_comp = self.mod_axis_twist_comp
+                def get_z_compensation_value(self, pos):
+                    temp = list(pos)
+                    self.raw_axis_twist_comp._update_z_compensation_value(temp)
+                    return temp[2]-pos[2]
+                axis_twist_comp = type("class",(object,),{"get_z_compensation_value" : get_z_compensation_value, "raw_axis_twist_comp" : self.raw_axis_twist_comp})
+                self.mod_axis_twist_comp = axis_twist_comp()
         # Ensure streaming mode is stopped
         self.idm_stream_cmd.send([0])
 
@@ -230,7 +378,9 @@ class IDMProbe:
 
         self._start_streaming()
         try:
-            return self._probe(speed, allow_faulty=allow_faulty)
+            epos = self._probe(speed, allow_faulty=allow_faulty)
+            self.results.append(epos)
+            return epos
         finally:
             self._stop_streaming()
 
@@ -258,6 +408,8 @@ class IDMProbe:
             raise self.printer.command_error(reason)
 
     def _probe(self, speed, num_samples=10, allow_faulty=False):
+        if self.trigger_method != 0:
+            return self.tap_probe(speed)
         target = self.trigger_distance
         tdt = self.trigger_dive_threshold
         (dist, samples) = self._sample(5, num_samples)
@@ -293,9 +445,34 @@ class IDMProbe:
     # Calibration routines
 
     def _start_calibration(self, gcmd):
-
+        if self.calibration_method == "voron_tap":
+            self.trigger_method = 2
         allow_faulty = gcmd.get_int("ALLOW_FAULTY_COORDINATE", 0) != 0
-        if gcmd.get("SKIP_MANUAL_PROBE", None) is not None:
+        if self.trigger_method != 0:
+            self._move([float(self.tap_location[0]), float(self.tap_location[1]), None], self.speed)
+            pos = self.toolhead.get_position()
+            curtime = self.printer.get_reactor().monotonic()
+            status = self.toolhead.get_kinematics().get_status(curtime)
+            pos[2] = status["axis_maximum"][2]
+            self.toolhead.set_position(pos, homing_axes=(0, 1, 2))
+            self.tap_probe(self.probe_speed)
+            pos[2] = - self.z_offset
+            self.toolhead.set_position(pos)
+            self._move([None, None, 0], self.lift_speed)
+            kin = self.toolhead.get_kinematics()
+            kin_spos = {s.get_name(): s.get_commanded_position()
+                        for s in kin.get_steppers()}
+            kin_pos = kin.calc_position(kin_spos)
+            if self._is_faulty_coordinate(kin_pos[0], kin_pos[1]):
+                msg = "Calibrating within a faulty area"
+                if not allow_faulty:
+                    raise gcmd.error(msg)
+                else:
+                    gcmd.respond_raw("!! " + msg + "\n")
+            self._calibrate(gcmd, kin_pos, False)
+            self.trigger_method = 0
+
+        elif gcmd.get("SKIP_MANUAL_PROBE", None) is not None:
             kin = self.toolhead.get_kinematics()
             kin_spos = {s.get_name(): s.get_commanded_position()
                         for s in kin.get_steppers()}
@@ -336,6 +513,7 @@ class IDMProbe:
 
             cb = lambda kin_pos: self._calibrate(gcmd, kin_pos, forced_z)
             manual_probe.ManualProbeHelper(self.printer, gcmd, cb)
+
     def _calibrate(self, gcmd, kin_pos, forced_z):
         if kin_pos is None:
             if forced_z:
@@ -419,7 +597,7 @@ class IDMProbe:
                           "%.3f to %.3f, speed %.2f mm/s, temp %.2fC"
                           % (pos[0], pos[1],
                           cal_min_z, cal_max_z, cal_speed, temp_median))
-
+        self.trigger_method = 0
     # Internal
 
     def _update_thresholds(self, moving_up=False):
@@ -570,11 +748,18 @@ class IDMProbe:
                     self._enrich_sample_time(sample)
                     self._data_filter.update(sample["time"], sample["data"])
                     self._enrich_sample_freq(sample)
+                    self._enrich_sample(sample)
 
                     if len(self._stream_callbacks) > 0:
-                        self._enrich_sample(sample)
                         for cb in list(self._stream_callbacks.values()):
                             cb(sample)
+                    last = sample
+                if last is not None:
+                    last = last.copy()
+                    dist = last["dist"]
+                    if dist is None or np.isinf(dist) or np.isnan(dist):
+                        del last["dist"]
+                    self.last_received_sample = last
             except queue.Empty:
                 return
 
@@ -600,20 +785,12 @@ class IDMProbe:
         self._stream_flush_schedule()
 
     def _get_trapq_position(self, print_time):
-        move = None
-        if self._last_trapq_move:
-            last = self._last_trapq_move[0]
-            last_end = last.print_time + last.move_t
-            if last.print_time <= print_time < last_end:
-                move = last
-        if move is None:
-            ffi_main, ffi_lib = chelper.get_ffi()
-            data = ffi_main.new("struct pull_move[1]")
-            count = ffi_lib.trapq_extract_old(self.trapq, data, 1, 0.0, print_time)
-            if not count:
-                return None, None
-            self._last_trapq_move = data
-            move = data[0]        
+        ffi_main, ffi_lib = chelper.get_ffi()
+        data = ffi_main.new("struct pull_move[1]")
+        count = ffi_lib.trapq_extract_old(self.trapq, data, 1, 0.0, print_time)
+        if not count:
+            return None, None
+        move = data[0]
         move_time = max(0.0, min(move.move_t, print_time - move.print_time))
         dist = (move.start_v + .5 * move.accel * move_time) * move_time
         pos = (move.start_x + move.x_r * dist, move.start_y + move.y_r * dist,
@@ -622,8 +799,7 @@ class IDMProbe:
         return pos, velocity
 
     def _sample_printtime_sync(self, skip=0, count=1):
-        toolhead = self.printer.lookup_object("toolhead")
-        move_time = toolhead.get_last_move_time()
+        move_time = self.toolhead.get_last_move_time()
         settle_clock = self._mcu.print_time_to_clock(move_time)
         samples = []
         total = skip + count
@@ -685,6 +861,7 @@ class IDMProbe:
             model = self.model.name
         return {
             "last_sample": self.last_sample,
+            "last_received_sample": self.last_received_sample,
             "model": model,
         }
 
@@ -706,6 +883,15 @@ class IDMProbe:
         self._api_dump_helper.add_client(web_request)
 
     # GCode command handlers
+    cmd_PROBE_SWITCH_help = "swith between scan and tap"
+    def cmd_PROBE_SWITCH(self, gcmd):
+        method=gcmd.get("METHOD","NONE").lower()
+        if method == "scan":
+            self.trigger_method=0
+            gcmd.respond_info("Method switched to SCAN")
+        elif method == "voron_tap":
+            self.trigger_method=2
+            gcmd.respond_info("Method switched to VORON TAP")
 
     cmd_PROBE_help = "Probe Z-height at current XY position"
     def cmd_PROBE(self, gcmd):
@@ -779,7 +965,7 @@ class IDMProbe:
             "time": sample["time"],
             "value": last_value,
             "temp": temp,
-            "dist": dist,
+            "dist": None if dist is None or np.isinf(dist) or np.isnan(dist) else dist,
         }
         if dist is None:
             gcmd.respond_info("Last reading: %.2fHz, %.2fC, no model" %
@@ -828,7 +1014,7 @@ class IDMProbe:
         speed = gcmd.get_float("PROBE_SPEED", self.speed, above=0.0)
         lift_speed = self.get_lift_speed(gcmd)
         sample_count = gcmd.get_int("SAMPLES", 10, minval=1)
-        sample_retract_dist = gcmd.get_float("SAMPLE_RETRACT_DIST", 0)
+        sample_retract_dist = gcmd.get_float("SAMPLE_RETRACT_DIST", 5)
         allow_faulty = gcmd.get_int("ALLOW_FAULTY_COORDINATE", 0) != 0
         pos = self.toolhead.get_position()
         gcmd.respond_info("PROBE_ACCURACY at X:%.3f Y:%.3f Z:%.3f"
@@ -840,16 +1026,21 @@ class IDMProbe:
 
         start_height = self.trigger_distance + sample_retract_dist
         liftpos = [None, None, start_height]
-        self.toolhead.manual_move(liftpos, lift_speed)
-
-        self.multi_probe_begin()
-        positions = []
-        while len(positions) < sample_count:
-            pos = self._probe(speed, allow_faulty=allow_faulty)
-            positions.append(pos)
+        if self.trigger_method == 0:
             self.toolhead.manual_move(liftpos, lift_speed)
-        self.multi_probe_end()
-
+            self.multi_probe_begin()
+            positions = []
+            while len(positions) < sample_count:
+                pos = self._probe(speed, allow_faulty=allow_faulty)
+                positions.append(pos)
+                self.toolhead.manual_move(liftpos, lift_speed)
+            self.multi_probe_end()
+        else:
+            positions = []
+            while len(positions) < sample_count:
+                pos = self.tap_probe(speed)
+                self.toolhead.manual_move(liftpos, lift_speed)
+                positions.append(pos)
         zs = [p[2] for p in positions]
         max_value = max(zs)
         min_value = min(zs)
@@ -1244,7 +1435,20 @@ class IDMProbeWrapper:
         return self.idm.get_lift_speed(gcmd)
     def run_probe(self, gcmd):
         return self.idm.run_probe(gcmd)
-
+    def get_probe_params(self, gcmd=None):
+        return {'probe_speed': self.idm.speed,
+            'lift_speed': self.idm.lift_speed}
+    def start_probe_session(self, gcmd):
+        self.multi_probe_begin()
+        self.idm.results=[]
+        return self
+    def end_probe_session(self):
+        self.idm.results=[]
+        self.multi_probe_end()
+    def pull_probed_results(self):
+        res = self.idm.results
+        self.idm.results = []
+        return res
 class IDMTempWrapper:
     def __init__(self, idm):
         self.idm = idm
@@ -1278,7 +1482,8 @@ class IDMEndstopWrapper:
                                        self._handle_home_rails_begin)
         printer.register_event_handler("homing:home_rails_end",
                                        self._handle_home_rails_end)
-
+        printer.register_event_handler("homing:homing_move_begin",
+                                       self._handle_homing_move_begin)
         self.z_homed = False
         self.is_homing = False
 
@@ -1288,12 +1493,14 @@ class IDMEndstopWrapper:
         for stepper in kin.get_steppers():
             if stepper.is_active_axis("z"):
                 self.add_stepper(stepper)
+                if self.idm.endstop_add_stepper is not None:
+                    self.idm.endstop_add_stepper(stepper)
 
     def _handle_home_rails_begin(self, homing_state, rails):
         self.is_homing = False
 
     def _handle_home_rails_end(self, homing_state, rails):
-        if self.idm.model is None:
+        if self.idm.model is None and self.idm.trigger_method == 0:
             return
 
         if not self.is_homing:
@@ -1304,12 +1511,19 @@ class IDMEndstopWrapper:
 
         # After homing Z we perform a measurement and adjust the toolhead
         # kinematic position.
+        if(self.idm.trigger_method != 0):
+            homing_state.set_homed_position([None, None, -self.idm.z_offset])
+            return
         (dist, samples) = self.idm._sample(self.idm.z_settling_time, 10)
         if math.isinf(dist):
             logging.error("Post-homing adjustment measured samples %s", samples)
             raise self.idm.printer.command_error(
                     "Toolhead stopped below model range")
         homing_state.set_homed_position([None, None, dist])
+
+    def _handle_homing_move_begin(self, hmove):
+        if self.idm.mcu_probe in hmove.get_mcu_endstops():
+            etrsync = self._trsyncs[0]
 
     def get_mcu(self):
         return self._mcu
@@ -1338,12 +1552,16 @@ class IDMEndstopWrapper:
 
     def home_start(self, print_time, sample_time, sample_count, rest_time,
                    triggered=True):
-        if self.idm.model is None:
+        if self.idm.trigger_method == 2:
+            self.is_homing = True
+            return self.idm.endstop_mcu_endstop.home_start(print_time, sample_time, sample_count, rest_time, triggered)
+        if self.idm.model is None and self.idm.trigger_method == 0:
             raise self.idm.printer.command_error("No IDM model loaded")
 
         self.is_homing = True
-        self.idm._apply_threshold()
-        self.idm._sample_async()
+        if self.idm.trigger_method == 0:
+            self.idm._apply_threshold()
+            self.idm._sample_async()
         clock = self._mcu.print_time_to_clock(print_time)
         rest_ticks = self._mcu.print_time_to_clock(print_time+rest_time) - clock
         self._rest_ticks = rest_ticks
@@ -1363,6 +1581,10 @@ class IDMEndstopWrapper:
         etrsync = self._trsyncs[0]
         ffi_main, ffi_lib = chelper.get_ffi()
         ffi_lib.trdispatch_start(self._trdispatch, etrsync.REASON_HOST_REQUEST)
+        
+        if self.idm.trigger_method != 0:
+            return self._trigger_completion
+
         self.idm.idm_home_cmd.send([
             etrsync.get_oid(),
             etrsync.REASON_ENDSTOP_HIT,
@@ -1371,6 +1593,8 @@ class IDMEndstopWrapper:
         return self._trigger_completion
 
     def home_wait(self, home_end_time):
+        if self.idm.trigger_method == 2:
+            return self.idm.endstop_mcu_endstop.home_wait(home_end_time)
         etrsync = self._trsyncs[0]
         etrsync.set_home_end_time(home_end_time)
         if self._mcu.is_fileoutput():
@@ -1414,6 +1638,7 @@ class IDMMeshHelper:
 
     def __init__(self, idm, config, mesh_config):
         self.idm = idm
+        self.scipy = None
         self.mesh_config = mesh_config
         self.bm = self.idm.printer.load_object(mesh_config, "bed_mesh")
 
@@ -1725,10 +1950,20 @@ class IDMMeshHelper:
         self.toolhead.manual_move([x-xo, y-yo, None], speed)
         (dist, _samples) = self.idm._sample(50, 10)
         self.zero_ref_val = dist
-    
+
     def _is_valid_position(self, x, y):
         return self.min_x <= x <= self.max_x and self.min_y <= y <= self.min_y
 
+    def _is_faulty_coordinate(self, x, y, add_offsets=False):
+        if add_offsets:
+            xo, yo = self.idm.x_offset, self.idm.y_offset
+            x += xo
+            y += yo
+        for r in self.faulty_regions:
+            if r.is_point_within(x, y):
+                return True
+        return False
+        
     def _sample_mesh(self, gcmd, path, speed, runs):
         cs = gcmd.get_float("CLUSTER_SIZE", self.cluster_size, minval=0.0)
         zcs = self.zero_ref_pos_cluster_size
@@ -1749,7 +1984,7 @@ class IDMMeshHelper:
             x += xo
             y += yo
 
-            if math.isinf(d):
+            if d is None or math.isinf(d):
                 if self._is_valid_position(x, y):
                     invalid_samples[0] += 1
                 return
@@ -1757,6 +1992,8 @@ class IDMMeshHelper:
             # Calculate coordinate of the cluster we are in
             xi = int(round((x - min_x) / self.step_x))
             yi = int(round((y - min_y) / self.step_y))
+            if xi < 0 or self.res_x <= xi or yi < 0 or self.res_y <= yi:
+                return
 
             # If there's a cluster size limit, apply it here
             if cs > 0:
@@ -1796,10 +2033,11 @@ class IDMMeshHelper:
 
     def _process_clusters(self, raw_clusters, gcmd):
         parent_conn, child_conn = multiprocessing.Pipe()
+        dump_file = gcmd.get("FILENAME", None)
 
         def do():
             try:
-                child_conn.send((False, self._do_process_clusters(raw_clusters)))
+                child_conn.send((False, self._do_process_clusters(raw_clusters,dump_file)))
             except:
                 child_conn.send((True, traceback.format_exc()))
             child_conn.close()
@@ -1823,101 +2061,114 @@ class IDMMeshHelper:
             else:
                 return inner_result
 
-    def _do_process_clusters(self, raw_clusters):
-        clusters = self._interpolate_faulty(raw_clusters)
-        return self._generate_matrix(clusters)
-        
-    def _is_faulty_coordinate(self, x, y, add_offsets=False):
-        if add_offsets:
-            xo, yo = self.idm.x_offset, self.idm.y_offset
-            x += xo
-            y += yo
-        for r in self.faulty_regions:
-            if r.is_point_within(x, y):
-                return True
-        return False
+    def _do_process_clusters(self, raw_clusters, dump_file):
+        if dump_file:
+            with open(dump_file, "w") as f:
+                f.write("x,y,xp,xy,dist\n")
+                for yi in range(self.res_y):
+                    line = []
+                    for xi in range(self.res_x):
+                        cluster = raw_clusters.get((xi, yi), [])
+                        xp = xi * self.step_x + self.min_x
+                        yp = yi * self.step_y + self.min_y
+                        for dist in cluster:
+                            f.write("%d,%d,%f,%f,%f\n" % (xi, yi, xp, yp, dist))
 
-    def _interpolate_faulty(self, clusters):
-        faulty_indexes = []
-        position = np.array(list(clusters.keys()))
-        (xi_max,yi_max) = position.T.max(axis = 1)
-        pos_temp = (position.T*[[self.step_x],[self.step_y]]+[[self.min_x],[self.min_y]])
-        if len(self.faulty_region_.shape) > 1:
-            length=self.faulty_region_.shape[1]
-            flag = np.array(
-                [
-                    (pos_temp > self.faulty_region_[:2].reshape(1,2,length).T).T.all(axis=1),
-                    (pos_temp < self.faulty_region_[2:].reshape(1,2,length).T).T.all(axis=1)
-                ]
-            ).all(axis = 0).any(axis = 1)
-            for i in range(len(flag)):
-                if(flag[i]):
-                    clusters[tuple(position[i])] = None
-                    faulty_indexes.append(tuple(position[i]))
-        del pos_temp
+        mask = self._generate_fault_mask()
+        matrix, faulty_regions = self._generate_matrix(raw_clusters, mask)
+        if len(faulty_regions) > 0:
+            (error, interpolator_or_msg) = self._load_interpolator()
+            if error:
+                return (True, interpolator_or_msg)
+            matrix = self._interpolate_faulty(
+                matrix, faulty_regions, interpolator_or_msg
+            )
+        err = self._check_matrix(matrix)
+        if err is not None:
+            return (True, err)
+        return (False, self._finalize_matrix(matrix))
 
-        def get_nearest(start, dx, dy):
-            inputs = np.array(start)
-            inputs += [dx,dy]
-            while ((inputs >= 0).all() and (inputs <= [xi_max,yi_max]).all()):
-                if clusters.get(tuple(inputs),None) is not None:
-                    return (abs(inputs-np.array(start)).sum(), median(clusters[tuple(inputs)]))
-                inputs += [dx,dy]
+    def _generate_fault_mask(self):
+        if len(self.faulty_regions) == 0:
             return None
+        mask = np.full((self.res_y, self.res_x), True)
+        for r in self.faulty_regions:
+            r_xmin = max(0,int(math.ceil((r.x_min - self.min_x) / self.step_x)))
+            r_ymin = max(0,int(math.ceil((r.y_min - self.min_y) / self.step_y)))
+            r_xmax = min(self.res_x-1,int(math.floor((r.x_max - self.min_x) / self.step_x)))
+            r_ymax = min(self.res_y-1,int(math.floor((r.y_max - self.min_y) / self.step_y)))
+            for y in range(r_ymin, r_ymax + 1):
+                for x in range(r_xmin, r_xmax + 1):
+                    mask[(y, x)] = False
+        return mask
 
-        def interp_weighted(lower, higher):
-            if lower is None and higher is None:
-                return None
-            if lower is None and higher is not None:
-                return higher[1]
-            elif lower is not None and higher is None:
-                return lower[1]
+    def _generate_matrix(self, raw_clusters, mask):
+        faulty_indexes = []
+        matrix = np.empty((self.res_y, self.res_x))
+        for (x, y), values in raw_clusters.items():
+            if mask is None or mask[(y, x)]:
+                matrix[(y, x)] = self.idm.trigger_distance - median(values)
             else:
-                return ((lower[1] * lower[0] + higher[1] * higher[0]) /
-                        (lower[0] + higher[0]))
+                matrix[(y, x)] = np.nan
+                faulty_indexes.append((y, x))
+        return matrix, faulty_indexes
 
-        for coord in faulty_indexes:
-            xl = get_nearest(coord, -1,  0)
-            xh = get_nearest(coord,  1,  0)
-            xavg = interp_weighted(xl, xh)
-            yl = get_nearest(coord,  0, -1)
-            yh = get_nearest(coord,  0,  1)
-            yavg = interp_weighted(yl, yh)
-            avg = None
-            if xavg is not None and yavg is None:
-                avg = xavg
-            elif xavg is None and yavg is not None:
-                avg = yavg
-            else:
-                avg = (xavg + yavg) / 2.0
-            clusters[coord] = [avg]
+    def _load_interpolator(self):
+        if not self.scipy:
+            try:
+                self.scipy = importlib.import_module("scipy")
+            except ImportError:
+                msg = (
+                    "Could not load `scipy`. To install it, simply re-run "
+                    "the IDM `install.sh` script. This module is required "
+                    "when using faulty regions when bed meshing."
+                )
+                return (True, msg)
+        if hasattr(self.scipy.interpolate, "RBFInterpolator"):
 
-        return clusters
+            def rbf_interp(points, values, faulty):
+                return self.scipy.interpolate.RBFInterpolator(points, values, 64)(
+                    faulty
+                )
 
-    def _generate_matrix(self, clusters):
-        matrix = []
-        td = self.idm.trigger_distance
+            return (False, rbf_interp)
+        else:
+
+            def linear_interp(points, values, faulty):
+                return self.scipy.interpolate.griddata(
+                    points, values, faulty, method="linear"
+                )
+
+            return (False, linear_interp)
+
+    def _interpolate_faulty(self, matrix, faulty_indexes, interpolator):
+        ys, xs = np.mgrid[0 : matrix.shape[0], 0 : matrix.shape[1]]
+        points = np.array([ys.flatten(), xs.flatten()]).T
+        values = matrix.reshape(-1)
+        good = ~np.isnan(values)
+        fixed = interpolator(points[good], values[good], faulty_indexes)
+        matrix[tuple(np.array(faulty_indexes).T)] = fixed
+        return matrix
+
+    def _check_matrix(self, matrix):
         empty_clusters = []
         for yi in range(self.res_y):
-            line = []
             for xi in range(self.res_x):
-                cluster = clusters.get((xi, yi), None)
-                if cluster is None or len(cluster) == 0:
+                if np.isnan(matrix[(yi, xi)]):
                     xc = xi * self.step_x + self.min_x
                     yc = yi * self.step_y + self.min_y
                     empty_clusters.append("  (%.3f,%.3f)[%d,%d]" % (xc, yc, xi, yi))
-                else:
-                    data = [td - d for d in cluster]
-                    line.append(median(data))
-            matrix.append(line)
         if empty_clusters:
             err = (
                 "Empty clusters found\n"
                 "Try increasing mesh cluster_size or slowing down.\n"
                 "The following clusters were empty:\n"
             ) + "\n".join(empty_clusters)
-            return (True, err)
+            return err
+        else:
+            return None
 
+    def _finalize_matrix(self, matrix):
         z_offset = None
         if self.zero_ref_mode and self.zero_ref_mode[0] == "rri":
             rri = self.zero_ref_mode[1]
@@ -1928,13 +2179,12 @@ class IDMMeshHelper:
                 rri_y = int(math.floor(rri / self.res_x))
                 z_offset = matrix[rri_y][rri_x]
         elif self.zero_ref_mode and self.zero_ref_mode[0] == "pos":
-            z_offset = td - self.zero_ref_val
+            z_offset = self.idm.trigger_distance - self.zero_ref_val
 
         if z_offset is not None:
-            for i, line in enumerate(matrix):
-                matrix[i] = [z - z_offset for z in line]
-        return (False, matrix)
-            
+            matrix = matrix - z_offset
+        return matrix.tolist()
+
     def _apply_mesh(self, matrix, gcmd):
         params = self.bm.bmc.mesh_config
         params["min_x"] = self.min_x
