@@ -10,6 +10,7 @@
 # This file may be distributed under the terms of the GNU GPLv3 license.
 import threading
 import multiprocessing
+import importlib
 import traceback
 import logging
 import chelper
