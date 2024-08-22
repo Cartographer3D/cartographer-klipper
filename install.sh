@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# Copyright (C) Cartographer3D 2023-2024
+
 # Based upon the fantastic Beacon eddy current scanner support
 # Copyright (C) 2020-2023 Matt Baker <baker.matt.j@gmail.com>
 # Copyright (C) 2020-2023 Lasse Dalegaard <dalegaard@gmail.com>
@@ -21,9 +23,9 @@ fi
 echo "Cartographer: installing python requirements to env, this may take 10+ minutes."
 "${KENV}/bin/pip" install -r "${BKDIR}/requirements.txt"
 
-# update link to cartographer.py & idm.py
+# update link to scanner.py, cartographer.py & idm.py
 echo "Cartographer: linking modules into klipper"
-for file in idm.py cartographer.py; do
+for file in idm.py cartographer.py scanner.py; do
     if [ -e "${KDIR}/klippy/extras/${file}" ]; then
         rm "${KDIR}/klippy/extras/${file}"
     fi
