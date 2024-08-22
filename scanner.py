@@ -1,4 +1,4 @@
-# IDM, Cartographer 3D, and OpenBedScanner Script v3.0.1 w/ Temperature Compensation and Cartgorapher Survey
+# IDM, Cartographer 3D, and OpenBedScanner Script v3.0.0 w/ Temperature Compensation and Cartgorapher Survey
 #
 # To buy affordable bed scanners, check out https://cartographer3d.com
 # 
@@ -78,25 +78,18 @@ class Scanner:
         
         self.survey_temp = config.getint("survey_temp", 150)
         self.probe_speed = config.getfloat("probe_speed", 5.0)
-        touch_location_str = config.get("touch_location", "None,None")
-        self.touch_location = touch_location_str.split(",")
-
-        # Handle the X location
-        if self.touch_location[0] == "None":
-            if config.has_section("stepper_x"):
+        
+        if config.has_section("bed_mesh"):
+            mesh_config = config.getsection("bed_mesh")
+            if mesh_config.get("zero_reference_position", None) is not None:
+                    self.touch_location = mesh_config.get('zero_reference_position').split(",")
+            else:
                 stepper_x = config.getsection("stepper_x")
-                self.touch_location[0] = stepper_x.getfloat("position_max") / 2
-        else:
-            self.touch_location[0] = float(self.touch_location[0])
-
-        # Handle the Y location
-        if self.touch_location[1] == "None":
-            if config.has_section("stepper_y"):
+                use_x = stepper_x.getfloat("position_max") / 2
                 stepper_y = config.getsection("stepper_y")
-                self.touch_location[1] = stepper_y.getfloat("position_max") / 2
-        else:
-            self.touch_location[1] = float(self.touch_location[1])
-            
+                use_y = stepper_y.getfloat("position_max") / 2
+                raise self.printer.command_error(f"Please update your [bed_mesh] section to include zero_reference_position: {use_x:.2f},{use_y:.2f} in printer.cfg.\nPlease read the manual")
+          
         atypes = {"median": "median", "average": "average"}
         self.samples_config = {
             'samples': config.getfloat("samples",5, above=0.),
