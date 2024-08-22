@@ -1,4 +1,4 @@
-# IDM, Cartographer 3D, and OpenBedScanner Script v3.0.0 w/ Temperature Compensation and Cartgorapher Survey
+# IDM, Cartographer 3D, and OpenBedScanner Script v3.0.1 w/ Temperature Compensation and Cartgorapher Survey
 #
 # To buy affordable bed scanners, check out https://cartographer3d.com
 # 
@@ -1443,7 +1443,9 @@ class Scanner:
 
         original_trigger_method = self.trigger_method
         original_threshold = self.detect_threshold_z
-
+        touch_location_x = gcmd.get_float("TOUCH_LOCATION_X", float(self.touch_location[0]))
+        touch_location_y = gcmd.get_float("TOUCH_LOCATION_Y", float(self.touch_location[1]))
+        self._move([touch_location_x, touch_location_y, None], 40)
         current_threshold = threshold_min
         best_threshold = current_threshold
         best_threshold_range = float("inf")
@@ -1508,15 +1510,18 @@ class Scanner:
 
     def _save_threshold(self, threshold):
         configfile = self.printer.lookup_object('configfile')
-        configfile.set("scanner", "detect_threshold_z", "%d" % int(threshold))
+        configfile.set("scanner", "scanner_touch_threshold", "%d" % int(threshold))
 
     cmd_SCANNER_THRESHOLD_TEST_help = "Home using touch and check with coil to see how consistent it is"
     def cmd_SCANNER_THRESHOLD_TEST(self, gcmd):
         threshold = gcmd.get_int("THRESHOLD", self.detect_threshold_z)
+        
         sample_count = gcmd.get_int("SAMPLES", 5, minval=1)
         skip_samples = gcmd.get_int("SKIP", 0)
         lift_speed = self.get_lift_speed(gcmd)
-
+        touch_location_x = gcmd.get_float("TOUCH_LOCATION_X", float(self.touch_location[0]))
+        touch_location_y = gcmd.get_float("TOUCH_LOCATION_Y", float(self.touch_location[1]))
+        self._move([touch_location_x, touch_location_y, None], 40)
         gcmd.respond_info("Threshold Testing"
                   " (samples=%d threshold=%d skip=%d)\n"
                   % (sample_count, threshold, skip_samples))
