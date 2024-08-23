@@ -25,6 +25,8 @@ import struct
 import numpy as np
 import copy
 import csv
+import matplotlib.pyplot as plt
+from matplotlib.ticker import FuncFormatter
 from numpy.polynomial import Polynomial
 from . import manual_probe
 from . import probe
@@ -1447,14 +1449,15 @@ class Scanner:
         best_threshold_range = float("inf")
         self.toolhead.wait_moves()
         
-        # Prepare the CSV file for writing
-        fn = "/tmp/scanner_threshold_scan-" + time.strftime("%Y%m%d_%H%M%S") + ".csv"
-        csvfile = open(fn, "w", newline='')
+        if debug == 1:
+            # Prepare the CSV file for writing
+            csv_filename = "/tmp/scanner_threshold_scan-" + time.strftime("%Y%m%d_%H%M%S") + ".csv"
+            csvfile = open(csv_filename, "w", newline='')
 
         try:
             if debug == 1:
                 csvwriter = csv.writer(csvfile)
-                csvwriter.writerow(["Sample Number", "Position (Z)", "Time (s)"])
+                csvwriter.writerow(["Sample Number", "Position (Z)", "Time (s)", "Threshold"])
             
             # Change method to touch
             self.trigger_method=1
@@ -1467,7 +1470,7 @@ class Scanner:
                 for pos in result.positions:
                     sample_number += 1
                     if debug == 1:
-                        csvwriter.writerow([sample_number, pos[2], time.time()])
+                        csvwriter.writerow([sample_number, pos[2], time.time(), current_threshold])
 
                 if result.range_value <= range_value and result.range_value < best_threshold_range:
                     gcmd.respond_info("Threshold value %d has promising repeatability over %d samples within  %.6f range (current best %.6f at %d), verifying over %d ..." % (current_threshold, qualify_samples, result.range_value, best_threshold_range, best_threshold, verify_samples))
@@ -1475,7 +1478,7 @@ class Scanner:
                     for pos in result.positions:
                         sample_number += 1
                         if debug == 1:
-                            csvwriter.writerow([sample_number, pos[2], time.time()])
+                            csvwriter.writerow([sample_number, pos[2], time.time(), current_threshold])
                     gcmd.respond_info(
                         "Threshold verification: threshold value %d, threshold quality: %r,  maximum %.6f, minimum %.6f, range %.6f, "
                         "average %.6f, median %.6f, standard deviation %.6f, %d/%d within 0.1 range, %d early, %d late, %d skipped" % (
@@ -1511,7 +1514,9 @@ class Scanner:
             else:
                 self.detect_threshold_z = original_threshold
             self.trigger_method = original_trigger_method
-
+        if debug == 1:
+            # Generate graph from CSV
+            self.generate_graph_from_csv(csv_filename, gcmd)
 
     def _get_threshold_quality(self, threshold):
       if threshold <= 0.0125:     
@@ -1756,7 +1761,53 @@ class Scanner:
             "probe accuracy results: maximum %.6f, minimum %.6f, range %.6f, "
             "average %.6f, median %.6f, standard deviation %.6f" % (
             result.max_value, result.min_value, result.range_value, result.avg_value, result.median, result.sigma))
+            
+    def generate_graph_from_csv(self, csv_filename, gcmd):
+        try:
+            # Read the CSV file manually
+            sample_numbers = []
+            positions = []
+            times = []
+            thresholds = []
 
+            with open(csv_filename, 'r') as csvfile:
+                csvreader = csv.reader(csvfile)
+                next(csvreader)  # Skip the header
+                for row in csvreader:
+                    sample_numbers.append(int(row[0]))
+                    positions.append(float(row[1]))
+                    times.append(float(row[2]))
+                    thresholds.append(int(row[3]))
+
+            # Plotting using matplotlib
+            fig, ax1 = plt.subplots(figsize=(10, 6))
+
+            # Plot Position on the left y-axis
+            ax1.plot(sample_numbers, positions, marker='o', linestyle='-', color='b', label='Position (Z)')
+            ax1.set_title("Threshold Scan Results")
+            ax1.set_xlabel("Sample Number")
+            ax1.set_ylabel("Position (Z)")
+            ax1.yaxis.set_major_formatter(FuncFormatter(lambda x, _: f'{x:.3f}'))
+
+            # Plot Time on the right y-axis
+            ax2 = ax1.twinx()
+            ax2.plot(sample_numbers, times, marker='x', linestyle='--', color='r', label='Time (s)')
+            ax2.set_ylabel("Time (s)")
+            ax2.yaxis.set_major_formatter(FuncFormatter(lambda x, _: f'{x:.3f}'))
+
+            # Annotate threshold values on the plot
+            for i, txt in enumerate(thresholds):
+                ax1.annotate(f'{txt}', (sample_numbers[i], positions[i]), textcoords="offset points", xytext=(0,10), ha='center')
+
+            # Save the graph as a PNG file
+            png_filename = csv_filename.replace(".csv", ".png")
+            plt.tight_layout()
+            plt.savefig(png_filename)
+
+            gcmd.respond_info(f"Graph saved as {png_filename}")
+        except Exception as e:
+            gcmd.respond_error(f"An error occurred while generating the graph: {e}")
+            
     def _probe_accuracy_check(self, speed, skip_samples, sample_count, sample_retract_dist, allow_faulty, lift_speed, verbose=True, abort_range=float("inf")):
         pos = self.toolhead.get_position()
 
