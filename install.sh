@@ -10,6 +10,13 @@
 
 KDIR="${HOME}/klipper"
 KENV="${HOME}/klippy-env"
+
+IS_K1_OS=0
+if grep -Fqs "ID=buildroot" /etc/os-release; then
+  KDIR="/usr/share/klipper"
+  KENV="/usr/share/klippy-env"
+  IS_K1_OS=1
+fi
 PYTHON_EXEC="$KENV/bin/python"
 
 BKDIR="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
@@ -19,9 +26,12 @@ if [ ! -d "$KDIR" ] || [ ! -d "$KENV" ]; then
     exit 1
 fi
 
-# install Cartographer requirements to env
-echo "Cartographer: installing python requirements to env, this may take 10+ minutes."
-"${KENV}/bin/pip" install -r "${BKDIR}/requirements.txt"
+# skip trying to setup requirements if running from a K1
+if [[ $IS_K1_OS -ne 1 ]]; then
+  # install Cartographer requirements to env
+  echo "Cartographer: installing python requirements to env, this may take 10+ minutes."
+  "${KENV}/bin/pip" install -r "${BKDIR}/requirements.txt"
+fi
 
 # update link to scanner.py, cartographer.py & idm.py
 echo "Cartographer: linking modules into klipper"
