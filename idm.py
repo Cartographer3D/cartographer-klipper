@@ -22,6 +22,7 @@ import json
 import struct
 import numpy as np
 import copy
+import os
 from numpy.polynomial import Polynomial
 from . import manual_probe
 from . import probe
@@ -45,6 +46,11 @@ class IDMProbe:
         self.lift_speed = config.getfloat("lift_speed", self.speed, above=0.0)
         self.backlash_comp = config.getfloat("backlash_comp", 0.5)
 
+        if config.get("temp_sensor_override", None):
+            self.thermistor_override = config.printer.load_object(config, "temperature_sensor " + config.get("temp_sensor_override"))
+        else:
+            self.thermistor_override = None
+            
         self.x_offset = config.getfloat("x_offset", 0.0)
         self.y_offset = config.getfloat("y_offset", 0.0)
         self.z_offset = config.getfloat("z_offset", 0.0)
@@ -647,8 +653,11 @@ class IDMProbe:
         sample["time"] = self._mcu.clock_to_print_time(clock)
 
     def _enrich_sample_temp(self, sample):
-        temp_adc = sample["temp"] / self.temp_smooth_count * self.inv_adc_max
-        sample["temp"] = self.thermistor.calc_temp(temp_adc)
+        if self.thermistor_override is None:
+            temp_adc = sample["temp"] / self.temp_smooth_count * self.inv_adc_max
+            sample["temp"] = self.thermistor.calc_temp(temp_adc)
+        else:
+            sample["temp"], _ = self.thermistor_override.get_temp(sample["time"])
 
     def _enrich_sample_freq(self, sample):
         sample["data_smooth"] = self._data_filter.value()
@@ -731,7 +740,8 @@ class IDMProbe:
                         self.reactor.update_timer(self._stream_timeout_timer,
                                 curtime + STREAM_TIMEOUT)
                         updated_timer = True
-
+                        
+                    self._enrich_sample_time(sample)
                     self._enrich_sample_temp(sample)
                     temp = sample["temp"]
                     if self.model_temp is not None and not (-40 < temp < 180):
@@ -746,7 +756,6 @@ class IDMProbe:
                         self.measured_min = min(self.measured_min, temp)
                         self.measured_max = max(self.measured_max, temp)
 
-                    self._enrich_sample_time(sample)
                     self._data_filter.update(sample["time"], sample["data"])
                     self._enrich_sample_freq(sample)
                     self._enrich_sample(sample)
@@ -984,7 +993,7 @@ class IDMProbe:
         else:
             f = None
             completion_cb = None
-            fn = gcmd.get("FILENAME")
+            fn = os.path.join("/tmp", gcmd.get("FILENAME"))
             f = open(fn, "w")
             def close_file():
                 f.close()
