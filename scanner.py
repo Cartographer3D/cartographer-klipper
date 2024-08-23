@@ -24,6 +24,7 @@ import json
 import struct
 import numpy as np
 import copy
+import csv
 from numpy.polynomial import Polynomial
 from . import manual_probe
 from . import probe
@@ -50,7 +51,7 @@ TOUCH_SCALE = 0.0625 * adxl345.FREEFALL_ACCEL  # 62.5mg/LSB * Earth gravity in m
 ADXL345_REST_TIME = .1
 
 class ThresholdResults:
-    def __init__(self, max_value, min_value, range_value, avg_value, median, sigma, in_range, early, late, nb_samples):
+    def __init__(self, max_value, min_value, range_value, avg_value, median, sigma, in_range, early, late, nb_samples, positions):
      self.max_value = max_value
      self.min_value = min_value
      self.range_value = range_value
@@ -61,6 +62,7 @@ class ThresholdResults:
      self.early = early
      self.late = late
      self.nb_samples = nb_samples
+     self.positions = positions
 
 class Scanner:
     def __init__(self, config):
@@ -1430,6 +1432,7 @@ class Scanner:
         qualify_samples = skip_samples + qualify_samples
         verify_samples = gcmd.get_int("VERIFY_SAMPLES", 5)
         skip_samples = gcmd.get_int("SKIP", 0)
+        debud = gcmd.get_int("DEBUG", 0)
         target = gcmd.get_float("TARGET", 0.08, minval=0)
         range_value = gcmd.get_float("RANGE_VALUE", 0.05, minval=0.0125)
         lift_speed = self.get_lift_speed(gcmd)
@@ -1443,17 +1446,33 @@ class Scanner:
         best_threshold = current_threshold
         best_threshold_range = float("inf")
         self.toolhead.wait_moves()
+        
+        # Prepare the CSV file for writing
+        fn = "/tmp/scanner_threshold_scan-" + time.strftime("%Y%m%d_%H%M%S") + ".csv"
+        csvfile = open(fn, "w", newline='')
+
         try:
+            csvwriter = csv.writer(csvfile)
+            csvwriter.writerow(["Sample Number", "Position (Z)", "Time (s)"])
+            
             # Change method to touch
             self.trigger_method=1
+            sample_number = 0
             while (current_threshold <= threshold_max):
                 gcmd.respond_info("Testing Threshold value %d..." % (current_threshold))
                 self.detect_threshold_z = current_threshold
 
                 result = self._probe_accuracy_check(self.probe_speed, skip_samples, qualify_samples, 5, False, lift_speed, False, best_threshold_range)
+                for pos in result.positions:
+                    sample_number += 1
+                    csvwriter.writerow([sample_number, pos[2], time.time()])
+
                 if result.range_value <= range_value and result.range_value < best_threshold_range:
                     gcmd.respond_info("Threshold value %d has promising repeatability over %d samples within  %.6f range (current best %.6f at %d), verifying over %d ..." % (current_threshold, qualify_samples, result.range_value, best_threshold_range, best_threshold, verify_samples))
                     result = self._probe_accuracy_check(self.probe_speed, skip_samples, verify_samples, 5, False, lift_speed, False, best_threshold_range)
+                    for pos in result.positions:
+                        sample_number += 1
+                        csvwriter.writerow([sample_number, pos[2], time.time()])
                     gcmd.respond_info(
                         "Threshold verification: threshold value %d, threshold quality: %r,  maximum %.6f, minimum %.6f, range %.6f, "
                         "average %.6f, median %.6f, standard deviation %.6f, %d/%d within 0.1 range, %d early, %d late, %d skipped" % (
@@ -1479,7 +1498,10 @@ class Scanner:
             gcmd.respond_info("Best threshold value is %d, quality level is %r, range is %.6f" % (best_threshold, self._get_threshold_quality(best_threshold_range), best_threshold_range))
             if best_threshold_range <= target:
                 gcmd.respond_info("Saved threshold value %d as it is better than target %.3f \nRun SAVE_CONFIG to save this to your printer.cfg and restart" % (best_threshold, target))
+        except Exception as e:
+            gcmd.respond_error(f"An error occurred during the threshold scan: {e}")
         finally:
+            csvfile.close()  # Ensure the CSV file is properly closed
             if best_threshold != original_threshold:
                 self.detect_threshold_z = best_threshold
             else:
@@ -1588,11 +1610,11 @@ class Scanner:
               deviation_sum += pow(zs[i] - avg_value, 2.)
           sigma = (deviation_sum / len(zs)) ** 0.5
     
-          return ThresholdResults(max_value, min_value, range_value, avg_value, median_, sigma, in_range, early, late, len(zs))
+          return ThresholdResults(max_value, min_value, range_value, avg_value, median_, sigma, in_range, early, late, len(zs), positions)
         except:
           self.trigger_method = 0
           self.gcode.run_script_from_command("G28")
-          return ThresholdResults(float("inf"), float("inf"), float("inf"), float("inf"), float("inf"), float("inf"), 0, 0, 0, 0)
+          return ThresholdResults(float("inf"), float("inf"), float("inf"), float("inf"), float("inf"), float("inf"), 0, 0, 0, 0, positions)
         finally:
           # Change method to scan
           self.trigger_method = 0
@@ -1772,7 +1794,7 @@ class Scanner:
                 cur_range_value = max(cur_zs) - min(cur_zs) if cur_zs else 0
         zs = [p[2] for p in positions[skip_samples:]]
         if not zs:
-            return ThresholdResults(float('inf'), float('-inf'), float('inf'), float('inf'), float('inf'), float('inf'), 0, 0, 0, 0)
+            return ThresholdResults(float('inf'), float('-inf'), float('inf'), float('inf'), float('inf'), float('inf'), 0, 0, 0, 0, positions)
     
         max_value = max(zs)
         min_value = min(zs)
@@ -1783,7 +1805,7 @@ class Scanner:
         in_range = 0
         early = 0
         late = 0
-
+        
         for sampl in zs:
             if abs(median_ - sampl) < 0.05:
                 in_range += 1
@@ -1791,13 +1813,13 @@ class Scanner:
                 early += 1
             else:
                 late += 1
-
+        
         deviation_sum = 0
         for i in range(len(zs)):
             deviation_sum += pow(zs[i] - avg_value, 2.)
         sigma = (deviation_sum / len(zs)) ** 0.5
-
-        return ThresholdResults(max_value, min_value, range_value, avg_value, median_, sigma, in_range, early, late, len(zs))
+        
+        return ThresholdResults(max_value, min_value, range_value, avg_value, median_, sigma, in_range, early, late, len(zs), positions)
 
     cmd_Z_OFFSET_APPLY_PROBE_help = "Adjust the probe's z_offset"
     def cmd_Z_OFFSET_APPLY_PROBE(self, gcmd):
