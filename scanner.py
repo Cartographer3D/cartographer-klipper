@@ -1462,6 +1462,7 @@ class Scanner:
             # Change method to touch
             self.trigger_method=1
             sample_number = 0
+            start_time = time.time()
             while (current_threshold <= threshold_max):
                 gcmd.respond_info("Testing Threshold value %d..." % (current_threshold))
                 self.detect_threshold_z = current_threshold
@@ -1470,7 +1471,8 @@ class Scanner:
                 for pos in result.positions:
                     sample_number += 1
                     if debug == 1:
-                        csvwriter.writerow([sample_number, pos[2], time.time(), current_threshold])
+                        elapsed_time = time.time() - start_time
+                        csvwriter.writerow([sample_number, pos[2], elapsed_time, current_threshold])
 
                 if result.range_value <= range_value and result.range_value < best_threshold_range:
                     gcmd.respond_info("Threshold value %d has promising repeatability over %d samples within  %.6f range (current best %.6f at %d), verifying over %d ..." % (current_threshold, qualify_samples, result.range_value, best_threshold_range, best_threshold, verify_samples))
@@ -1478,7 +1480,8 @@ class Scanner:
                     for pos in result.positions:
                         sample_number += 1
                         if debug == 1:
-                            csvwriter.writerow([sample_number, pos[2], time.time(), current_threshold])
+                            elapsed_time = time.time() - start_time
+                            csvwriter.writerow([sample_number, pos[2], elapsed_time, current_threshold])
                     gcmd.respond_info(
                         "Threshold verification: threshold value %d, threshold quality: %r,  maximum %.6f, minimum %.6f, range %.6f, "
                         "average %.6f, median %.6f, standard deviation %.6f, %d/%d within 0.1 range, %d early, %d late, %d skipped" % (
