@@ -1561,7 +1561,7 @@ class Scanner:
             # Prepare the CSV file for writing
             csv_filename = "/tmp/scanner_threshold_test-" + time.strftime("%Y%m%d_%H%M%S") + ".csv"
             csvfile = open(csv_filename, "w", newline='')
-
+        sample_number = 0
         try:
 
             if debug == 1:
