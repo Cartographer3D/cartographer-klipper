@@ -1568,7 +1568,7 @@ class Scanner:
                 csvwriter = csv.writer(csvfile)
                 csvwriter.writerow(["Sample Number", "Position (Z)", "Time (s)", "Threshold"])
             
-
+            start_time = time.time()
             self.trigger_method=1
             self.detect_threshold_z = threshold
             result = self._probe_accuracy_check(self.probe_speed, skip_samples, sample_count, 5, False, lift_speed)
@@ -1576,7 +1576,7 @@ class Scanner:
                 sample_number += 1
                 if debug == 1:
                     elapsed_time = time.time() - start_time
-                    csvwriter.writerow([sample_number, pos[2], elapsed_time, current_threshold])
+                    csvwriter.writerow([sample_number, pos[2], elapsed_time, threshold])
 
             gcmd.respond_info(
                 "scanner threshold results: threshold quality: %r,  maximum %.6f, minimum %.6f, range %.6f, "
