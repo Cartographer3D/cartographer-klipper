@@ -26,7 +26,9 @@ import numpy as np
 import copy
 import csv
 import matplotlib.pyplot as plt
-from matplotlib.ticker import FuncFormatter
+import matplotlib.ticker as ticker
+#from matplotlib.ticker import FuncFormatter
+#from matplotlib.ticker import MaxNLocator
 from numpy.polynomial import Polynomial
 from . import manual_probe
 from . import probe
@@ -1542,7 +1544,7 @@ class Scanner:
     cmd_SCANNER_THRESHOLD_TEST_help = "Home using touch and check with coil to see how consistent it is"
     def cmd_SCANNER_THRESHOLD_TEST(self, gcmd):
         threshold = gcmd.get_int("THRESHOLD", self.detect_threshold_z)
-        
+        debug = gcmd.get_int("DEBUG", 0)
         sample_count = gcmd.get_int("SAMPLES", 5, minval=1)
         skip_samples = gcmd.get_int("SKIP", 0)
         lift_speed = self.get_lift_speed(gcmd)
@@ -1556,10 +1558,27 @@ class Scanner:
         original_trigger_method = self.trigger_method
         original_threshold = self.detect_threshold_z
         self.toolhead.wait_moves()
+       
+        if debug == 1:
+            # Prepare the CSV file for writing
+            csv_filename = "/tmp/scanner_threshold_scan-" + time.strftime("%Y%m%d_%H%M%S") + ".csv"
+            csvfile = open(csv_filename, "w", newline='')
+
         try:
+
+            if debug == 1:
+                csvwriter = csv.writer(csvfile)
+                csvwriter.writerow(["Sample Number", "Position (Z)", "Time (s)", "Threshold"])
+            
+
             self.trigger_method=1
             self.detect_threshold_z = threshold
             result = self._probe_accuracy_check(self.probe_speed, skip_samples, sample_count, 5, False, lift_speed)
+            for pos in result.positions:
+                sample_number += 1
+                if debug == 1:
+                    elapsed_time = time.time() - start_time
+                    csvwriter.writerow([sample_number, pos[2], elapsed_time, current_threshold])
 
             gcmd.respond_info(
                 "scanner threshold results: threshold quality: %r,  maximum %.6f, minimum %.6f, range %.6f, "
@@ -1568,6 +1587,12 @@ class Scanner:
         finally:
             self.detect_threshold_z = original_threshold
             self.trigger_method = original_trigger_method
+            if debug == 1:
+                csvfile.close()  # Ensure the CSV file is properly closed
+        if debug == 1:
+            # Generate graph from CSV
+            self.generate_graph_from_csv(csv_filename, gcmd)
+    
 
     def _test_threshold(self, threshold, sample_count):
         toolhead = self.printer.lookup_object('toolhead')
@@ -1789,6 +1814,7 @@ class Scanner:
             ax1.plot(sample_numbers, positions, marker='o', linestyle='-', color='b', label='Position (Z)')
             ax1.set_title("Threshold Scan Results")
             ax1.set_xlabel("Sample Number")
+            ax1.xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
             ax1.set_ylabel("Position (Z)")
             ax1.yaxis.set_major_formatter(FuncFormatter(lambda x, _: f'{x:.3f}'))
 
