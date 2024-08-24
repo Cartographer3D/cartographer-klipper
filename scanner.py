@@ -85,7 +85,6 @@ class Scanner:
 
 
         self.model_temp_warning_disable = config.getint("model_temp_warning_disable", 0)
-        self.survey_temp = config.getint("survey_temp", 150)
         self.probe_speed = config.getfloat("probe_speed", self.speed)
         
         if config.has_section("bed_mesh"):
@@ -160,11 +159,12 @@ class Scanner:
             'move_speed': config.getfloat("scanner_touch_move_speed", 50, minval=1),
             'calibrate': config.getfloat("scanner_touch_calibrate", 0),
             'z_offset': config.getfloat("scanner_touch_z_offset", 0.05),
-            'threshold': config.getint("scanner_touch_threshold", 2500)
+            'threshold': config.getint("scanner_touch_threshold", 2500),
+            'max_temp': config.getfloat("scanner_touch_max_temp", 150)
         }
         self.gcode = self.printer.lookup_object("gcode")
-        
         self.probe_calibrate_z = 0.
+        
         if config.getint("detect_threshold_z", None) is not None:
             raise self.printer.command_error("Please change detect_threshold_z to scanner_touch_threshold in printer.cfg")
         self.detect_threshold_z = self.scanner_touch_config["threshold"]
@@ -349,7 +349,8 @@ class Scanner:
         else:
             self.trigger_method = 0
             raise gcmd.error("Must use touch or adxl mode. Check your config before trying again.")
-            
+        
+        self.check_temp(gcmd)
         self.log_debug_info(verbose, gcmd, f"Trigger Method: {self.trigger_method}")
             
         self.toolhead.wait_moves()
@@ -402,6 +403,8 @@ class Scanner:
                 self.trigger_method = 0
                 gcmd.respond_info("Touch procedure failed.")
             self._zhop()
+            self.set_temp(gcmd)
+            self.extruder_target = 0
             
     # Event handlers
     def start_touch(self, gcmd, touch_settings, verbose):
@@ -540,7 +543,36 @@ class Scanner:
         if verbose:
             for message in args:
                 gcmd.respond_info(str(message))
-            
+                
+    def check_temp(self,gcmd):
+        hotend = self.toolhead.get_extruder()
+        if hotend is not None:
+            curtime = self.printer.get_reactor().monotonic()
+            cur_temp = hotend.get_heater().get_status(curtime)["temperature"]
+            self.extruder_target = hotend.get_heater().get_status(curtime)["target"]
+            max_temp = self.scanner_touch_config['max_temp']
+            if self.extruder_target > max_temp:
+                gcmd.respond_info("Target hotend temperature %.1f exceeds maximum allowed temperature %.1f lowering to %.1f" % (cur_temp, max_temp, max_temp))
+                cmd = "M104 S"+str(max_temp)
+                self.gcode.run_script_from_command(cmd)
+                cmd = f"TEMPERATURE_WAIT SENSOR=extruder MAXIMUM={max_temp}"
+                self.gcode.run_script_from_command(cmd)
+            else:
+                if cur_temp > max_temp:
+                    gcmd.respond_info('Extruder temperature %.1fC is still too high, waiting until below %.1fC' % (cur_temp, max_temp))
+                    cmd = f"TEMPERATURE_WAIT SENSOR=extruder MAXIMUM={max_temp}"
+                    self.gcode.run_script_from_command(cmd)
+                    
+    def set_temp(self,gcmd):
+        hotend = self.toolhead.get_extruder()
+        if hotend is not None:
+            curtime = self.printer.get_reactor().monotonic()
+            cur_temp = hotend.get_heater().get_status(curtime)["temperature"]
+            if self.extruder_target > cur_temp:
+                gcmd.respond_info("Heating hotend to %.1f" % (self.extruder_target))
+                cmd = "M109 S"+str(self.extruder_target)
+                self.gcode.run_script_from_command(cmd)
+                
     def run_touch_probe(self, gcmd):
         speed = gcmd.get_float("PROBE_SPEED", self.probe_speed, above=0.)
         
@@ -616,6 +648,7 @@ class Scanner:
             self._move([touch_location_x, touch_location_y, None], 40)
             curpos = self.run_touch_probe(gcmd)
             gcode_move = self.printer.lookup_object("gcode_move")
+            self.check_temp(gcmd)
             offset = gcode_move.get_status()["homing_origin"].z
             self.probe_calibrate_z = offset - curpos[2]
             self.probe_calibrate_finalize([0,0,self.offset['z']])
@@ -1475,6 +1508,7 @@ class Scanner:
         best_threshold = current_threshold
         best_threshold_range = float("inf")
         self.toolhead.wait_moves()
+        self.check_temp(gcmd)
         try:
             # Change method to touch
             self.trigger_method=1
@@ -1558,6 +1592,7 @@ class Scanner:
         original_trigger_method = self.trigger_method
         original_threshold = self.detect_threshold_z
         self.toolhead.wait_moves()
+        self.check_temp(gcmd)
         try:
             self.set_accel(accel)
             self.trigger_method=1
@@ -1860,7 +1895,7 @@ class Scanner:
             self.scanner_touch_config['z_offset'] += offset
             configfile = self.printer.lookup_object('configfile')
             configfile.set("scanner", "scanner_touch_z_offset", "%.3f" % self.scanner_touch_config['z_offset'])
-            gcmd.respond_info(f"Touch offset has been updated by {offset:.3f}.\n"
+            gcmd.respond_info(f"Touch offset has been updated by {offset:.3f} to {self.scanner_touch_config['z_offset']:.3f}.\n"
                     "You must run the SAVE_CONFIG command now to update the\n"
                     "printer config file and restart the printer.")
 
