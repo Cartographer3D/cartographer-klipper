@@ -1519,7 +1519,7 @@ class Scanner:
             self.trigger_method = original_trigger_method
         if debug == 1:
             # Generate graph from CSV
-            self.generate_graph_from_csv(csv_filename, gcmd)
+            self.generate_graph_from_csv(csv_filename, gcmd, test_type="scan")
 
     def _get_threshold_quality(self, threshold):
       if threshold <= 0.0125:     
@@ -1561,21 +1561,20 @@ class Scanner:
             # Prepare the CSV file for writing
             csv_filename = "/tmp/scanner_threshold_test-" + time.strftime("%Y%m%d_%H%M%S") + ".csv"
             csvfile = open(csv_filename, "w", newline='')
+            csvwriter = csv.writer(csvfile)
+            csvwriter.writerow(["Sample Number", "Position (Z)", "Time (s)", "Threshold"])
         sample_number = 0
         try:
-
-            if debug == 1:
-                csvwriter = csv.writer(csvfile)
-                csvwriter.writerow(["Sample Number", "Position (Z)", "Time (s)", "Threshold"])
-            
-            start_time = time.time()
-            self.trigger_method=1
+            self.trigger_method = 1
             self.detect_threshold_z = threshold
-            result = self._probe_accuracy_check(self.probe_speed, skip_samples, sample_count, 5, False, lift_speed)
-            for pos in result.positions:
+            for _ in range(sample_count):
+                start_time = time.time()  # Capture the start time for each probe
+                result = self._probe_accuracy_check(self.probe_speed, skip_samples, 1, 5, False, lift_speed)
+                pos = result.positions[0]  # Assuming _probe_accuracy_check returns a list of positions
                 sample_number += 1
+                elapsed_time = time.time() - start_time  # Calculate elapsed time
+
                 if debug == 1:
-                    elapsed_time = time.time() - start_time
                     csvwriter.writerow([sample_number, pos[2], elapsed_time, threshold])
 
             gcmd.respond_info(
@@ -1587,10 +1586,10 @@ class Scanner:
             self.trigger_method = original_trigger_method
             if debug == 1:
                 csvfile.close()  # Ensure the CSV file is properly closed
+
         if debug == 1:
             # Generate graph from CSV
-            self.generate_graph_from_csv(csv_filename, gcmd)
-    
+            self.generate_graph_from_csv(csv_filename, gcmd, test_type="test")
 
     def _test_threshold(self, threshold, sample_count):
         toolhead = self.printer.lookup_object('toolhead')
@@ -1788,7 +1787,7 @@ class Scanner:
             "average %.6f, median %.6f, standard deviation %.6f" % (
             result.max_value, result.min_value, result.range_value, result.avg_value, result.median, result.sigma))
             
-    def generate_graph_from_csv(self, csv_filename, gcmd):
+    def generate_graph_from_csv(self, csv_filename, gcmd, test_type="scan"):
         try:
             # Read the CSV file manually
             sample_numbers = []
@@ -1810,7 +1809,6 @@ class Scanner:
 
             # Plot Position on the left y-axis
             ax1.plot(sample_numbers, positions, marker='o', linestyle='-', color='b', label='Position (Z)')
-            ax1.set_title("Threshold Scan Results")
             ax1.set_xlabel("Sample Number")
             ax1.set_ylabel("Position (Z)")
             ax1.yaxis.set_major_formatter(FuncFormatter(lambda x, _: f'{x:.3f}'))
@@ -1824,6 +1822,14 @@ class Scanner:
             # Annotate threshold values on the plot
             for i, txt in enumerate(thresholds):
                 ax1.annotate(f'{txt}', (sample_numbers[i], positions[i]), textcoords="offset points", xytext=(0,10), ha='center')
+
+            # Set the title based on the test type
+            if test_type == "scan":
+                ax1.set_title("Threshold Scan Results")
+            elif test_type == "test":
+                ax1.set_title("Threshold Test Results")
+            else:
+                ax1.set_title("Test Results")
 
             # Save the graph as a PNG file
             png_filename = csv_filename.replace(".csv", ".png")
