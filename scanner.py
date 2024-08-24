@@ -1454,7 +1454,7 @@ class Scanner:
             # Prepare the CSV file for writing
             csv_filename = "/tmp/scanner_threshold_scan-" + time.strftime("%Y%m%d_%H%M%S") + ".csv"
             csvfile = open(csv_filename, "w", newline='')
-
+        sample_number = 0
         try:
             if debug == 1:
                 csvwriter = csv.writer(csvfile)
@@ -1462,7 +1462,6 @@ class Scanner:
             
             # Change method to touch
             self.trigger_method=1
-            sample_number = 0
             start_time = time.time()
             while (current_threshold <= threshold_max):
                 gcmd.respond_info("Testing Threshold value %d..." % (current_threshold))
@@ -1552,8 +1551,8 @@ class Scanner:
         self._move([touch_location_x, touch_location_y, None], 40)
         gcmd.respond_info("Threshold Testing"
                   " (samples=%d threshold=%d skip=%d)\n"
-                  % (sample_count, threshold, skip_samples))
 
+                  % (sample_count, threshold, skip_samples))
         original_trigger_method = self.trigger_method
         original_threshold = self.detect_threshold_z
         self.toolhead.wait_moves()
