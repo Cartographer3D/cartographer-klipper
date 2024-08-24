@@ -27,8 +27,7 @@ import copy
 import csv
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
-#from matplotlib.ticker import FuncFormatter
-#from matplotlib.ticker import MaxNLocator
+from matplotlib.ticker import FuncFormatter
 from numpy.polynomial import Polynomial
 from . import manual_probe
 from . import probe
@@ -1561,7 +1560,7 @@ class Scanner:
        
         if debug == 1:
             # Prepare the CSV file for writing
-            csv_filename = "/tmp/scanner_threshold_scan-" + time.strftime("%Y%m%d_%H%M%S") + ".csv"
+            csv_filename = "/tmp/scanner_threshold_test-" + time.strftime("%Y%m%d_%H%M%S") + ".csv"
             csvfile = open(csv_filename, "w", newline='')
 
         try:
@@ -1814,7 +1813,6 @@ class Scanner:
             ax1.plot(sample_numbers, positions, marker='o', linestyle='-', color='b', label='Position (Z)')
             ax1.set_title("Threshold Scan Results")
             ax1.set_xlabel("Sample Number")
-            ax1.xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
             ax1.set_ylabel("Position (Z)")
             ax1.yaxis.set_major_formatter(FuncFormatter(lambda x, _: f'{x:.3f}'))
 
