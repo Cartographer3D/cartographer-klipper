@@ -155,7 +155,7 @@ class Scanner:
             'retract_speed': config.getfloat("scanner_touch_retract_speed", 10, minval=1),
             'sample_count': config.getfloat("scanner_touch_sample_count", 3, minval=1),
             'tolerance': config.getfloat("scanner_touch_tolerance", 0.01, above=0.0),
-            'max_retries': config.getfloat("scanner_touch_max_retries", 3, minval=0),
+            'max_retries': config.getfloat("scanner_touch_max_retries", 5, minval=0),
             'move_speed': config.getfloat("scanner_touch_move_speed", 50, minval=1),
             'calibrate': config.getfloat("scanner_touch_calibrate", 0),
             'z_offset': config.getfloat("scanner_touch_z_offset", 0.05),
