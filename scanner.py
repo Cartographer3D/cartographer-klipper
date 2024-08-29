@@ -2393,6 +2393,7 @@ class ScannerEndstopWrapper:
     def _handle_homing_move_end(self, hmove):
         if self.scanner.mcu_probe in hmove.get_mcu_endstops() and self.scanner.trigger_method == 2:
             self.scanner.mcu_probe.probe_finish(hmove)
+        self.scanner.trigger_method = 0
 
     def get_mcu(self):
         return self._mcu
