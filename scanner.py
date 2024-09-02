@@ -1042,7 +1042,7 @@ class Scanner:
                                  self, poly, temp_median,
                                  min(z_offset), max(z_offset))
         self.models[self.model.name] = self.model
-        self.model.save(self, not touch)
+        self.model.save(self)
         self._apply_threshold()
 
         self.toolhead.get_last_move_time()
@@ -2393,7 +2393,6 @@ class ScannerEndstopWrapper:
     def _handle_homing_move_end(self, hmove):
         if self.scanner.mcu_probe in hmove.get_mcu_endstops() and self.scanner.trigger_method == 2:
             self.scanner.mcu_probe.probe_finish(hmove)
-        self.scanner.trigger_method = 0
 
     def get_mcu(self):
         return self._mcu
