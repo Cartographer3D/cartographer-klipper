@@ -25,6 +25,11 @@ import struct
 import numpy as np
 import copy
 import os
+import csv
+import random
+import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
+from matplotlib.ticker import FuncFormatter
 from numpy.polynomial import Polynomial
 from . import manual_probe
 from . import probe
@@ -58,6 +63,7 @@ class ThresholdResults:
      self.avg_value = avg_value
      self.median = median
      self.sigma = sigma
+     self.in_range = in_range
      self.in_range = in_range
      self.early = early
      self.late = late
@@ -281,6 +287,8 @@ class Scanner:
                                             desc=self.cmd_SCANNER_ESTIMATE_BACKLASH_help)
                 self.gcode.register_command(sensor_name + "_TOUCH", self.cmd_SCANNER_TOUCH,
                                             desc=self.cmd_SCANNER_TOUCH_help)
+                self.gcode.register_command(sensor_name + "_TOUCH_SCAN", self.cmd_SCANNER_TOUCH_SCAN,
+                                            desc=self.cmd_SCANNER_TOUCH_SCAN_help)
         self.gcode.register_command("PROBE", self.cmd_PROBE,
                                     desc=self.cmd_PROBE_help)
         self.gcode.register_command("PROBE_ACCURACY", self.cmd_PROBE_ACCURACY,
@@ -315,6 +323,7 @@ class Scanner:
         retract_speed = gcmd.get_float("RETRACT_SPEED", self.scanner_touch_config['retract_speed'], minval=1)
         num_samples = gcmd.get_int("SAMPLES", self.scanner_touch_config['sample_count'], minval=1)
         tolerance = gcmd.get_float("TOLERANCE", self.scanner_touch_config['tolerance'], above=0.0)
+        tolerance = round(tolerance, 4)
         max_retries = gcmd.get_float("RETRIES", self.scanner_touch_config['max_retries'], minval=0)
         touch_location_x = gcmd.get_float("TOUCH_LOCATION_X", float(self.touch_location[0]))
         touch_location_y = gcmd.get_float("TOUCH_LOCATION_Y", float(self.touch_location[1]))
@@ -322,6 +331,7 @@ class Scanner:
         calibrate = gcmd.get_float("CALIBRATE", self.scanner_touch_config['calibrate'])
         manual_z_offset = gcmd.get_float("Z_OFFSET", self.scanner_touch_config['z_offset'], minval=0)
         test_threshold = gcmd.get_int("THRESHOLD", self.detect_threshold_z, minval=100)
+        randomize = gcmd.get_float("MOVE", 0, maxval=10)
         verbose = gcmd.get_int("DEBUG", 0)
         self.log_debug_info(verbose, gcmd,
             f"SPEED: {speed}",
@@ -335,7 +345,9 @@ class Scanner:
             f"TOUCH_LOCATION_X: {touch_location_x}",
             f"TOUCH_LOCATION_Y: {touch_location_y}",
             f"THRESHOLD: {test_threshold}",
-            f"Z_OFFSET: {manual_z_offset}"
+            f"Z_OFFSET: {manual_z_offset}",
+            f"DEBUG: {verbose}",
+            f"MOVE: {randomize}"
         )
             
         # Switch between Touch and ADXL probing
@@ -383,7 +395,7 @@ class Scanner:
             max_accel = self.toolhead.get_status(curtime)["max_accel"]
             self.log_debug_info(verbose, gcmd, f"Current Accel: {int(max_accel)}")
             
-            touch_settings = TouchSettings(initial_position, homing_position, accel, speed, retract_dist, retract_speed, num_samples, tolerance, max_retries, z_max, max_accel, test_threshold, manual_z_offset)
+            touch_settings = TouchSettings(initial_position, homing_position, accel, speed, retract_dist, retract_speed, num_samples, tolerance, max_retries, z_max, max_accel, test_threshold, manual_z_offset, randomize)
             result = self.start_touch(gcmd, touch_settings, verbose)
             
             samples = result["samples"]
@@ -405,8 +417,6 @@ class Scanner:
             self._zhop()
             self.set_temp(gcmd)
             self.extruder_target = 0
-            
-    # Event handlers
     def start_touch(self, gcmd, touch_settings, verbose):
         kinematics = self.toolhead.get_kinematics()
         initial_position = touch_settings.initial_position
@@ -422,7 +432,7 @@ class Scanner:
         max_accel = touch_settings.max_accel
         test_threshold = touch_settings.test_threshold
         manual_z_offset = touch_settings.manual_z_offset
-        
+        randomize = touch_settings.randomize
         original_threshold = self.detect_threshold_z
         try:
             self.detect_threshold_z = test_threshold
@@ -431,14 +441,34 @@ class Scanner:
             
             retries = 0
             gcmd.respond_info("Initiating Touch Procedure...")
-            
+            new_retry = 0
             samples = []
             
             while len(samples) < num_samples:
+                if retries > 0:
+                    gcmd.respond_info(f"Retry Attempt {int(retries)}")
+                    if randomize > 0 and new_retry == 1:
+                        # Generate random offsets within ±5 units for both x and y
+                        x_offset = random.uniform(-randomize, randomize)
+                        y_offset = random.uniform(-randomize, randomize)
+                        
+                        cur_pos = self.toolhead.get_position()[:]
+                        
+                        # Apply the random offset to your touch location (assume x, y are current coordinates)
+                        initial_position[0] = initial_position[0] + x_offset
+                        initial_position[1] = initial_position[1] + y_offset
+                        
+                        self.toolhead.move(initial_position, 20)
+                                             
+                        # Respond with the randomized movement info
+                        gcmd.respond_info(f"Moving touch location slightly by (x: {x_offset:.2f}, y: {y_offset:.2f})")
+                        new_retry = 0
+                        
+                        
                 self.toolhead.wait_moves()
                 self.set_accel(accel)
                 self.log_debug_info(verbose, gcmd, f"Set Acceleration to: {int(accel)}")
-                gcmd.respond_info(f"Executing Touch {len(samples) + 1} of {int(num_samples)}")
+                gcmd.respond_info(f"Executing Touch {len(samples) + 1} of {int(num_samples)} [{int(retries)}/{int(max_retries)}]")
                 
                 try:
                     probe_position = self.phoming.probing_move(self.mcu_probe, homing_position, speed)
@@ -461,7 +491,7 @@ class Scanner:
                 
                 average = np.mean(samples)
                 deviation = max(abs(sample - average) for sample in samples)
-                
+                deviation = round(deviation, 4)
                 if deviation > tolerance:
                     if retries >= max_retries:
                         self.trigger_method = 0
@@ -469,6 +499,7 @@ class Scanner:
                         raise gcmd.error(f"Exceeded maximum retries [{retries}/{int(max_retries)}]")
                     gcmd.respond_info(f"Deviation of {deviation:.4f} exceeds tolerance of {tolerance:.4f}, retrying...")
                     retries += 1
+                    new_retry = 1
                     samples.clear()
                 self.log_debug_info(verbose, gcmd, f"Deviation: {deviation:.4f}\nNew Average: {average:.4f}\nTolerance: {tolerance:.4f}")
             
@@ -504,7 +535,335 @@ class Scanner:
             if hasattr(kinematics, "note_z_not_homed"):
                 kinematics.note_z_not_homed()
             raise
+      
+    cmd_SCANNER_TOUCH_SCAN_help = "Scan THRESHOLD in TOUCH mode"
+
+    def cmd_SCANNER_TOUCH_SCAN(self, gcmd):
+        # Pull Variables from Command (Default from Config)
+        speed = gcmd.get_float("SPEED", self.scanner_touch_config['speed'], above=0, maxval=self.scanner_touch_config['max_speed'])
+        move_speed = gcmd.get_float("MOVEMENT_SPEED", self.scanner_touch_config['move_speed'], above=0)
+        accel = gcmd.get_float("ACCEL", self.scanner_touch_config['accel'], minval=1)
+        retract_dist = gcmd.get_float("RETRACT", self.scanner_touch_config['retract_dist'], minval=1)
+        retract_speed = gcmd.get_float("RETRACT_SPEED", self.scanner_touch_config['retract_speed'], minval=1)
+        num_samples = gcmd.get_int("SAMPLES", self.scanner_touch_config['sample_count'], minval=1)
+        tolerance = gcmd.get_float("TOLERANCE", self.scanner_touch_config['tolerance'], above=0.0)
+        max_retries = gcmd.get_float("RETRIES", self.scanner_touch_config['max_retries'], minval=0)
+        touch_location_x = gcmd.get_float("TOUCH_LOCATION_X", float(self.touch_location[0]))
+        touch_location_y = gcmd.get_float("TOUCH_LOCATION_Y", float(self.touch_location[1]))
         
+        tolerance = round(tolerance, 4)
+        threshold_min = gcmd.get_int("MIN", 500)
+        threshold_max = gcmd.get_int("MAX", 5000)
+        step = gcmd.get_int("STEP", 250)
+        override = gcmd.get_int("OVERRIDE", 0)
+        randomize = gcmd.get_float("MOVE", 0, maxval=10)
+        verbose = gcmd.get_int("DEBUG", 0)
+        
+        # Prepare for CSV logging and graphing
+        if verbose == 1:
+            csv_filename = f"/tmp/scanner_touch_scan_{time.strftime('%Y%m%d_%H%M%S')}.csv"
+            csvfile = open(csv_filename, "w", newline='')
+            csvwriter = csv.writer(csvfile)
+            csvwriter.writerow(["Sample Number", "Position (Z)", "Time (s)", "Threshold"])
+            sample_number = 0
+        
+        self.log_debug_info(verbose, gcmd,
+            f"SPEED: {speed}",
+            f"MOVEMENT_SPEED: {move_speed}",
+            f"ACCEL: {accel}",
+            f"RETRACT: {retract_dist}",
+            f"RETRACT_SPEED: {retract_speed}",
+            f"SAMPLES: {num_samples}",
+            f"TOLERANCE: {tolerance}",
+            f"RETRIES: {max_retries}",
+            f"TOUCH_LOCATION_X: {touch_location_x}",
+            f"TOUCH_LOCATION_Y: {touch_location_y}",
+            f"THRESHOLD MIN: {threshold_min}",
+            f"THRESHOLD MAX: {threshold_max}",
+            f"STEP: {step}",
+            f"DEBUG: {verbose}",
+            f"OVERRIDE: {override}",
+            f"MOVE: {randomize}"
+        )
+        
+        # Switch between Touch and ADXL probing
+        if self.calibration_method == "touch":
+            self.trigger_method = 1
+        elif self.calibration_method == "adxl":
+            self.trigger_method = 2
+            if self.adxl345 is None:
+                self.adxl345 = self.printer.lookup_object('adxl345')
+            self.init_adxl()
+        else:
+            self.trigger_method = 0
+            raise gcmd.error("Must use touch or adxl mode. Check your config before trying again.")
+        
+        self.check_temp(gcmd)
+        self.log_debug_info(verbose, gcmd, f"Trigger Method: {self.trigger_method}")
+        
+        self.toolhead.wait_moves()
+        
+        curtime = self.printer.get_reactor().monotonic()
+        kinematics = self.toolhead.get_kinematics()
+        kin_status = kinematics.get_status(curtime)
+        if "x" not in kin_status["homed_axes"] or "y" not in kin_status["homed_axes"]:
+            self.trigger_method = 0
+            raise gcmd.error("Must home X and Y axes first")
+        
+        self.previous_probe_success = 0
+        self.gcode.run_script_from_command("G28 Z")  # Home Z axis
+        self._move([touch_location_x, touch_location_y, None], move_speed)
+        
+        original_trigger_method = self.trigger_method
+        original_threshold = self.detect_threshold_z
+        current_threshold = threshold_min
+        best_threshold = None
+        best_threshold_range = float("inf")
+        self.toolhead.wait_moves()
+        self.check_temp(gcmd)
+        
+        start_time = time.time()
+        try:
+            initial_position = self.toolhead.get_position()[:]
+            homing_position = initial_position[:]
+            z_min, z_max = kin_status["axis_minimum"][2], kin_status["axis_maximum"][2]
+            
+            self.log_debug_info(verbose, gcmd, f"Initial Pos: {initial_position} \nHoming Pos: {homing_position} \nZ MIN: {z_min} \nZ MAX: {z_max}")
+            
+            initial_position[2] = z_max
+            homing_position[2] = z_min
+            self.log_debug_info(verbose, gcmd, f"new Initial Pos [Initial Z - Z Max]: {initial_position} \nnew Homing Pos [Homing Pos - Z Min]: {homing_position}")
+            samples = []
+
+            max_accel = self.toolhead.get_status(curtime)["max_accel"]
+            self.log_debug_info(verbose, gcmd, f"Current Accel: {int(max_accel)}")
+            
+             # Run start_touch_scan once and ignore the results
+            gcmd.respond_info("Running initial touch scan (results ignored)...")
+            touch_settings = TouchSettings(initial_position, homing_position, accel, speed, retract_dist, retract_speed, 1, tolerance, 1, z_max, max_accel, threshold_min, 0, randomize)
+            _ = self.start_touch_scan(gcmd, touch_settings, 0)  # Discard results
+            
+            start_position = z_max
+            
+            while current_threshold <= threshold_max:
+                gcmd.respond_info(f"Testing Threshold value {current_threshold}...")
+                self.detect_threshold_z = current_threshold
+                
+                touch_settings = TouchSettings(initial_position, homing_position, accel, speed, retract_dist, retract_speed, num_samples, tolerance, max_retries, z_max, max_accel, current_threshold, 0)
+                result = self.start_touch_scan(gcmd, touch_settings, verbose)
+                
+                samples = result["samples"]
+                standard_deviation = result["standard_deviation"]
+                final_position = result["final_position"]
+                retries = result["retries"]
+                success = result["success"]
+                if verbose == 1:
+                    for pos in result['samples']:
+                        sample_number += 1
+                        elapsed_time = time.time() - start_time
+                        relative_position = -(start_position - pos)  # Convert to negative movement from start
+                        csvwriter.writerow([sample_number, relative_position, elapsed_time, current_threshold])
+            
+ 
+                if success:
+                    self.log_debug_info(verbose, gcmd, f"Touch procedure successful with {int(retries)} retries.")
+                    self.log_debug_info(verbose, gcmd, f"Final position: {final_position}")
+                    if standard_deviation is not None:
+                        gcmd.respond_info(f"Standard Deviation: {standard_deviation:.4f}")
+                    else:
+                        gcmd.respond_info("Standard Deviation could not be calculated.")
+        
+                    gcmd.respond_info(f"Threshold Found: {current_threshold}")
+                    # Set the best threshold and break out of the loop
+                    if override == 0:
+                        self._save_threshold(current_threshold)
+                        gcmd.respond_info("Run SAVE_CONFIG to save this to your printer.cfg and restart")
+                        break
+
+                current_threshold += step
+        finally:
+            if verbose == 1:
+                csvfile.close()
+            self._zhop()
+            if best_threshold is not None:
+                self.detect_threshold_z = best_threshold
+            else:
+                self.detect_threshold_z = original_threshold
+            self.trigger_method = original_trigger_method
+            self.set_accel(max_accel)    
+            if verbose == 1:
+                self.generate_graph_from_csv(csv_filename, gcmd, z_max, test_type="scan")
+            
+            
+    def start_touch_scan(self, gcmd, touch_settings, verbose):
+        kinematics = self.toolhead.get_kinematics()
+        initial_position = touch_settings.initial_position
+        homing_position = touch_settings.homing_position
+        accel = touch_settings.accel
+        speed = touch_settings.speed
+        retract_dist = touch_settings.retract_dist
+        retract_speed = touch_settings.retract_speed
+        num_samples = touch_settings.num_samples
+        tolerance = touch_settings.tolerance
+        max_retries = touch_settings.max_retries
+        z_max = touch_settings.z_max
+        max_accel = touch_settings.max_accel
+        test_threshold = touch_settings.test_threshold
+        manual_z_offset = touch_settings.manual_z_offset
+        randomize = touch_settings.randomize
+        original_threshold = self.detect_threshold_z
+        try:
+            self.detect_threshold_z = test_threshold
+            # Set the initial position for the toolhead
+            self.toolhead.set_position(initial_position, [2])
+            
+            retries = 0
+            new_retry = 0
+            gcmd.respond_info("Initiating Touch Procedure...")
+            
+            samples = []
+            success = False
+            while len(samples) < num_samples:
+                
+                if retries >= max_retries:
+                    gcmd.respond_info(f"Exceeded maximum retries [{retries}/{int(max_retries)}]")
+                    break  # Exit the loop and move to the next threshold
+                if retries > 0:
+                    gcmd.respond_info(f"Retry Attempt {int(retries)}")
+                    if randomize > 0 and new_retry == 1:
+                        # Generate random offsets within ±5 units for both x and y
+                        x_offset = random.uniform(-randomize, randomize)
+                        y_offset = random.uniform(-randomize, randomize)
+                        
+                        cur_pos = self.toolhead.get_position()[:]
+                        
+                        # Apply the random offset to your touch location (assume x, y are current coordinates)
+                        initial_position[0] = initial_position[0] + x_offset
+                        initial_position[1] = initial_position[1] + y_offset
+                        
+                        self.toolhead.move(initial_position, 20)
+                                             
+                        # Respond with the randomized movement info
+                        gcmd.respond_info(f"Moving touch location slightly by (x: {x_offset:.2f}, y: {y_offset:.2f})")
+                        new_retry = 0
+              
+                self.toolhead.wait_moves()
+                self.set_accel(accel)
+                self.log_debug_info(verbose, gcmd, f"Set Acceleration to: {int(accel)}")
+                gcmd.respond_info(f"Executing Touch {len(samples) + 1} of {int(num_samples)} [{int(retries)}/{int(max_retries)}]")
+                
+                try:
+                    probe_position = self.phoming.probing_move(self.mcu_probe, homing_position, speed)
+                except self.printer.command_error as e:
+                    if self.printer.is_shutdown():
+                        self.trigger_method = 0
+                        raise self.printer.command_error("Touch procedure interrupted due to printer shutdown") from e
+                    raise
+                finally:
+                    self.set_accel(max_accel)
+                
+                retract_position = self.toolhead.get_position()[:]
+                retract_position[2] = min(retract_position[2] + retract_dist, z_max)
+                self.toolhead.move(retract_position, retract_speed)
+                self.toolhead.dwell(1.0)
+                
+                samples.append(probe_position[2])
+                gcmd.respond_info(f"Touch {len(samples)} result: {probe_position[2]:.4f}")
+                self.log_debug_info(verbose, gcmd, f"Reset Acceleration to: {int(max_accel)}")
+                
+                average = np.median(samples)
+                deviation = max(abs(sample - average) for sample in samples)
+                deviation = round(deviation, 4)
+                if deviation > tolerance:
+                    gcmd.respond_info(f"Deviation of {deviation:.4f} exceeds tolerance of {tolerance:.4f}, retrying...")
+                    retries += 1
+                    samples.clear()
+                    # If successful, we continue gathering samples until num_samples is reached.
+                
+                self.log_debug_info(verbose, gcmd, f"Deviation: {deviation:.4f}\nNew Average: {average:.4f}\nTolerance: {tolerance:.4f}")
+            
+            std_dev = np.std(samples) if samples else None
+            if len(samples) == num_samples:
+                success = True
+                gcmd.respond_info(f"Completed {len(samples)} touches with a standard deviation of {std_dev:.4f}")
+                position_difference = initial_position[2] - self.toolhead.get_position()[2]
+                adjusted_difference = initial_position[2] - np.median(samples)
+                self.log_debug_info(verbose, gcmd, f"Position Difference: {position_difference:.4f}\nAdjusted Difference: {adjusted_difference:.4f}")
+            else:
+                std_dev = None
+                success = False
+            
+            self.toolhead.wait_moves()
+            self.toolhead.flush_step_generation()
+            self.previous_probe_success = 1 if success else 0
+            
+            # Return relevant data
+            return {
+                "samples": samples,
+                "standard_deviation": std_dev,
+                "final_position": initial_position,
+                "retries": retries,
+                "success": success
+            }
+        except self.printer.command_error:
+            self.trigger_method = 0
+            if hasattr(kinematics, "note_z_not_homed"):
+                kinematics.note_z_not_homed()
+            raise
+            
+    def generate_graph_from_csv(self, csv_filename, gcmd, z_max, test_type="scan"):
+        try:
+            # Read the CSV file manually
+            sample_numbers = []
+            positions = []
+            times = []
+            thresholds = []
+
+            with open(csv_filename, 'r') as csvfile:
+                csvreader = csv.reader(csvfile)
+                next(csvreader)  # Skip the header
+                for row in csvreader:
+                    sample_numbers.append(int(row[0]))
+                    positions.append(float(row[1]))  # These positions are already relative (negative from start)
+                    times.append(float(row[2]))
+                    thresholds.append(int(row[3]))
+
+            # Plotting using matplotlib
+            fig, ax1 = plt.subplots(figsize=(10, 6))
+
+            # Plot Position on the left y-axis (Negative values indicate movement towards the bed)
+            ax1.plot(sample_numbers, positions, marker='o', linestyle='-', color='b', label='Position (Z relative to start)')
+            ax1.set_xlabel("Sample Number")
+            ax1.set_ylabel("Position (Z relative to start)")
+            ax1.yaxis.set_major_formatter(FuncFormatter(lambda x, _: f'{x:.3f}'))
+
+            # Plot Time on the right y-axis
+            ax2 = ax1.twinx()
+            ax2.plot(sample_numbers, times, marker='x', linestyle='--', color='r', label='Time (s)')
+            ax2.set_ylabel("Time (s)")
+            ax2.yaxis.set_major_formatter(FuncFormatter(lambda x, _: f'{x:.3f}'))
+
+            # Annotate threshold values on the plot
+            for i, txt in enumerate(thresholds):
+                ax1.annotate(f'{txt}', (sample_numbers[i], positions[i]), textcoords="offset points", xytext=(0,10), ha='center')
+
+            # Set the title based on the test type
+            if test_type == "scan":
+                ax1.set_title("Threshold Scan Results (Relative to Start Position)")
+            elif test_type == "test":
+                ax1.set_title("Threshold Test Results (Relative to Start Position)")
+            else:
+                ax1.set_title("Test Results (Relative to Start Position)")
+
+            # Save the graph as a PNG file
+            png_filename = csv_filename.replace(".csv", ".png")
+            plt.tight_layout()
+            plt.savefig(png_filename)
+
+            gcmd.respond_info(f"Graph saved as {png_filename}")
+        except Exception as e:
+            gcmd.respond_error(f"An error occurred while generating the graph: {e}")
+            
     def touch_probe(self, speed, skip=0, verbose=True):
         skipped_msg = ""
         toolhead = self.printer.lookup_object('toolhead')
@@ -1517,8 +1876,7 @@ class Scanner:
             while (current_threshold <= threshold_max):
                 gcmd.respond_info("Testing Threshold value %d..." % (current_threshold))
                 self.detect_threshold_z = current_threshold
-
-                result = self._probe_accuracy_check(self.probe_speed, skip_samples, qualify_samples, 5, False, lift_speed, False, best_threshold_range)
+                result = self._probe_accuracy_check(self.scanner_touch_config['speed'], skip_samples, qualify_samples, 5, False, lift_speed, False, best_threshold_range)
                 if result.range_value <= range_value and result.range_value < best_threshold_range:
                     gcmd.respond_info("Threshold value %d has promising repeatability over %d samples within  %.6f range (current best %.6f at %d), verifying over %d ..." % (current_threshold, qualify_samples, result.range_value, best_threshold_range, best_threshold, verify_samples))
                     result = self._probe_accuracy_check(self.scanner_touch_config['speed'], skip_samples, verify_samples, 5, False, lift_speed, False, best_threshold_range)
@@ -1915,7 +2273,7 @@ class Scanner:
         configfile.set("scanner", "z_offset", "%.3f" % (self.offset['z'] + offset))
 
 class TouchSettings:
-    def __init__(self, initial_position, homing_position, accel, speed, retract_dist, retract_speed, num_samples, tolerance, max_retries, z_max, max_accel, test_threshold, manual_z_offset):
+    def __init__(self, initial_position, homing_position, accel, speed, retract_dist, retract_speed, num_samples, tolerance, max_retries, z_max, max_accel, test_threshold, manual_z_offset, randomize):
         self.initial_position = initial_position
         self.homing_position = homing_position
         self.accel = accel
@@ -1929,6 +2287,7 @@ class TouchSettings:
         self.max_accel = max_accel
         self.test_threshold = test_threshold
         self.manual_z_offset = manual_z_offset
+        self.randomize = randomize
 
 class ScannerModel:
     @classmethod
