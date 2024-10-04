@@ -649,7 +649,7 @@ class Scanner:
                 gcmd.respond_info(f"Testing Threshold value {current_threshold}...")
                 self.detect_threshold_z = current_threshold
                 
-                touch_settings = TouchSettings(initial_position, homing_position, accel, speed, retract_dist, retract_speed, num_samples, tolerance, max_retries, z_max, max_accel, current_threshold, 0)
+                touch_settings = TouchSettings(initial_position, homing_position, accel, speed, retract_dist, retract_speed, num_samples, tolerance, max_retries, z_max, max_accel, current_threshold, 0, randomize)
                 result = self.start_touch_scan(gcmd, touch_settings, verbose)
                 
                 samples = result["samples"]
