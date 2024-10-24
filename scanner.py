@@ -123,7 +123,14 @@ class Scanner:
             'y': config.getfloat("y_offset", 0.0),
             'z': config.getfloat("z_offset", 0.0),
         }
-        
+        if config.has_section("probe"):
+            raise self.printer.command_error(f"Please remove your [probe] section from your printer.cfg.")
+            
+        if config.has_section("stepper_z"):
+            stepper_z_config = config.getsection("stepper_z")
+            if stepper_z_configget("endstop_pin") != "probe:z_virtual_endstop":
+                raise self.printer.command_error(f"Please make the following change to your printer.cfg [stepper_z] endstop_pin: probe: z_virtual_endstop")
+            
         if config.has_section("safe_z_home"):
             z_home_config = config.getsection("safe_z_home")
             if z_home_config.get("z_hop", None) is not None:
@@ -2239,31 +2246,43 @@ class Scanner:
         if offset == 0:
             self.gcode.respond_info("Nothing to do: Z Offset is 0")
             return
+            
+        newoffset = self.scanner_touch_config['z_offset']
+        newoffset += offset
+        if newoffset < 0:
+            self.scanner_touch_config['z_offset'] = newoffset
+            configfile = self.printer.lookup_object('configfile')
+            configfile.set("scanner", "scanner_touch_z_offset", "%.3f" % 0)
+            gcmd.respond_info(f"Touch offset attempted to update to {newoffset:.3f}.\n"
+                "However it cannot be less than 0. So its been set to 0.\n"
+                "Please check your printers calibration and try again.")
+            return
 
         if not self.model:
             raise self.gcode.error("You must calibrate your model first, "
                                    "use SCANNER_CALIBRATE.")
-
-        # We use the model code to save the new offset, but we can't actually
-        # apply that offset yet because the gcode_offset is still in effect.
-        # If the user continues to do stuff after this, the newly set model
-        # offset would compound with the gcode offset. To ensure this doesn't
-        # happen, we revert to the old model offset afterwards.
-        # Really, the user should just be calling `SAVE_CONFIG` now.
-        if self.calibration_method == "touch":
-            self.scanner_touch_config['z_offset'] += offset
-            configfile = self.printer.lookup_object('configfile')
-            configfile.set("scanner", "scanner_touch_z_offset", "%.3f" % self.scanner_touch_config['z_offset'])
-            gcmd.respond_info(f"Touch offset has been updated by {offset:.3f} to {self.scanner_touch_config['z_offset']:.3f}.\n"
-                    "You must run the SAVE_CONFIG command now to update the\n"
-                    "printer config file and restart the printer.")
-
+                                   
+        
         else:
-            self.model.offset += offset
-            self.model.save(self, False)
-            gcmd.respond_info(f"Scanner model offset has been updated to {self.model.offset:.3f}.\n"
+            # We use the model code to save the new offset, but we can't actually
+            # apply that offset yet because the gcode_offset is still in effect.
+            # If the user continues to do stuff after this, the newly set model
+            # offset would compound with the gcode offset. To ensure this doesn't
+            # happen, we revert to the old model offset afterwards.
+            # Really, the user should just be calling `SAVE_CONFIG` now.
+            if self.calibration_method == "touch":
+                self.scanner_touch_config['z_offset'] = newoffset
+                configfile = self.printer.lookup_object('configfile')
+                configfile.set("scanner", "scanner_touch_z_offset", "%.3f" % self.scanner_touch_config['z_offset'])
+                gcmd.respond_info(f"Touch offset has been updated by {offset:.3f} to {self.scanner_touch_config['z_offset']:.3f}.\n"
                     "You must run the SAVE_CONFIG command now to update the\n"
                     "printer config file and restart the printer.")
+            else:
+                self.model.offset += offset
+                self.model.save(self, False)
+                gcmd.respond_info(f"Scanner model offset has been updated to {self.model.offset:.3f}.\n"
+                        "You must run the SAVE_CONFIG command now to update the\n"
+                        "printer config file and restart the printer.")
 
     cmd_SAVE_TOUCH_OFFSET_help = "Save offset to z_offset for TOUCH method"
     def cmd_SAVE_TOUCH_OFFSET(self, gcmd):
