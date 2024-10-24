@@ -25,11 +25,14 @@ import struct
 import numpy as np
 import copy
 import os
+<<<<<<< HEAD
 import csv
 import random
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from matplotlib.ticker import FuncFormatter
+=======
+>>>>>>> f52e31c3d4b84f0aae66cbe926f216c67a30c3bb
 from numpy.polynomial import Polynomial
 from . import manual_probe
 from . import probe
@@ -123,6 +126,7 @@ class Scanner:
             'y': config.getfloat("y_offset", 0.0),
             'z': config.getfloat("z_offset", 0.0),
         }
+<<<<<<< HEAD
         if config.has_section("probe"):
             raise self.printer.command_error(f"Please remove your [probe] section from your printer.cfg.")
             
@@ -131,6 +135,9 @@ class Scanner:
             if stepper_z_configget("endstop_pin") != "probe:z_virtual_endstop":
                 raise self.printer.command_error(f"Please make the following change to your printer.cfg [stepper_z] endstop_pin: probe: z_virtual_endstop")
             
+=======
+        
+>>>>>>> f52e31c3d4b84f0aae66cbe926f216c67a30c3bb
         if config.has_section("safe_z_home"):
             z_home_config = config.getsection("safe_z_home")
             if z_home_config.get("z_hop", None) is not None:
@@ -424,6 +431,11 @@ class Scanner:
             self._zhop()
             self.set_temp(gcmd)
             self.extruder_target = 0
+<<<<<<< HEAD
+=======
+            
+    # Event handlers
+>>>>>>> f52e31c3d4b84f0aae66cbe926f216c67a30c3bb
     def start_touch(self, gcmd, touch_settings, verbose):
         kinematics = self.toolhead.get_kinematics()
         initial_position = touch_settings.initial_position
@@ -917,6 +929,7 @@ class Scanner:
             cur_temp = hotend.get_heater().get_status(curtime)["temperature"]
             self.extruder_target = hotend.get_heater().get_status(curtime)["target"]
             max_temp = self.scanner_touch_config['max_temp']
+<<<<<<< HEAD
             check_temp = max_temp + 5
             if self.extruder_target > max_temp:
                 gcmd.respond_info("Target hotend temperature %.1f is too high. Lowering to %.1f" % (self.extruder_target, max_temp))
@@ -928,6 +941,18 @@ class Scanner:
                 if cur_temp > check_temp:
                     gcmd.respond_info('Extruder temperature %.1fC is still too high, waiting until below %.1fC' % (cur_temp, check_temp))
                     cmd = f"TEMPERATURE_WAIT SENSOR=extruder MAXIMUM={check_temp}"
+=======
+            if self.extruder_target > max_temp:
+                gcmd.respond_info("Target hotend temperature %.1f exceeds maximum allowed temperature %.1f lowering to %.1f" % (cur_temp, max_temp, max_temp))
+                cmd = "M104 S"+str(max_temp)
+                self.gcode.run_script_from_command(cmd)
+                cmd = f"TEMPERATURE_WAIT SENSOR=extruder MAXIMUM={max_temp}"
+                self.gcode.run_script_from_command(cmd)
+            else:
+                if cur_temp > max_temp:
+                    gcmd.respond_info('Extruder temperature %.1fC is still too high, waiting until below %.1fC' % (cur_temp, max_temp))
+                    cmd = f"TEMPERATURE_WAIT SENSOR=extruder MAXIMUM={max_temp}"
+>>>>>>> f52e31c3d4b84f0aae66cbe926f216c67a30c3bb
                     self.gcode.run_script_from_command(cmd)
                     
     def set_temp(self,gcmd):
@@ -2261,8 +2286,26 @@ class Scanner:
         if not self.model:
             raise self.gcode.error("You must calibrate your model first, "
                                    "use SCANNER_CALIBRATE.")
+<<<<<<< HEAD
                                    
         
+=======
+
+        # We use the model code to save the new offset, but we can't actually
+        # apply that offset yet because the gcode_offset is still in effect.
+        # If the user continues to do stuff after this, the newly set model
+        # offset would compound with the gcode offset. To ensure this doesn't
+        # happen, we revert to the old model offset afterwards.
+        # Really, the user should just be calling `SAVE_CONFIG` now.
+        if self.calibration_method == "touch":
+            self.scanner_touch_config['z_offset'] += offset
+            configfile = self.printer.lookup_object('configfile')
+            configfile.set("scanner", "scanner_touch_z_offset", "%.3f" % self.scanner_touch_config['z_offset'])
+            gcmd.respond_info(f"Touch offset has been updated by {offset:.3f} to {self.scanner_touch_config['z_offset']:.3f}.\n"
+                    "You must run the SAVE_CONFIG command now to update the\n"
+                    "printer config file and restart the printer.")
+
+>>>>>>> f52e31c3d4b84f0aae66cbe926f216c67a30c3bb
         else:
             # We use the model code to save the new offset, but we can't actually
             # apply that offset yet because the gcode_offset is still in effect.
