@@ -128,7 +128,7 @@ class Scanner:
             
         if config.has_section("stepper_z"):
             stepper_z_config = config.getsection("stepper_z")
-            if stepper_z_configget("endstop_pin") != "probe:z_virtual_endstop":
+            if stepper_z_config.get("endstop_pin") != "probe:z_virtual_endstop":
                 raise self.printer.command_error(f"Please make the following change to your printer.cfg [stepper_z] endstop_pin: probe: z_virtual_endstop")
             
         if config.has_section("safe_z_home"):
