@@ -128,7 +128,7 @@ class Scanner:
             
         if config.has_section("stepper_z"):
             stepper_z_config = config.getsection("stepper_z")
-            if stepper_z_config.get("endstop_pin") != "probe:z_virtual_endstop":
+            if stepper_z_config.get("endstop_pin").replace(" ", "") != "probe:z_virtual_endstop":
                 raise self.printer.command_error(f"Please make the following change to your printer.cfg [stepper_z] endstop_pin: probe: z_virtual_endstop")
             
         if config.has_section("safe_z_home"):
@@ -168,7 +168,7 @@ class Scanner:
             'retract_speed': config.getfloat("scanner_touch_retract_speed", 10, minval=1),
             'sample_count': config.getfloat("scanner_touch_sample_count", 3, minval=1),
             'tolerance': config.getfloat("scanner_touch_tolerance", 0.01, above=0.0),
-            'max_retries': config.getfloat("scanner_touch_max_retries", 5, minval=0),
+            'max_retries': config.getfloat("scanner_touch_max_retries", 10, minval=0),
             'move_speed': config.getfloat("scanner_touch_move_speed", 50, minval=1),
             'calibrate': config.getfloat("scanner_touch_calibrate", 0),
             'z_offset': config.getfloat("scanner_touch_z_offset", 0.05),
@@ -288,8 +288,10 @@ class Scanner:
                                             desc=self.cmd_SCANNER_CALIBRATE_help)
                 self.gcode.register_command(sensor_name + "_THRESHOLD_TEST", self.cmd_SCANNER_THRESHOLD_TEST,
                                             desc=self.cmd_SCANNER_THRESHOLD_TEST_help)
-                self.gcode.register_command(sensor_name + "_THRESHOLD_SCAN", self.cmd_SCANNER_THRESHOLD_SCAN,
+                self.gcode.register_command(sensor_name + "_THRESHOLD_SCAN_OLD", self.cmd_SCANNER_THRESHOLD_SCAN,
                                             desc=self.cmd_SCANNER_THRESHOLD_SCAN_help)
+                self.gcode.register_command(sensor_name + "_THRESHOLD_SCAN", self.cmd_SCANNER_TOUCH_SCAN,
+                                            desc=self.cmd_SCANNER_TOUCH_SCAN_help)
                 self.gcode.register_command(sensor_name + "_ESTIMATE_BACKLASH", self.cmd_SCANNER_ESTIMATE_BACKLASH,
                                             desc=self.cmd_SCANNER_ESTIMATE_BACKLASH_help)
                 self.gcode.register_command(sensor_name + "_TOUCH", self.cmd_SCANNER_TOUCH,
