@@ -77,7 +77,7 @@ printf "${BLUE}
   \____|  \__,_| |_|     \__|  \___/   \__, | |_|     \__,_| | .__/  |_| |_|  \___| |_|   
                                        |___/                 |_|                          
 ${NC}"
-printf "${RED}Firmware Script ${NC} v1.0.6\n"
+printf "${RED}Firmware Script ${NC} v1.0.8\n"
 printf "Created by ${GREEN}KrauTech${NC} ${BLUE}(https://github.com/krautech)${NC}\n"
 echo
 echo
@@ -225,7 +225,9 @@ check_lsusb(){
 
 	while true; do
 		if lsusb | grep -q "DFU Mode"; then
-			echo "DFU device found! Press any key to return to main menu."
+			dfuID=$(lsusb | grep "DFU Mode" | awk '{print $6}');
+			found=1
+			read -p "DFU device found! Press any key to return to main menu."
 			menu  # Exit the loop if a DFU device is found
 		else
 			echo "DFU device not found, checking again... Press any key to return to main menu."
@@ -256,6 +258,8 @@ initialChecks(){
 			dfuID=$(lsusb | grep "DFU Mode" | awk '{print $6}');
 			found=1
 			#echo "DFU Flash is Disabled"
+		else
+			check_lsusb
 		fi
 	fi
 	if [[ $flash == "usb" ]] || [[ $flash == "" ]]; then
@@ -861,6 +865,17 @@ display_flashed(){
 	method=$2
 	survey=$3
 	
+	printf "Your device has been flash.
+	
+Note, after you exit this script you need to replace the serial path  or UUID with your probes serial path or UUID, this can be found by running the following commands 
+
+For USB based probes\n\n"
+	printf "${RED}ls /dev/serial/by-id/${NC}-\n"
+	printf "For CAN based probes\n\n"
+	printf "${RED}~/klippy-env/bin/python ~/klipper/scripts/canbus_query.py can0${NC}-\n"
+	printf "Take note of either the Serial ID or the UUID.\n\n"
+	read -p "Press enter to continue"
+	exit;
 }
 disclaimer;
 
