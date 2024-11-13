@@ -404,14 +404,27 @@ def add_probe_config(probe_type):
 #   Visit the link below for help finding your device ID
 #   https://docs.cartographer3d.com/cartographer-probe/installation-and-setup/classic-installation/klipper-setup#finding-the-serial-or-uuid
 #        
-x_offset: 0                          
-y_offset: 15                         
+x_offset: 0              
+#    adjust for your cartographers offset from nozzle to middle of coil            
+y_offset: 15        
+#    adjust for your cartographers offset from nozzle to middle of coil 
+#    Offsets are measured from the centre of your coil, to the tip of your nozzle 
+#    on a level axis. It is vital that this is accurate.                 
 backlash_comp: 0.5
+#   Backlash compensation distance for removing Z backlash before measuring
+#   the sensor response.
 calibration_method: touch
+#    leave this as touch unless you want to use scan only for everything. 
 sensor: cartographer
+#    this must be set as cartographer unless using IDM etc.
 sensor_alt: carto
-scanner_touch_z_offset: 0.05         
+#    alternate name to call commands. CARTO_TOUCH etc
+scanner_touch_z_offset: 0.05 
+#    This is the default and will be overwritten and added to the DO NOT SAVE area by using UI to save z offset
+scanner_touch_max_retries: 10   
+#    Number of times touch will attempt to touch the bed.      
 mesh_runs: 2
+#    Number of mesh runs to complete a BED_MESH_CALIBRATE
 
 [temperature_sensor Cartographer_MCU]
 sensor_type:   temperature_mcu
@@ -423,11 +436,16 @@ max_temp:                  105
         # Bed mesh section for touch probe type
         bed_mesh_lines = f"""
 [bed_mesh]
-zero_reference_position: {x_mid}, {y_mid}    
+zero_reference_position: {x_mid}, {y_mid}   
+#    set this to the middle of your bed 
 speed: 200
+#    movement speed of toolhead during bed mesh
 horizontal_move_z: 5
-mesh_min: 35, 6
+#    height of scanner during bed mesh scan
+mesh_min: 50, 50
+#    start point of bed mesh [X, Y].
 mesh_max: {x_mesh_max}, {y_mesh_max}
+#    end point of bed mesh [X, Y]
 probe_count: 30, 30
 algorithm: bicubic
 """
@@ -489,20 +507,19 @@ probe_points:
 #   Visit the link below for help finding your device ID
 #   https://docs.cartographer3d.com/cartographer-probe/installation-and-setup/classic-installation/klipper-setup#finding-the-serial-or-uuid
 #  
+x_offset: 0.0
+#    adjust for your cartographers offset from nozzle to middle of coil    
+y_offset: 21.1
+#    adjust for your cartographers offset from nozzle to middle of coil    
+#    Offsets are measured from the centre of your coil, to the tip of your nozzle 
+#    on a level axis. It is vital that this is accurate.     
 speed: 40.0
 lift_speed: 5.0
 backlash_comp: 0.5
-x_offset: 0.0
-y_offset: 21.1
-trigger_distance: 2.0
-trigger_dive_threshold: 1.5
-trigger_hysteresis: 0.006
-cal_nozzle_z: 0.1
-cal_floor: 0.1
-cal_ceil: 5.0
-cal_speed: 1.0
-cal_move_speed: 10.0
-scan_sweep_angle: 360
+#   Backlash compensation distance for removing Z backlash before measuring
+#   the sensor response.
+mesh_runs: 2
+#   Number of passes to make during mesh scan.
 
 [temperature_sensor Cartographer_MCU]
 sensor_type:   temperature_mcu
@@ -514,11 +531,16 @@ max_temp:                  105
         # Bed mesh section for scan probe type
         bed_mesh_lines = f"""
 [bed_mesh]
-zero_reference_position: {x_mid}, {y_mid}    
+zero_reference_position: {x_mid}, {y_mid}
+#    set this to the middle of your bed    
 speed: 200
+#    movement speed of toolhead during bed mesh
 horizontal_move_z: 5
-mesh_min: 35, 6
+#    height of scanner during bed mesh scan
+mesh_min: 50, 50
+#    start point of bed mesh [X, Y]
 mesh_max: {x_mesh_max}, {y_mesh_max}
+#    end point of bed mesh [X, Y]
 probe_count: 30, 30
 algorithm: bicubic
 """
