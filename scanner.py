@@ -315,6 +315,7 @@ class Scanner:
         retract_speed = gcmd.get_float("RETRACT_SPEED", self.scanner_touch_config['retract_speed'], minval=1)
         num_samples = gcmd.get_int("SAMPLES", self.scanner_touch_config['sample_count'], minval=1)
         tolerance = gcmd.get_float("TOLERANCE", self.scanner_touch_config['tolerance'], above=0.0)
+        tolerance = round(tolerance, 4)
         max_retries = gcmd.get_float("RETRIES", self.scanner_touch_config['max_retries'], minval=0)
         touch_location_x = gcmd.get_float("TOUCH_LOCATION_X", float(self.touch_location[0]))
         touch_location_y = gcmd.get_float("TOUCH_LOCATION_Y", float(self.touch_location[1]))
@@ -462,6 +463,7 @@ class Scanner:
                 average = np.mean(samples)
                 deviation = max(abs(sample - average) for sample in samples)
                 
+                deviation = round(deviation, 4)
                 if deviation > tolerance:
                     if retries >= max_retries:
                         self.trigger_method = 0
