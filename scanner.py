@@ -434,11 +434,19 @@ class Scanner:
             
             samples = []
             
+            has_shown_retry_info = False  # Initialize the flag
+            
             while len(samples) < num_samples:
+                if retries > 0:
+                    if not has_shown_retry_info:
+                        gcmd.respond_info(f"Retry Attempt {int(retries)}")
+                        has_shown_retry_info = True  # Set flag to True after showing the message
+
+                        
                 self.toolhead.wait_moves()
                 self.set_accel(accel)
                 self.log_debug_info(verbose, gcmd, f"Set Acceleration to: {int(accel)}")
-                gcmd.respond_info(f"Executing Touch {len(samples) + 1} of {int(num_samples)}")
+                gcmd.respond_info(f"Executing Touch {len(samples) + 1} of {int(num_samples)} [{int(retries)}/{int(max_retries)}]")$
                 
                 try:
                     probe_position = self.phoming.probing_move(self.mcu_probe, homing_position, speed)
@@ -470,6 +478,7 @@ class Scanner:
                     gcmd.respond_info(f"Deviation of {deviation:.4f} exceeds tolerance of {tolerance:.4f}, retrying...")
                     retries += 1
                     samples.clear()
+                    has_shown_retry_info = False  # Reset the flag for the next retry cycle
                 self.log_debug_info(verbose, gcmd, f"Deviation: {deviation:.4f}\nNew Average: {average:.4f}\nTolerance: {tolerance:.4f}")
             
             std_dev = np.std(samples)
@@ -1041,7 +1050,7 @@ class Scanner:
                                  self, poly, temp_median,
                                  min(z_offset), max(z_offset))
         self.models[self.model.name] = self.model
-        self.model.save(self, not touch)
+        self.model.save(self)
         self._apply_threshold()
 
         self.toolhead.get_last_move_time()
