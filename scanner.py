@@ -447,7 +447,7 @@ class Scanner:
                 self.toolhead.wait_moves()
                 self.set_accel(accel)
                 self.log_debug_info(verbose, gcmd, f"Set Acceleration to: {int(accel)}")
-                gcmd.respond_info(f"Executing Touch {len(samples) + 1} of {int(num_samples)} [{int(retries)}/{int(max_retries)}]")$
+                gcmd.respond_info(f"Executing Touch {len(samples) + 1} of {int(num_samples)} [{int(retries)}/{int(max_retries)}]")
                 
                 try:
                     probe_position = self.phoming.probing_move(self.mcu_probe, homing_position, speed)
