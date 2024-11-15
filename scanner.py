@@ -1517,7 +1517,7 @@ class Scanner:
                 gcmd.respond_info("Testing Threshold value %d..." % (current_threshold))
                 self.detect_threshold_z = current_threshold
 
-                result = self._probe_accuracy_check(self.probe_speed, skip_samples, qualify_samples, 5, False, lift_speed, False, best_threshold_range)
+                result = self._probe_accuracy_check(self.scanner_touch_config['speed'], skip_samples, qualify_samples, 5, False, lift_speed, False, best_threshold_range)
                 if result.range_value <= range_value and result.range_value < best_threshold_range:
                     gcmd.respond_info("Threshold value %d has promising repeatability over %d samples within  %.6f range (current best %.6f at %d), verifying over %d ..." % (current_threshold, qualify_samples, result.range_value, best_threshold_range, best_threshold, verify_samples))
                     result = self._probe_accuracy_check(self.scanner_touch_config['speed'], skip_samples, verify_samples, 5, False, lift_speed, False, best_threshold_range)
