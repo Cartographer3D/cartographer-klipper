@@ -443,8 +443,6 @@ class Scanner:
             has_shown_retry_info = False  # Initialize the flag
             
             original_position = initial_position[:]
-            x_min, x_max = original_position[0] - randomize, original_position[0] + randomize
-            y_min, y_max = original_position[1] - randomize, original_position[1] + randomize
             
             while len(samples) < num_samples:
                 if retries > 0:
@@ -453,26 +451,18 @@ class Scanner:
                         has_shown_retry_info = True  # Set flag to True after showing the message
                 
                 if randomize > 0 and new_retry:
-                        # Generate random offsets within ±5 units for both x and y
+                        # Generate random offsets
                         x_offset = random.uniform(-randomize, randomize)
                         y_offset = random.uniform(-randomize, randomize)
                         
-                        # Calculate the potential new position
-                        new_x = initial_position[0] + x_offset
-                        new_y = initial_position[1] + y_offset
-                        
-                        # Clamp the new position to the original bounding box
-                        new_x = min(max(new_x, x_min), x_max)
-                        new_y = min(max(new_y, y_min), y_max)
-                        
-                        # Apply the clamped position
-                        initial_position[0] = new_x
-                        initial_position[1] = new_y
+                        # Adjust positiion
+                        initial_position[0] = original_position[0] + x_offset
+                        initial_position[1] = original_position[1] + y_offset
                         
                         self.toolhead.move(initial_position, 20)
                                              
                         # Respond with the randomized movement info
-                        gcmd.respond_info(f"Moving touch location to (x: {new_x:.2f}, y: {new_y:.2f})")
+                        gcmd.respond_info(f"Moving touch location to (x: {initial_position[0]:.2f}, y: {initial_position[1]:.2f})")
                         new_retry = False
                         
                 self.toolhead.wait_moves()
