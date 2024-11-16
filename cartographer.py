@@ -380,7 +380,10 @@ class CartographerProbe:
         cal_max_z = kin_pos[2] - cal_nozzle_z + cal_ceil
         cal_speed = gcmd.get_float("SPEED", self.cal_speed)
         move_speed = gcmd.get_float("MOVE_SPEED", self.cal_move_speed)
-        model_name = gcmd.get("MODEL_NAME", self.model.name, "default")
+        if not self.model:  # Check if no model is loaded
+            model_name = gcmd.get("MODEL_NAME", "default")  # Default to "default"
+        else:
+            model_name = gcmd.get("MODEL_NAME", self.model.name, "default")
         
         toolhead = self.toolhead
         curtime = self.reactor.monotonic()

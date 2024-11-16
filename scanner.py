@@ -997,7 +997,11 @@ class Scanner:
         cal_ceil = gcmd.get_float("CEIL", self.cal_config['ceil'])
         cal_speed = gcmd.get_float("SPEED", self.cal_config['speed'])
         move_speed = gcmd.get_float("MOVE_SPEED", self.cal_config['move_speed'])
-        model_name = gcmd.get("MODEL_NAME", self.model.name, "default")
+        if not self.model:  # Check if no model is loaded
+            model_name = gcmd.get("MODEL_NAME", "default")  # Default to "default"
+        else:
+            model_name = gcmd.get("MODEL_NAME", self.model.name, "default")
+
         
         toolhead = self.toolhead
         curtime = self.reactor.monotonic()
@@ -1091,7 +1095,10 @@ class Scanner:
         cal_ceil = gcmd.get_float("CEIL", self.cal_config['ceil'])
         cal_speed = gcmd.get_float("SPEED", self.cal_config['speed'])
         move_speed = gcmd.get_float("MOVE_SPEED", self.cal_config['move_speed'])
-        model_name = gcmd.get("MODEL_NAME", self.model.name, "default")
+        if not self.model:  # Check if no model is loaded
+            model_name = gcmd.get("MODEL_NAME", "default")  # Default to "default"
+        else:
+            model_name = gcmd.get("MODEL_NAME", self.model.name, "default")
         nozzle_z = gcmd.get_float("NOZZLE_Z", self.cal_config['nozzle_z'])
         cal_min_z = kin_pos[2] - nozzle_z + cal_floor
         cal_max_z = kin_pos[2] - nozzle_z + cal_ceil
@@ -1141,7 +1148,7 @@ class Scanner:
         inv_freq = [1/f for f in freq]
         poly = Polynomial.fit(inv_freq, z_offset, 9)
         temp_median = median(temp)
-        self.model = ScannerModel("default",
+        self.model = ScannerModel(model_name,
                                  self, poly, temp_median,
                                  min(z_offset), max(z_offset))
         self.models[self.model.name] = self.model
