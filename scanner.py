@@ -437,7 +437,7 @@ class Scanner:
             retries = 0
             gcmd.respond_info("Initiating Touch Procedure...")
             
-            new_retry = 0
+            new_retry = False
             samples = []
             
             has_shown_retry_info = False  # Initialize the flag
@@ -448,7 +448,7 @@ class Scanner:
                         gcmd.respond_info(f"Retry Attempt {int(retries)}")
                         has_shown_retry_info = True  # Set flag to True after showing the message
                 
-                if randomize > 0 and new_retry == 1:
+                if randomize > 0 and new_retry:
                         # Generate random offsets within ±5 units for both x and y
                         x_offset = random.uniform(-randomize, randomize)
                         y_offset = random.uniform(-randomize, randomize)
@@ -461,7 +461,7 @@ class Scanner:
                                              
                         # Respond with the randomized movement info
                         gcmd.respond_info(f"Moving touch location slightly by (x: {x_offset:.2f}, y: {y_offset:.2f})")
-                        new_retry = 0
+                        new_retry = False
                         
                 self.toolhead.wait_moves()
                 self.set_accel(accel)
@@ -498,7 +498,7 @@ class Scanner:
                         raise gcmd.error(f"Exceeded maximum retries [{retries}/{int(max_retries)}]")
                     gcmd.respond_info(f"Deviation of {deviation:.4f} exceeds tolerance of {tolerance:.4f}, retrying...")
                     retries += 1
-                    new_retry = 1
+                    new_retry = True
                     samples.clear()
                     has_shown_retry_info = False  # Reset the flag for the next retry cycle
                 self.log_debug_info(verbose, gcmd, f"Deviation: {deviation:.4f}\nNew Average: {average:.4f}\nTolerance: {tolerance:.4f}")
