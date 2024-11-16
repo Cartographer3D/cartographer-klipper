@@ -380,7 +380,8 @@ class CartographerProbe:
         cal_max_z = kin_pos[2] - cal_nozzle_z + cal_ceil
         cal_speed = gcmd.get_float("SPEED", self.cal_speed)
         move_speed = gcmd.get_float("MOVE_SPEED", self.cal_move_speed)
-
+        model_name = gcmd.get("MODEL_NAME", self.model.name, "default")
+        
         toolhead = self.toolhead
         curtime = self.reactor.monotonic()
         toolhead.wait_moves()
@@ -423,7 +424,7 @@ class CartographerProbe:
         inv_freq = [1/f for f in freq]
         poly = Polynomial.fit(inv_freq, z_offset, 9)
         temp_median = median(temp)
-        self.model = CartographerModel("default",
+        self.model = CartographerModel(model_name,
                                  self, poly, temp_median,
                                  min(z_offset), max(z_offset))
         self.models[self.model.name] = self.model
