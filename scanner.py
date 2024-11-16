@@ -396,7 +396,6 @@ class Scanner:
             retries = result["retries"]
             success = result["success"]
             if success:
-                final_position[2] = final_position[2] - manual_z_offset
                 self.log_debug_info(verbose, gcmd, f"Touch procedure successful with {int(retries)} retries.")
                 self.log_debug_info(verbose, gcmd, f"Final position: {final_position}")
                 gcmd.respond_info(f"Standard Deviation: {standard_deviation:.4f}")
