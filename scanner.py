@@ -396,7 +396,7 @@ class Scanner:
                 final_position[2] = final_position[2] - manual_z_offset
                 self.log_debug_info(verbose, gcmd, f"Touch procedure successful with {int(retries)} retries.")
                 self.log_debug_info(verbose, gcmd, f"Final position: {final_position}")
-                gcmd.respond_info(f"Standard Deviation: {standard_deviation:.4f}")
+                self.log_debug_info(verbose, gcmd, f"Standard Deviation: {standard_deviation:.4f}")
                 if calibrate == 1:
                     self._calibrate(gcmd, final_position, final_position[2], True, True)
                 
@@ -477,7 +477,8 @@ class Scanner:
                         self.trigger_method = 0
                         self._zhop()
                         raise gcmd.error(f"Exceeded maximum retries [{retries}/{int(max_retries)}]")
-                    gcmd.respond_info(f"Deviation of {deviation:.4f} exceeds tolerance of {tolerance:.4f}, retrying...")
+                    self.log_debug_info(verbose, gcmd, f"Deviation of {deviation:.4f} exceeds tolerance of {tolerance:.4f}")
+                    gcmd.respond_info("Retrying..")
                     retries += 1
                     samples.clear()
                     has_shown_retry_info = False  # Reset the flag for the next retry cycle
@@ -492,7 +493,7 @@ class Scanner:
             initial_position[2] = float(adjusted_difference - position_difference)
             formatted_position = [f"{coord:.2f}" for coord in initial_position]
             self.log_debug_info(verbose, gcmd, f"Updated Initial Position: {formatted_position}")
-            if manual_z_offset >= 0 :
+            if manual_z_offset > 0 :
                 gcmd.respond_info(f"Offsetting by {manual_z_offset:.3f}")
                 initial_position[2] = initial_position[2] - manual_z_offset
             self.toolhead.set_position(initial_position)
