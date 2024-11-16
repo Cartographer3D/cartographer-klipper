@@ -453,8 +453,6 @@ class Scanner:
                         x_offset = random.uniform(-randomize, randomize)
                         y_offset = random.uniform(-randomize, randomize)
                         
-                        cur_pos = self.toolhead.get_position()[:]
-                        
                         # Apply the random offset to your touch location (assume x, y are current coordinates)
                         initial_position[0] = initial_position[0] + x_offset
                         initial_position[1] = initial_position[1] + y_offset
