@@ -384,8 +384,6 @@ class Scanner:
             max_accel = self.toolhead.get_status(curtime)["max_accel"]
             self.log_debug_info(verbose, gcmd, f"Current Accel: {int(max_accel)}")
             
-            if calibrate == 1:
-                manual_z_offset = 0
             
             touch_settings = TouchSettings(initial_position, homing_position, accel, speed, retract_dist, retract_speed, num_samples, tolerance, max_retries, z_max, max_accel, test_threshold, manual_z_offset)
             result = self.start_touch(gcmd, touch_settings, verbose)
@@ -400,7 +398,7 @@ class Scanner:
                 self.log_debug_info(verbose, gcmd, f"Final position: {final_position}")
                 gcmd.respond_info(f"Standard Deviation: {standard_deviation:.4f}")
                 if calibrate == 1:
-                    self._calibrate(gcmd, final_position, final_position[2], True, True)
+                    self._calibrate(gcmd, final_position, 0, True, True)
                 
             else:
                 self.trigger_method = 0
