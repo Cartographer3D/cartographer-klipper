@@ -465,7 +465,7 @@ class Scanner:
                 self.toolhead.dwell(1.0)
                 
                 samples.append(probe_position[2])
-                gcmd.respond_info(f"Touch {len(samples)} result: {probe_position[2]:.4f}")
+                self.log_debug_info(verbose, gcmd, f"Touch {len(samples)} result: {probe_position[2]:.4f}")
                 self.log_debug_info(verbose, gcmd, f"Reset Acceleration to: {int(max_accel)}")
                 
                 average = np.mean(samples)
