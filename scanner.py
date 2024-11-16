@@ -442,6 +442,10 @@ class Scanner:
             
             has_shown_retry_info = False  # Initialize the flag
             
+            original_position = initial_position[:]
+            x_min, x_max = original_position[0] - randomize, original_position[0] + randomize
+            y_min, y_max = original_position[1] - randomize, original_position[1] + randomize
+            
             while len(samples) < num_samples:
                 if retries > 0:
                     if not has_shown_retry_info:
@@ -453,14 +457,22 @@ class Scanner:
                         x_offset = random.uniform(-randomize, randomize)
                         y_offset = random.uniform(-randomize, randomize)
                         
-                        # Apply the random offset to your touch location (assume x, y are current coordinates)
-                        initial_position[0] = initial_position[0] + x_offset
-                        initial_position[1] = initial_position[1] + y_offset
+                        # Calculate the potential new position
+                        new_x = initial_position[0] + x_offset
+                        new_y = initial_position[1] + y_offset
+                        
+                        # Clamp the new position to the original bounding box
+                        new_x = min(max(new_x, x_min), x_max)
+                        new_y = min(max(new_y, y_min), y_max)
+                        
+                        # Apply the clamped position
+                        initial_position[0] = new_x
+                        initial_position[1] = new_y
                         
                         self.toolhead.move(initial_position, 20)
                                              
                         # Respond with the randomized movement info
-                        gcmd.respond_info(f"Moving touch location slightly by (x: {x_offset:.2f}, y: {y_offset:.2f})")
+                        gcmd.respond_info(f"Moving touch location to (x: {new_x:.2f}, y: {new_y:.2f})")
                         new_retry = False
                         
                 self.toolhead.wait_moves()
