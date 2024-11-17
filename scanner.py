@@ -666,9 +666,16 @@ class Scanner:
         else:
             threshold_min = user_defined_min
 
+        has_increased_threshold_max = (
+            False  # Flag to track if threshold_max has been increased
+        )
+        
         threshold_max = gcmd.get_int("MAX", None)
         if threshold_max is None:
             threshold_max = threshold_min + (10 * step)
+            has_increased_threshold_max = (
+                                True  # max limit is set, dont increase
+                            )
 
         override = gcmd.get_int("OVERRIDE", 0)
 
@@ -692,9 +699,6 @@ class Scanner:
 
         # Prepare to track results
         results = []
-        has_increased_threshold_max = (
-            False  # Flag to track if threshold_max has been increased
-        )
 
         # Proceed with threshold scanning
         self.check_temp(gcmd)
