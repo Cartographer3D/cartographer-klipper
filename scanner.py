@@ -678,7 +678,7 @@ class Scanner:
         else:
             threshold_min = user_defined_min
 
-        threshold_max = gcmd.get_int("MAX", None, maxval=5000)
+        threshold_max = gcmd.get_int("MAX", None)
         if threshold_max is None:
             threshold_max = threshold_min + (10 * step)
 
