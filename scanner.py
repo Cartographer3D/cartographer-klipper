@@ -640,6 +640,12 @@ class Scanner:
                 kinematics.note_z_not_homed()
             raise
 
+    THRESHOLD_MIN_LIMIT = 750
+    THRESHOLD_SCALING_FACTOR = 0.25
+    THRESHOLD_ROUNDING_BASE = 250
+    THRESHOLD_INCREMENT_MULTIPLIER = 5
+    THRESHOLD_STEP_MULTIPLIER = 10
+    
     cmd_SCANNER_THRESHOLD_SCAN_help = "Scan THRESHOLD in TOUCH mode"
 
     def cmd_SCANNER_THRESHOLD_SCAN(self, gcmd):
@@ -661,7 +667,8 @@ class Scanner:
 
         if user_defined_min is None:
             threshold_min = max(
-                750, round((self.detect_threshold_z * 0.25) / 250) * 250
+                THRESHOLD_MIN_LIMIT, 
+                round((self.detect_threshold_z * THRESHOLD_SCALING_FACTOR) / THRESHOLD_ROUNDING_BASE) * THRESHOLD_ROUNDING_BASE
             )
         else:
             threshold_min = user_defined_min
@@ -672,7 +679,7 @@ class Scanner:
         
         threshold_max = gcmd.get_int("MAX", None)
         if threshold_max is None:
-            threshold_max = threshold_min + (10 * step)
+            threshold_max = threshold_min + (THRESHOLD_STEP_MULTIPLIER * step)
             has_increased_threshold_max = (
                                 True  # max limit is set, dont increase
                             )
@@ -772,7 +779,7 @@ class Scanner:
                     ):
                         # Increase threshold_max by 3 steps above the current threshold, only if it hasn't been increased before
                         if not has_increased_threshold_max:
-                            threshold_max = current_threshold + 5 * step
+                            threshold_max = current_threshold + THRESHOLD_INCREMENT_MULTIPLIER * step
                             has_increased_threshold_max = (
                                 True  # Set the flag to True after increasing
                             )
