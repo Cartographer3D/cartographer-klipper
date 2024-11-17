@@ -25,6 +25,7 @@ import struct
 import numpy as np
 import copy
 import os
+import random
 from numpy.polynomial import Polynomial
 from . import manual_probe
 from . import probe
@@ -324,6 +325,7 @@ class Scanner:
         manual_z_offset = gcmd.get_float("Z_OFFSET", self.scanner_touch_config['z_offset'], minval=0)
         test_threshold = gcmd.get_int("THRESHOLD", self.detect_threshold_z, minval=100)
         verbose = gcmd.get_int("DEBUG", 0)
+        randomize = gcmd.get_float("MOVE", 0, maxval=10)
         self.log_debug_info(verbose, gcmd,
             f"SPEED: {speed}",
             f"MOVEMENT_SPEED: {move_speed}",
@@ -336,7 +338,8 @@ class Scanner:
             f"TOUCH_LOCATION_X: {touch_location_x}",
             f"TOUCH_LOCATION_Y: {touch_location_y}",
             f"THRESHOLD: {test_threshold}",
-            f"Z_OFFSET: {manual_z_offset}"
+            f"Z_OFFSET: {manual_z_offset}",
+            f"MOVE: {randomize}"
         )
             
         # Switch between Touch and ADXL probing
@@ -384,7 +387,8 @@ class Scanner:
             max_accel = self.toolhead.get_status(curtime)["max_accel"]
             self.log_debug_info(verbose, gcmd, f"Current Accel: {int(max_accel)}")
             
-            touch_settings = TouchSettings(initial_position, homing_position, accel, speed, retract_dist, retract_speed, num_samples, tolerance, max_retries, z_max, max_accel, test_threshold, manual_z_offset)
+            touch_settings = TouchSettings(initial_position, homing_position, accel, speed, retract_dist, retract_speed, num_samples, tolerance, max_retries, z_max, max_accel, test_threshold, manual_z_offset, randomize)
+
             result = self.start_touch(gcmd, touch_settings, verbose)
             
             samples = result["samples"]
@@ -393,12 +397,11 @@ class Scanner:
             retries = result["retries"]
             success = result["success"]
             if success:
-                final_position[2] = final_position[2] - manual_z_offset
                 self.log_debug_info(verbose, gcmd, f"Touch procedure successful with {int(retries)} retries.")
                 self.log_debug_info(verbose, gcmd, f"Final position: {final_position}")
                 self.log_debug_info(verbose, gcmd, f"Standard Deviation: {standard_deviation:.4f}")
                 if calibrate == 1:
-                    self._calibrate(gcmd, final_position, final_position[2], True, True)
+                    self._calibrate(gcmd, final_position, 0, True, True)
                 
             else:
                 self.trigger_method = 0
@@ -423,6 +426,7 @@ class Scanner:
         max_accel = touch_settings.max_accel
         test_threshold = touch_settings.test_threshold
         manual_z_offset = touch_settings.manual_z_offset
+        randomize = touch_settings.randomize
         
         original_threshold = self.detect_threshold_z
         try:
@@ -433,16 +437,33 @@ class Scanner:
             retries = 0
             gcmd.respond_info("Initiating Touch Procedure...")
             
+            new_retry = False
             samples = []
             
             has_shown_retry_info = False  # Initialize the flag
+            
+            original_position = initial_position[:]
             
             while len(samples) < num_samples:
                 if retries > 0:
                     if not has_shown_retry_info:
                         gcmd.respond_info(f"Retry Attempt {int(retries)}")
                         has_shown_retry_info = True  # Set flag to True after showing the message
-
+                
+                if randomize > 0 and new_retry:
+                        # Generate random offsets
+                        x_offset = random.uniform(-randomize, randomize)
+                        y_offset = random.uniform(-randomize, randomize)
+                        
+                        # Adjust positiion
+                        initial_position[0] = original_position[0] + x_offset
+                        initial_position[1] = original_position[1] + y_offset
+                        
+                        self.toolhead.move(initial_position, 20)
+                                             
+                        # Respond with the randomized movement info
+                        gcmd.respond_info(f"Moving touch location to (x: {initial_position[0]:.2f}, y: {initial_position[1]:.2f})")
+                        new_retry = False
                         
                 self.toolhead.wait_moves()
                 self.set_accel(accel)
@@ -480,6 +501,7 @@ class Scanner:
                     self.log_debug_info(verbose, gcmd, f"Deviation of {deviation:.4f} exceeds tolerance of {tolerance:.4f}")
                     gcmd.respond_info("Retrying..")
                     retries += 1
+                    new_retry = True
                     samples.clear()
                     has_shown_retry_info = False  # Reset the flag for the next retry cycle
                 self.log_debug_info(verbose, gcmd, f"Deviation: {deviation:.4f}\nNew Average: {average:.4f}\nTolerance: {tolerance:.4f}")
@@ -1933,7 +1955,7 @@ class Scanner:
         configfile.set("scanner", "z_offset", "%.3f" % (self.offset['z'] + offset))
 
 class TouchSettings:
-    def __init__(self, initial_position, homing_position, accel, speed, retract_dist, retract_speed, num_samples, tolerance, max_retries, z_max, max_accel, test_threshold, manual_z_offset):
+    def __init__(self, initial_position, homing_position, accel, speed, retract_dist, retract_speed, num_samples, tolerance, max_retries, z_max, max_accel, test_threshold, manual_z_offset, randomize):
         self.initial_position = initial_position
         self.homing_position = homing_position
         self.accel = accel
@@ -1947,6 +1969,7 @@ class TouchSettings:
         self.max_accel = max_accel
         self.test_threshold = test_threshold
         self.manual_z_offset = manual_z_offset
+        self.randomize = randomize
 
 class ScannerModel:
     @classmethod
