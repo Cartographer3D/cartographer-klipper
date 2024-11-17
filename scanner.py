@@ -396,12 +396,12 @@ class Scanner:
             raise gcmd.error(
                 "Must use touch or adxl mode. Check your config before trying again."
             )
-
+        
         self.check_temp(gcmd)
         self.log_debug_info(
             vars["verbose"], gcmd, f"Trigger Method: {self.trigger_method}"
         )
-
+        gcmd.respond_info("Starting nozzle touch..")
         self.toolhead.wait_moves()
 
         curtime = self.printer.get_reactor().monotonic()
@@ -473,7 +473,7 @@ class Scanner:
                 self.log_debug_info(
                     vars["verbose"],
                     gcmd,
-                    f"Touch procedure successful with {int(retries)} retries.",
+                    f"Touch procedure successful with {int(retries + 1)} attempts.",
                 )
                 self.log_debug_info(
                     vars["verbose"], gcmd, f"Final position: {final_position}"
@@ -522,17 +522,9 @@ class Scanner:
             new_retry = False
             samples = []
 
-            has_shown_retry_info = False  # Initialize the flag
-
             original_position = initial_position[:]
 
             while len(samples) < num_samples:
-                if retries > 0:
-                    if not has_shown_retry_info:
-                        gcmd.respond_info(f"Retry Attempt {int(retries)}")
-                        has_shown_retry_info = (
-                            True  # Set flag to True after showing the message
-                        )
 
                 if randomize > 0 and new_retry:
                     # Generate random offsets
@@ -553,9 +545,6 @@ class Scanner:
 
                 self.toolhead.wait_moves()
                 self.set_accel(accel)
-                gcmd.respond_info(
-                    f"Executing Touch {len(samples) + 1} of {int(num_samples)} [{int(retries)}/{int(max_retries)}]"
-                )
 
                 try:
                     probe_position = self.phoming.probing_move(
@@ -592,19 +581,18 @@ class Scanner:
                         self.trigger_method = 0
                         self._zhop()
                         raise gcmd.error(
-                            f"Exceeded maximum retries [{retries}/{int(max_retries)}]"
+                            f"Exceeded maximum attempts [{retries}/{int(max_retries)}]"
                         )
                     self.log_debug_info(
                         verbose,
                         gcmd,
                         f"Deviation of {deviation:.4f} exceeds tolerance of {tolerance:.4f}",
                     )
+                    gcmd.respond_info(f"Attempt {retries + 1}/{max_retries} failed with deviation {deviation:.4f}.")
                     retries += 1
                     new_retry = True
                     samples.clear()
-                    has_shown_retry_info = (
-                        False  # Reset the flag for the next retry cycle
-                    )
+
                 self.log_debug_info(
                     verbose,
                     gcmd,
@@ -924,22 +912,12 @@ class Scanner:
             new_retry = False
             samples = []
             success = False
-            has_shown_retry_info = False  # Initialize the flag
 
             original_position = initial_position[:]
 
             while len(samples) < num_samples:
                 if retries >= max_retries:
-                    gcmd.respond_info(
-                        f"Exceeded maximum retries [{retries}/{int(max_retries)}]"
-                    )
                     break  # Exit the loop and move to the next threshold
-                if retries > 0:
-                    if not has_shown_retry_info:
-                        gcmd.respond_info(f"Retry Attempt {int(retries)}")
-                        has_shown_retry_info = (
-                            True  # Set flag to True after showing the message
-                        )
 
                 if randomize > 0 and new_retry:
                     # Generate random offsets
@@ -960,9 +938,6 @@ class Scanner:
 
                 self.toolhead.wait_moves()
                 self.set_accel(accel)
-                gcmd.respond_info(
-                    f"Executing Touch {len(samples) + 1} of {int(num_samples)} [{int(retries)}/{int(max_retries)}]"
-                )
 
                 try:
                     probe_position = self.phoming.probing_move(
@@ -999,10 +974,10 @@ class Scanner:
                         gcmd,
                         f"Deviation of {deviation:.4f} exceeds tolerance of {tolerance:.4f}",
                     )
+                    gcmd.respond_info(f"Attempt {retries + 1}/{max_retries} failed with deviation {deviation:.4f}.")
                     retries += 1
                     new_retry = True
                     samples.clear()
-                    has_shown_retry_info = True
                     # If successful, we continue gathering samples until num_samples is reached.
 
                 self.log_debug_info(
