@@ -12,4 +12,5 @@ The following relevant macros have been tested:
 - [ ] `CARTOGRAPHER_THRESHOLD_SCAN`
 - [ ] `CARTOGRAPHER_TOUCH CALIBRATE=1`
 - [ ] `CARTOGRAPHER_TOUCH`
+- [ ] `CARTOGRAPHER_TOUCH METHOD=manual`
 - [ ] `BED_MESH_CALIBRATE`
