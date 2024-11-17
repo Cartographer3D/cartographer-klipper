@@ -305,7 +305,7 @@ class Scanner:
             self.calibration_method = "scan"
             self._start_calibration(gcmd)
                                 
-   def _get_common_variables(self, gcmd):
+    def _get_common_variables(self, gcmd):
         return {
             "speed": gcmd.get_float(
                 "SPEED",
