@@ -989,9 +989,6 @@ class Scanner:
             std_dev = np.std(samples) if samples else None
             if len(samples) == num_samples:
                 success = True
-                gcmd.respond_info(
-                    f"Completed {len(samples)} touches with a standard deviation of {std_dev:.4f}"
-                )
                 position_difference = (
                     initial_position[2] - self.toolhead.get_position()[2]
                 )
