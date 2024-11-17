@@ -1,0 +1,11 @@
+[tool.pyright]
+include = ["scanner.py"]
+reportMissingModuleSource = false     # klippy imports are always missing sources
+reportPrivateLocalImportUsage = false
+# TODO: Slowly remove these
+strictDictionaryInference = false
+reportUninitializedInstanceVariable = false
+failOnWarnings = false
+
+[tool.ruff]
+include = ["scanner.py"]
