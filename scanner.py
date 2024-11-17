@@ -51,6 +51,12 @@ TOUCH_SCALE = 0.0625 * adxl345.FREEFALL_ACCEL  # 62.5mg/LSB * Earth gravity in m
 
 ADXL345_REST_TIME = .1
 
+THRESHOLD_MIN_LIMIT = 750
+THRESHOLD_SCALING_FACTOR = 0.25
+THRESHOLD_ROUNDING_BASE = 250
+THRESHOLD_INCREMENT_MULTIPLIER = 5
+THRESHOLD_STEP_MULTIPLIER = 10
+
 class ThresholdResults:
     def __init__(self, max_value, min_value, range_value, avg_value, median, sigma, in_range, early, late, nb_samples):
      self.max_value = max_value
@@ -639,12 +645,6 @@ class Scanner:
             if hasattr(kinematics, "note_z_not_homed"):
                 kinematics.note_z_not_homed()
             raise
-
-    THRESHOLD_MIN_LIMIT = 750
-    THRESHOLD_SCALING_FACTOR = 0.25
-    THRESHOLD_ROUNDING_BASE = 250
-    THRESHOLD_INCREMENT_MULTIPLIER = 5
-    THRESHOLD_STEP_MULTIPLIER = 10
     
     cmd_SCANNER_THRESHOLD_SCAN_help = "Scan THRESHOLD in TOUCH mode"
 
@@ -680,6 +680,7 @@ class Scanner:
         threshold_max = gcmd.get_int("MAX", None)
         if threshold_max is None:
             threshold_max = threshold_min + (THRESHOLD_STEP_MULTIPLIER * step)
+        else:
             has_increased_threshold_max = (
                                 True  # max limit is set, dont increase
                             )
@@ -783,9 +784,9 @@ class Scanner:
                             has_increased_threshold_max = (
                                 True  # Set the flag to True after increasing
                             )
-                            gcmd.respond_info(
-                                f"Good Threshold Found: {current_threshold}. Adjusting threshold_max to {threshold_max}"
-                            )
+                        gcmd.respond_info(
+                            f"Good Threshold Found: {current_threshold}."
+                        )
 
                         # Run repeatability check with this threshold
                         consistent_results = True
