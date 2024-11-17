@@ -787,12 +787,12 @@ class Scanner:
                                 > max_acceptable_std_dev
                             ):
                                 gcmd.respond_info(
-                                    f"Repeat attempt {attempt + 1} failed for threshold {current_threshold}"
+                                    f"Qualify attempt {attempt + 1} failed for threshold {current_threshold}"
                                 )
                                 consistent_results = False
                                 break
                             gcmd.respond_info(
-                                f"Repeat attempt {attempt + 1} successful with std dev: {repeat_result['standard_deviation']:.5f}"
+                                f"Qualify attempt {attempt + 1} successful with std dev: {repeat_result['standard_deviation']:.5f}"
                             )
 
                         # Save only successful repeat attempts in results
@@ -812,9 +812,6 @@ class Scanner:
                         if consistent_results and override == 0:
                             best_threshold = current_threshold
                             self._save_threshold(best_threshold)
-                            gcmd.respond_info(
-                                f"Confirmed Optimal Threshold Found: {best_threshold}"
-                            )
                             break
                 # Move to the next candidate if current threshold didn't succeed
                 current_threshold += step
@@ -874,11 +871,11 @@ class Scanner:
             # Inform the user about the result
             if optimal_found:
                 gcmd.respond_info(
-                    f"Optimal Threshold Determined: {best_threshold} with {best_result['retries']} retries and standard deviation of {std_dev_display}"
+                    f"Optimal Threshold Determined: {best_threshold} with standard deviation of {std_dev_display}"
                 )
             else:
                 gcmd.respond_info(
-                    f"No fully optimal threshold found. Best attempt: {best_threshold} with {best_result['retries']} retries and standard deviation of {std_dev_display}"
+                    f"No fully optimal threshold found. Best attempt: {best_threshold} with standard deviation of {std_dev_display}"
                 )
             gcmd.respond_info(f"You can now SAVE_CONFIG to save your threshold.")
 
