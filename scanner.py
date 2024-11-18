@@ -345,7 +345,7 @@ class Scanner:
             "target": gcmd.get_float(
                 "TARGET", 0.015, above=0.0
             ),  # Default target to 0.015 if not defined
-            "max_retries": gcmd.get_float(
+            "max_retries": gcmd.get_int(
                 "RETRIES", self.scanner_touch_config["max_retries"], minval=0
             ),
             "touch_location_x": gcmd.get_float(
