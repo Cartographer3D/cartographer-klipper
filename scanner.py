@@ -56,6 +56,8 @@ THRESHOLD_SCALING_FACTOR = 0.25
 THRESHOLD_ROUNDING_BASE = 250
 THRESHOLD_INCREMENT_MULTIPLIER = 5
 THRESHOLD_STEP_MULTIPLIER = 10
+# Require a qualified threshold to pass at 0.66 of the QUALIFY_SAMPLES
+THRESHOLD_ACCEPTANCE_FACTOR = 0.66
 
 class ThresholdResults:
     def __init__(self, max_value, min_value, range_value, avg_value, median, sigma, in_range, early, late, nb_samples):
@@ -695,7 +697,7 @@ class Scanner:
         )  # Define repeat attempts for consistency check
 
         # Define what qualifies as a "good" result
-        max_acceptable_retries = 3
+        max_acceptable_retries = round(confirmation_retries * THRESHOLD_ACCEPTANCE_FACTOR)
         max_acceptable_std_dev = vars["target"]
 
         verbose = vars["verbose"]
