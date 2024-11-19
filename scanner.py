@@ -25,7 +25,11 @@ import struct
 import numpy as np
 import copy
 import os
+import csv
 import random
+import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
+from matplotlib.ticker import FuncFormatter
 from numpy.polynomial import Polynomial
 from . import manual_probe
 from . import probe
