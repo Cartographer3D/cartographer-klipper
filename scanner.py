@@ -2521,6 +2521,7 @@ class ScannerEndstopWrapper:
         res = [trsync.stop() for trsync in self._trsyncs]
         if any([r == etrsync.REASON_COMMS_TIMEOUT for r in res]):
             return -1.0
+            raise self.scanner.printer.command_error("Communication timeout during homing")
         if res[0] != etrsync.REASON_ENDSTOP_HIT:
             return 0.0
         if self._mcu.is_fileoutput():
