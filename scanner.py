@@ -150,7 +150,7 @@ class Scanner:
         self.touch_dur = config.getfloat('touch_dur', 0.01, above=DUR_SCALE, maxval=0.1)
         self.adxl345 = None
 
-        self.calibration_method = config.get("calibration_method","scan")
+        self.calibration_method = config.get("mode", config.get("calibration_method", "scan"))
         self.trigger_method = 0
 
         self.trigger_distance = config.getfloat("trigger_distance", 2.0)
