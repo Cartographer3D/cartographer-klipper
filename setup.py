@@ -458,7 +458,8 @@ backlash_comp: 0.5
 sensor: cartographer
 #    this must be set as cartographer unless using IDM etc.
 sensor_alt: carto
-#    alternate name to call commands. CARTO_TOUCH etc     
+#    alternate name to call commands. CARTO_TOUCH etc    
+mode: {probe_mode} 
 mesh_runs: 2
 #    Number of mesh runs to complete a BED_MESH_CALIBRATE
 
@@ -769,9 +770,15 @@ if __name__ == "__main__":
     parser.add_argument(
         "--debug", action="store_true", help="Enable debug mode for detailed output"
     )
-
+    parser.add_argument(
+        "--mode",
+        choices=["touch", "scan"],
+        required=True,
+        help="Specify the probe mode: 'touch' or 'scan'"
+    )
     args = parser.parse_args()
     debug = args.debug
+    probe_mode = args.mode
     try:
         x_mid, y_mid, x_mesh_max, y_mesh_max = get_position_max()
         included_files = process_includes(config_file_path)
