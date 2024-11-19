@@ -1645,7 +1645,7 @@ class Scanner:
         temp_median = median(temp)
         self.model = ScannerModel(model_name,
                                  self, poly, temp_median,
-                                 min(z_offset), max(z_offset))
+                                 min(z_offset), max(z_offset), self.calibration_method)
         self.models[self.model.name] = self.model
         self.model.save(self)
         self._apply_threshold()
@@ -1741,7 +1741,7 @@ class Scanner:
         temp_median = median(temp)
         self.model = ScannerModel(model_name,
                                  self, poly, temp_median,
-                                 min(z_offset), max(z_offset))
+                                 min(z_offset), max(z_offset), self.calibration_method)
         self.models[self.model.name] = self.model
         self.model.save(self)
         self._apply_threshold()
@@ -2460,10 +2460,11 @@ class ScannerModel:
         domain = config.getfloatlist("model_domain", count=2)
         [min_z, max_z] = config.getfloatlist("model_range", count=2)
         offset = config.getfloat("model_offset", 0.0)
+        mode = config.get("model_mode", "None")
         poly = Polynomial(coef, domain)
-        return ScannerModel(name, scanner, poly, temp, min_z, max_z, offset)
+        return ScannerModel(name, scanner, poly, temp, min_z, max_z, mode, offset)
 
-    def __init__(self, name, scanner, poly, temp, min_z, max_z, offset=0):
+    def __init__(self, name, scanner, poly, temp, min_z, max_z, mode, offset=0):
         self.name = name
         self.scanner = scanner
         self.poly = poly
@@ -2471,6 +2472,7 @@ class ScannerModel:
         self.max_z = max_z
         self.temp = temp
         self.offset = offset
+        self.mode = mode
 
     def save(self, scanner, show_message=True):
         configfile = scanner.printer.lookup_object("configfile")
@@ -2484,6 +2486,8 @@ class ScannerModel:
         configfile.set(section, "model_temp",
                        "%f" % (self.temp))
         configfile.set(section, "model_offset", "%.5f" % (self.offset,))
+        configfile.set(section, "model_mode",
+                       "%s" % (self.scanner.calibration_method))
         if show_message:
             scanner.gcode.respond_info("Scanner calibration for model '%s' has "
                     "been updated\nfor the current session. The SAVE_CONFIG "
