@@ -496,7 +496,7 @@ class Scanner:
                     f"Standard Deviation: {standard_deviation:.4f}",
                 )
                 if calibrate == 1:
-                    self._calibrate(gcmd, final_position, 0, True, True)
+                    self._calibrate(gcmd, final_position, 0, True, True, False)
 
             else:
                 self.trigger_method = 0
@@ -1534,7 +1534,7 @@ class Scanner:
                     raise gcmd.error(msg)
                 else:
                     gcmd.respond_raw("!! " + msg + "\n")
-            self._calibrate(gcmd, kin_pos, nozzle_z, False)
+            self._calibrate(gcmd, kin_pos, nozzle_z, forced_z=False, touch=False, manual_mode=False)
             self.trigger_method = 0
 
         elif gcmd.get("SKIP_MANUAL_PROBE", None) is not None:
@@ -1548,7 +1548,7 @@ class Scanner:
                     raise gcmd.error(msg)
                 else:
                     gcmd.respond_raw("!! " + msg + "\n")
-            self._calibrate(gcmd, kin_pos, nozzle_z, False)
+            self._calibrate(gcmd, kin_pos, nozzle_z, forced_z=False, touch=False, manual_mode=False)
         else:
             speed = gcmd.get_float("SPEED", float(self.speed), 50)
             curtime = self.printer.get_reactor().monotonic()
@@ -1578,144 +1578,48 @@ class Scanner:
                 forced_z = True
             self._move([touch_location_x, touch_location_y, None], 40)
             self.toolhead.wait_moves()
-            cb = lambda kin_pos: self._manual_calibrate(gcmd, kin_pos, forced_z)
+            cb = lambda kin_pos: self._calibrate(gcmd, kin_pos, cal_nozzle_z=None, forced_z=forced_z, touch=False, manual_mode=True)
             manual_probe.ManualProbeHelper(self.printer, gcmd, cb)
 
-    def _calibrate(self, gcmd, kin_pos, cal_nozzle_z, forced_z, touch=False):
-        if kin_pos is None:
-            self.trigger_method = 0
-            if forced_z:
-                kin = self.toolhead.get_kinematics()
-                if hasattr(kin, "note_z_not_homed"):
-                        kin.note_z_not_homed()
-            return
-
-        gcmd.respond_info("Scanner calibration starting")
-        cal_floor = gcmd.get_float("FLOOR", self.cal_config['floor'])
-        cal_ceil = gcmd.get_float("CEIL", self.cal_config['ceil'])
-        cal_speed = gcmd.get_float("SPEED", self.cal_config['speed'])
-        move_speed = gcmd.get_float("MOVE_SPEED", self.cal_config['move_speed'])
-        if not self.model:  # Check if no model is loaded
-            model_name = gcmd.get("MODEL_NAME", "default")  # Default to "default"
-        else:
-            model_name = gcmd.get("MODEL_NAME", self.model.name, "default")
-
-        
-        toolhead = self.toolhead
-        curtime = self.reactor.monotonic()
-        toolhead.wait_moves()
-        
-        self.toolhead.get_last_move_time()
-        curpos = toolhead.get_position()
-        curpos[2] = cal_nozzle_z
-        toolhead.set_position(curpos)
-        
-        pos = toolhead.get_position()
-    
-        # Move over to probe coordinate and pull out backlash
-        curpos = self.toolhead.get_position()
-
-        curpos[2] = cal_ceil + self.backlash_comp
-        toolhead.manual_move(curpos, move_speed) # Up
-        curpos[0] -= self.offset['x']
-        curpos[1] -= self.offset['y']
-        toolhead.manual_move(curpos, move_speed) # Over
-        curpos[2] = cal_ceil
-        toolhead.manual_move(curpos, move_speed) # Down
-        toolhead.wait_moves()
-
-        samples = []
-        def cb(sample):
-            samples.append(sample)
-
-        try:
-            self._start_streaming()
-            self._sample_printtime_sync(50)
-            with self.streaming_session(cb) as ss:
-                self._sample_printtime_sync(50)
-                toolhead.dwell(0.250)
-                curpos[2] = cal_floor
-                toolhead.manual_move(curpos, cal_speed)
-                toolhead.dwell(0.250)
-                self._sample_printtime_sync(50)
-        except:
-            self.trigger_method = 0
-        finally:
-            self._stop_streaming()
-
-        # Fit the sampled data
-        z_offset = [s["pos"][2] for s in samples]
-        freq = [s["freq"] for s in samples]
-        temp = [s["temp"] for s in samples]
-        inv_freq = [1/f for f in freq]
-        poly = Polynomial.fit(inv_freq, z_offset, 9)
-        temp_median = median(temp)
-        self.model = ScannerModel(model_name,
-                                 self, poly, temp_median,
-                                 min(z_offset), max(z_offset), self.calibration_method)
-        self.models[self.model.name] = self.model
-        self.model.save(self)
-        self._apply_threshold()
-
-        self.toolhead.get_last_move_time()
-        pos = self.toolhead.get_position()
-        pos[2] = cal_floor
-        self.toolhead.set_position(pos)
-
-        # Dump calibration curve
-        fn = "/tmp/scanner-calibrate-"+time.strftime("%Y%m%d_%H%M%S")+".csv"
-        f = open(fn, "w")
-        f.write("freq,z,temp\n")
-        for i in range(len(freq)):
-            f.write("%.5f,%.5f,%.3f\n" % (freq[i], z_offset[i], temp[i]))
-        f.close()
-
-        gcmd.respond_info("Scanner calibrated at %.3f,%.3f from "
-                          "%.3f to %.3f, speed %.2f mm/s, temp %.2fC"
-                          % (pos[0], pos[1],
-                          cal_floor, cal_ceil, cal_speed, temp_median))
-        self._zhop()
-        self.trigger_method = 0
-    # Internal
-    def _manual_calibrate(self, gcmd, kin_pos, forced_z):
+    def _calibrate(self, gcmd, kin_pos, cal_nozzle_z=None, forced_z=None, touch=False, manual_mode=False):
         if kin_pos is None:
             self.trigger_method = 0
             self._zhop()
             if forced_z:
                 kin = self.toolhead.get_kinematics()
                 if hasattr(kin, "note_z_not_homed"):
-                        kin.note_z_not_homed()
-                        
+                    kin.note_z_not_homed()
             return
-
         gcmd.respond_info("Scanner calibration starting")
         cal_floor = gcmd.get_float("FLOOR", self.cal_config['floor'])
         cal_ceil = gcmd.get_float("CEIL", self.cal_config['ceil'])
         cal_speed = gcmd.get_float("SPEED", self.cal_config['speed'])
         move_speed = gcmd.get_float("MOVE_SPEED", self.cal_config['move_speed'])
-        if not self.model:  # Check if no model is loaded
-            model_name = gcmd.get("MODEL_NAME", "default")  # Default to "default"
-        else:
-            model_name = gcmd.get("MODEL_NAME", self.model.name, "default")
-        nozzle_z = gcmd.get_float("NOZZLE_Z", self.cal_config['nozzle_z'])
-        cal_min_z = kin_pos[2] - nozzle_z + cal_floor
-        cal_max_z = kin_pos[2] - nozzle_z + cal_ceil
+        model_name = gcmd.get("MODEL_NAME", "default")
 
         toolhead = self.toolhead
         curtime = self.reactor.monotonic()
         toolhead.wait_moves()
-        pos = toolhead.get_position()
 
-        # Move over to probe coordinate and pull out backlash
-        curpos = self.toolhead.get_position()
+        if manual_mode:
+            nozzle_z = gcmd.get_float("NOZZLE_Z", self.cal_config['nozzle_z'])
+            cal_min_z = kin_pos[2] - nozzle_z + cal_floor
+            cal_max_z = kin_pos[2] - nozzle_z + cal_ceil
+        else:
+            curpos = toolhead.get_position()
+            curpos[2] = cal_nozzle_z
+            toolhead.set_position(curpos)
+            cal_min_z = cal_floor
+            cal_max_z = cal_ceil
 
+        # Move to probe coordinates and compensate for backlash
+        curpos = toolhead.get_position()
         curpos[2] = cal_max_z + self.backlash_comp
-        toolhead.manual_move(curpos, move_speed) # Up
         curpos[0] -= self.offset['x']
         curpos[1] -= self.offset['y']
-        toolhead.manual_move(curpos, move_speed) # Over
+        toolhead.manual_move(curpos, move_speed)  # Move up and over
         curpos[2] = cal_max_z
-        toolhead.manual_move(curpos, move_speed) # Down
+        toolhead.manual_move(curpos, move_speed)  # Move down
         toolhead.wait_moves()
 
         samples = []
@@ -1739,37 +1643,31 @@ class Scanner:
             self._stop_streaming()
 
         # Fit the sampled data
-        z_offset = [s["pos"][2]-cal_min_z+cal_floor
-                    for s in samples]
+        z_offset = [s["pos"][2] - (cal_min_z if manual_mode else 0) + cal_floor for s in samples]
         freq = [s["freq"] for s in samples]
         temp = [s["temp"] for s in samples]
-        inv_freq = [1/f for f in freq]
+        inv_freq = [1 / f for f in freq]
         poly = Polynomial.fit(inv_freq, z_offset, 9)
         temp_median = median(temp)
-        self.model = ScannerModel(model_name,
-                                 self, poly, temp_median,
-                                 min(z_offset), max(z_offset), self.calibration_method)
+        self.model = ScannerModel(model_name, self, poly, temp_median, min(z_offset), max(z_offset), self.calibration_method)
         self.models[self.model.name] = self.model
         self.model.save(self)
         self._apply_threshold()
 
-        self.toolhead.get_last_move_time()
-        pos = self.toolhead.get_position()
+        toolhead.get_last_move_time()
+        pos = toolhead.get_position()
         pos[2] = cal_floor
-        self.toolhead.set_position(pos)
+        toolhead.set_position(pos)
 
         # Dump calibration curve
-        fn = "/tmp/scanner-calibrate-"+time.strftime("%Y%m%d_%H%M%S")+".csv"
-        f = open(fn, "w")
-        f.write("freq,z,temp\n")
-        for i in range(len(freq)):
-            f.write("%.5f,%.5f,%.3f\n" % (freq[i], z_offset[i], temp[i]))
-        f.close()
+        fn = f"/tmp/scanner-calibrate-{time.strftime('%Y%m%d_%H%M%S')}.csv"
+        with open(fn, "w") as f:
+            f.write("freq,z,temp\n")
+            for i in range(len(freq)):
+                f.write(f"{freq[i]:.5f},{z_offset[i]:.5f},{temp[i]:.3f}\n")
 
-        gcmd.respond_info("Scanner calibrated at %.3f,%.3f from "
-                          "%.3f to %.3f, speed %.2f mm/s, temp %.2fC"
-                          % (pos[0], pos[1],
-                          cal_min_z, cal_max_z, cal_speed, temp_median))
+        gcmd.respond_info("Scanner calibrated at %.3f,%.3f from %.3f to %.3f, speed %.2f mm/s, temp %.2fC" %
+                          (pos[0], pos[1], cal_min_z, cal_max_z, cal_speed, temp_median))
         self.trigger_method = 0
         self._zhop()
     # Internal
