@@ -852,13 +852,13 @@ flashing(){
 	if [[ $(printf "%s\n" "$folder_name" "$reference_version" | sort -V | head -n 1) != "$folder_name" ]]; then
 		echo
 		echo
-		printf "${RED}###################################################################################${NC}\n"
 		printf "${RED}WARNING:${NC} For Firmware Newer Than 5.0.0\n"
 		printf "${GREEN}channel: stable${NC} needs to be set under ${BLUE}[update_manager cartographer]${NC} in your ${BLUE}moonraker.conf${NC}"
 		echo
 		echo "Please also, make sure you recalibrate."
 		echo
 		printf "Changelogs are available at ${BLUE}https://github.com/Cartographer3D/cartographer-klipper/releases${NC}\n\n"
+		printf "${RED}###################################################################################${NC}\n"
 		while true; do
 		read -p "Do you wish to continue flashing? (yes/no) " yn < /dev/tty
 		case $yn in
