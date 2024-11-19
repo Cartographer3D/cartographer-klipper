@@ -825,7 +825,7 @@ class Scanner:
                         # If all repeat attempts succeeded, save the threshold
                         if consistent_results and override == 0:
                             best_threshold = current_threshold
-                            self._save_threshold(best_threshold)
+                            self._save_threshold(best_threshold, vars["speed"])
                             break
                 # Move to the next candidate if current threshold didn't succeed
                 current_threshold += step
@@ -873,7 +873,7 @@ class Scanner:
 
             # Save and respond with the best threshold found
             self.detect_threshold_z = best_threshold
-            self._save_threshold(best_threshold)
+            self._save_threshold(best_threshold, vars["speed"])
 
             # Handle None for standard deviation by using a default message
             std_dev_display = (
@@ -2091,9 +2091,10 @@ class Scanner:
         pos = self.run_probe(gcmd)
         gcmd.respond_info("Result is z=%.6f" % (pos[2],))
 
-    def _save_threshold(self, threshold):
+    def _save_threshold(self, threshold, speed):
         configfile = self.printer.lookup_object('configfile')
         configfile.set("scanner", "scanner_touch_threshold", "%d" % int(threshold))
+        configfile.set("scanner", "scanner_touch_speed", "%d" % int(speed))
 
     cmd_SCANNER_THRESHOLD_TEST_help = "Home using touch and check with coil to see how consistent it is"
     def cmd_SCANNER_THRESHOLD_TEST(self, gcmd):
