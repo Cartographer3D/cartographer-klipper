@@ -605,6 +605,8 @@ class Scanner:
             cur_temp = hotend.get_heater().get_status(curtime)["temperature"]
             if self.extruder_target > cur_temp:
                 gcmd.respond_info("Heating hotend to %.1f" % (self.extruder_target))
+                cmd = "M104 S"+str(self.extruder_target)
+                self.gcode.run_script_from_command(cmd)
                 cmd = f"TEMPERATURE_WAIT SENSOR=extruder MINIMUM="+str(self.extruder_target)
                 self.gcode.run_script_from_command(cmd)
                 
