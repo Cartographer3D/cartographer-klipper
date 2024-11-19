@@ -631,7 +631,7 @@ flashFirmware(){
 		done
 	fi
 
-	if [[ -n $queryID ]] && [[ $2 == 4 ]]; then
+	if [[ -n $queryID ]] && [[ $2 == 4 ]] && [[ $usbID == "" ]]; then
 		# Retrieve CANBus bitrate
 		bitrate=$(ip -s -d link show can0 | grep -oP 'bitrate\s\K\w+')
 		printf "Your Host CANBus is configured at ${RED}Bitrate: $bitrate${NC}\n"
