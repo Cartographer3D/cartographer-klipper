@@ -1,19 +1,25 @@
 #!/bin/bash
 
-while getopts s:t:f: flag
+while getopts s:t:f:b: flag
 do
     case "${flag}" in
         s) switch=${OPTARG};;
 		t) ftype=${OPTARG};;
 		f) flash=${OPTARG};;
+		b) beta=${OPTARG};;
     esac
 done
 # Define repository URLs
 CARTOGRAPHER_KLIPPER_REPO="https://github.com/Cartographer3D/cartographer-klipper.git"
 KATAPULT_REPO="https://github.com/Arksine/katapult.git"
 
-# Define local paths where the repositories should be cloned
-CARTOGRAPHER_KLIPPER_DIR="$HOME/cartographer-klipper"
+if [[ $beta == "beta" ]]; then
+	TARBALL_URL="https://api.github.com/repos/Cartographer3D/cartographer-klipper/tarball/master"
+else
+	TARBALL_URL="https://api.github.com/repos/Cartographer3D/cartographer-klipper/tarball/beta-firmware"
+fi
+TEMP_DIR="/tmp/cartographer-klipper"
+
 KATAPULT_DIR="$HOME/katapult"
 
 RED='\033[0;31m'
@@ -42,8 +48,6 @@ if systemctl is-active --quiet "klipper.service" ; then
 else
 	sudo service klipper stop
 fi
-cd ~/cartographer-klipper
-git pull > /dev/null 2>&1
 ##
 # Color  Variables
 ##
@@ -77,7 +81,7 @@ printf "${BLUE}
   \____|  \__,_| |_|     \__|  \___/   \__, | |_|     \__,_| | .__/  |_| |_|  \___| |_|   
                                        |___/                 |_|                          
 ${NC}"
-printf "${RED}Firmware Script ${NC} v1.0.10\n"
+printf "${RED}Firmware Script ${NC} v1.1.0\n"
 printf "Created by ${GREEN}KrauTech${NC} ${BLUE}(https://github.com/krautech)${NC}\n"
 echo
 echo
@@ -141,7 +145,7 @@ menu(){
 	if [[ $canbootID == "" ]] && [[ $katapultID == "" ]] && [[ $dfuID == "" ]] && [[ $usbID == "" ]] && [[ $queryID == "" ]]; then
 		echo -ne "$(ColorRed 'No Device Found in Flashing Mode')\n"
 	fi
-	if [ ! -d ~/katapult ] || [ ! -d ~/cartographer-klipper ]; then
+	if [ ! -d ~/katapult ] || [ ! -d $CARTOGRAPHER_KLIPPER_DIR ]; then
 	echo -ne ""
 	else
 		if [[ $flash == "dfu" ]] || [[ $flash == "" ]]; then
@@ -207,8 +211,8 @@ menu(){
 		"lsusb") 
 		lsusb
 		read -p "Press enter to return to main menu"; menu ;;
-		"q") sudo service klipper start; exit;;
-		"r") sudo reboot; exit;;
+		"q") sudo service klipper start; delete_temp;;
+		"r") sudo reboot; delete_temp;;
 		*) echo -e $red"Wrong option."$clear;;
     esac
 }
@@ -248,8 +252,16 @@ initialChecks(){
 	echo "This can take a few moments.. please wait."
 	echo 
 	installPre
-	cd ~/cartographer-klipper/
-	git pull > /dev/null 2>&1
+	
+	if [[ ! -d "$TEMP_DIR" ]]; then
+		# Create /tmp directory if not exists
+		mkdir -p "$TEMP_DIR"
+		curl -L "$TARBALL_URL" | tar -xz -C "$TEMP_DIR"
+	fi
+	# Find the extracted folder name (GitHub includes commit hash in the folder name)
+	CARTOGRAPHER_KLIPPER_DIR=$(find "$TEMP_DIR" -mindepth 1 -maxdepth 1 -type d)
+	
+	
 	# Check for Device in DFU Mode Instead
 	if [[ $flash == "dfu" ]] || [[ $flash == "" ]]; then
 		dfuCheck=$(lsusb | grep -oP "DFU Mode")
@@ -325,7 +337,6 @@ installPre(){
 	# Installs all needed files FUNCTION
 	check_git_installed
 	check_dfu_util_installed
-	check_cartographer_klipper
 	check_katapult
 }
 # Function to check if Git is installed
@@ -363,10 +374,6 @@ check_repo_pulled() {
             exit 1
         fi
     fi
-}
-# Check if cartographer-klipper is pulled
-check_cartographer_klipper() {
-    check_repo_pulled "$CARTOGRAPHER_KLIPPER_DIR" "$CARTOGRAPHER_KLIPPER_REPO"
 }
 
 # Check if katapult is pulled
@@ -550,12 +557,11 @@ flashFirmware(){
 		printf "${BLUE}Flashing ${canbootID}${katapultID} via ${GREEN}CANBUS - KATAPULT${NC}\n\n"
 
 		# Update repository
-		cd ~/cartographer-klipper/ || exit
-		git pull > /dev/null 2>&1
+		cd "$CARTOGRAPHER_KLIPPER_DIR" || exit
 
 		# Determine flashing type
 		if [[ $ftype == "katapult" ]]; then
-			cd ~/cartographer-klipper/firmware/v2-v3/katapult-deployer || exit
+			cd "$CARTOGRAPHER_KLIPPER_DIR/firmware/v2-v3/katapult-deployer/" || exit
 
 			# Set search parameters based on switch
 			if [[ $switch == "canbus" ]]; then
@@ -577,9 +583,9 @@ flashFirmware(){
 		else
 			# Set directory based on parameter
 			if [[ $1 == 1 ]]; then
-				cd ~/cartographer-klipper/firmware/v2-v3/survey || exit
+				cd "$CARTOGRAPHER_KLIPPER_DIR/firmware/v2-v3/survey" || exit
 			else
-				cd ~/cartographer-klipper/firmware/v2-v3/ || exit
+				cd "$CARTOGRAPHER_KLIPPER_DIR/cartographer-klipper/firmware/v2-v3/" || exit
 			fi
 
 			# Set search pattern based on bitrate
@@ -590,7 +596,7 @@ flashFirmware(){
 				# find . -maxdepth 1 -type f ! -name "*.md" -name "$search_pattern" -printf "%f\n" | sort_firmware_files
 			# )
 			
-			archive_dir="$HOME/cartographer-klipper/firmware/v2-v3/survey" # Corrected path
+			archive_dir="$CARTOGRAPHER_KLIPPER_DIR/firmware/v2-v3/survey" # Corrected path
 			if [[ -d $archive_dir ]]; then
 				# Get the folder names sorted from largest to smallest version
 				folders=($(ls -d "$archive_dir"/*/ | sort -rV))
@@ -639,12 +645,11 @@ flashFirmware(){
 		printf "${BLUE}Flashing ${queryID} via ${GREEN}CANBUS - KATAPULT${NC}\n\n"
 
 		# Update repository
-		cd ~/cartographer-klipper/ || exit
-		git pull > /dev/null 2>&1
+		cd "$CARTOGRAPHER_KLIPPER_DIR" || exit
 
 		# Determine flashing type
 		if [[ $ftype == "katapult" ]]; then
-			cd ~/cartographer-klipper/firmware/v2-v3/katapult-deployer || exit
+			cd "$CARTOGRAPHER_KLIPPER_DIR/firmware/v2-v3/katapult-deployer" || exit
 
 			# Set search parameters based on switch
 			if [[ $switch == "canbus" ]]; then
@@ -666,9 +671,9 @@ flashFirmware(){
 		else
 			# Set directory based on parameter
 			if [[ $1 == 1 ]]; then
-				cd ~/cartographer-klipper/firmware/v2-v3/survey || exit
+				cd "$CARTOGRAPHER_KLIPPER_DIR/firmware/v2-v3/survey" || exit
 			else
-				cd ~/cartographer-klipper/firmware/v2-v3 || exit
+				cd "$CARTOGRAPHER_KLIPPER_DIR/firmware/v2-v3" || exit
 			fi
 
 			# Set search pattern based on bitrate
@@ -679,7 +684,7 @@ flashFirmware(){
 				# find . -maxdepth 1 -type f ! -name "*.md" -name "$search_pattern" -printf "%f\n" | sort_firmware_files
 			# )
 			
-			archive_dir="$HOME/cartographer-klipper/firmware/v2-v3/survey" # Corrected path
+			archive_dir="$CARTOGRAPHER_KLIPPER_DIR/cartographer-klipper/firmware/v2-v3/survey" # Corrected path
 			if [[ -d $archive_dir ]]; then
 				# Get the folder names sorted from largest to smallest version
 				folders=($(ls -d "$archive_dir"/*/ | sort -rV))
@@ -724,9 +729,7 @@ flashFirmware(){
 	# If found device is DFU
 	if [[ $dfuID != "" ]] && [[ $2 == 2 ]]; then
 		printf "${BLUE}Flashing via ${GREEN}DFU${NC}\n\n"
-		cd ~/cartographer-klipper/
-		git pull > /dev/null 2>&1
-		cd ~/cartographer-klipper/firmware/v2-v3/combined-firmware
+		cd "$CARTOGRAPHER_KLIPPER_DIR/firmware/v2-v3/combined-firmware"
 		if [[ $1 == 1 ]]; then
 			findFiles="Full_Survey_*"
 		else
@@ -760,12 +763,11 @@ flashFirmware(){
 		printf "${BLUE}Flashing via ${GREEN}USB - KATAPULT${NC}\n\n"
 
 		# Update repository
-		cd ~/cartographer-klipper/ || exit
-		git pull > /dev/null 2>&1
-		cd ~/cartographer-klipper/firmware/v2-v3/katapult-deployer || exit
+
+		cd "$CARTOGRAPHER_KLIPPER_DIR/firmware/v2-v3/katapult-deployer" || exit
 
 		if [[ $ftype == "katapult" ]]; then
-			cd ~/cartographer-klipper/firmware/v2-v3/katapult-deployer || exit
+			cd "$CARTOGRAPHER_KLIPPER_DIR/firmware/v2-v3/katapult-deployer" || exit
 
 			# Set search parameters based on switch
 			if [[ $switch == "canbus" ]]; then
@@ -787,9 +789,9 @@ flashFirmware(){
 		else
 			# Set directory based on parameter
 			if [[ $1 == 1 ]]; then
-				cd ~/cartographer-klipper/firmware/v2-v3/survey || exit
+				cd "$CARTOGRAPHER_KLIPPER_DIR/firmware/v2-v3/survey" || exit
 			else
-				cd ~/cartographer-klipper/firmware/v2-v3/ || exit
+				cd "$CARTOGRAPHER_KLIPPER_DIR/firmware/v2-v3/" || exit
 			fi
 
 			# Set search pattern based on USB
@@ -800,7 +802,7 @@ flashFirmware(){
 				# find . -maxdepth 1 -type f ! -name "*.md" -name "$search_pattern" -printf "%f\n" | sort_firmware_files
 			# )
 			
-			archive_dir="$HOME/cartographer-klipper/firmware/v2-v3/survey" # Corrected path
+			archive_dir="$CARTOGRAPHER_KLIPPER_DIR/firmware/v2-v3/survey" # Corrected path
 			if [[ -d $archive_dir ]]; then
 				# Get the folder names sorted from largest to smallest version
 				folders=($(ls -d "$archive_dir"/*/ | sort -rV))
@@ -943,7 +945,7 @@ display_flashed(){
 	method=$2
 	survey=$3
 	
-	printf "Your device has been flash.
+	printf "Your device has been flashed.
 	
 Note, after you exit this script you need to replace the serial path  or UUID with your probes serial path or UUID, this can be found by running the following commands 
 
@@ -953,6 +955,14 @@ For USB based probes\n\n"
 	printf "${RED}~/klippy-env/bin/python ~/klipper/scripts/canbus_query.py can0${NC}-\n"
 	printf "Take note of either the Serial ID or the UUID.\n\n"
 	read -p "Press enter to continue"
+	delete_temp;
+}
+delete_temp(){
+	if [[ -d "$TEMP_DIR" ]]; then
+		echo "Cleaning up temporary directory..."
+		rm -rf "$temp_dir"
+		echo "Temporary directory deleted."
+	fi
 	exit;
 }
 disclaimer;
