@@ -280,6 +280,7 @@ class Scanner:
         for sensor in [self.sensor, self.sensor_alt]:
             if sensor:  # Ensure the sensor is not None
                 sensor_name = sensor.upper()
+                self.sensor_name = sensor_name
                 self.gcode.register_command(sensor_name + "_STREAM", self.cmd_SCANNER_STREAM,
                                             desc=self.cmd_SCANNER_STREAM_help)
                 self.gcode.register_command(sensor_name + "_QUERY", self.cmd_SCANNER_QUERY,
@@ -312,11 +313,11 @@ class Scanner:
     cmd_SCANNER_CALIBRATE_help = "Calibrate scanner response curve"
     def cmd_SCANNER_CALIBRATE(self,gcmd):
         if self.calibration_method != "scan":
-             raise gcmd.error("You are not in scan mode. Please set 'calibration_method: scan' in your printer.cfg and retry.")
+            raise gcmd.error("You are not in scan mode. Please set 'calibration_method: scan' in your printer.cfg and retry.")
         else:
             self.calibration_method = "scan"
             self._start_calibration(gcmd)
-                                
+                                 
     def _get_common_variables(self, gcmd):
         return {
             "speed": gcmd.get_float(
@@ -1970,20 +1971,19 @@ class Scanner:
     # GCode command handlers
     cmd_PROBE_SWITCH_help = "swith between scan and touch"
     def cmd_PROBE_SWITCH(self, gcmd):
-        method=gcmd.get("METHOD","NONE").lower()
+        method=gcmd.get("MODE","NONE").lower()
         if method == "scan":
             self.calibration_method = "scan"
             self.trigger_method=0
-            gcmd.respond_info("Method switched to SCAN")
+            configfile = self.printer.lookup_object('configfile')
+            configfile.set("scanner", "mode", "scan")
+            gcmd.respond_info("Mode switched to SCAN. Please use SAVE_CONFIG to save this mode.")
         elif method == "touch":
             self.calibration_method = "touch"
             self.trigger_method=1
-            gcmd.respond_info("Method switched to TOUCH")
-        elif method == "adxl":
-            self.adxl345 = self.printer.lookup_object('adxl345')
-            self.trigger_method=2
-            self.init_adxl()
-            gcmd.respond_info("Method switched to ADXL")
+            configfile = self.printer.lookup_object('configfile')
+            configfile.set("scanner", "mode", "touch")
+            gcmd.respond_info("Mode switched to TOUCH. Please use SAVE_CONFIG to save this mode.")
         threshold = gcmd.get_int("THRESHOLD", self.detect_threshold_z)
         if self.detect_threshold_z != threshold:
             self.detect_threshold_z = threshold
