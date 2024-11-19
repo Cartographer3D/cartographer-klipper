@@ -31,6 +31,12 @@ import numpy as np
 import pins
 from clocksync import SecondarySync
 from matplotlib.ticker import FuncFormatter
+from numpy.polynomial import Polynomial
+from . import manual_probe
+from . import probe
+from . import bed_mesh
+from . import thermistor
+from . import adxl345
 from mcu import MCU, MCU_trsync
 from numpy.polynomial import Polynomial
 
@@ -260,7 +266,7 @@ class Scanner:
         self.raw_axis_twist_comp = None
 
         mainsync = self.printer.lookup_object("mcu")._clocksync
-        mcu = config.get("mcu", None)
+        mcu = config.get("mcu",None)
         if mcu is not None:
             if mcu == "mcu":
                 self._mcu = self.printer.lookup_object("mcu")
@@ -542,8 +548,7 @@ class Scanner:
             )
 
             result = self.start_touch(gcmd, touch_settings, vars["verbose"])
-
-            samples = result["samples"]
+            
             standard_deviation = result["standard_deviation"]
             final_position = result["final_position"]
             retries = result["retries"]
@@ -801,7 +806,6 @@ class Scanner:
         # Set initial scan values
         self.previous_probe_success = 0
         current_threshold = threshold_min
-        retries, attempts = 0, 0
 
         start_position = kin_status["axis_maximum"][2]
         try:
@@ -1558,7 +1562,6 @@ class Scanner:
         speed = gcmd.get_float("PROBE_SPEED", self.speed, above=0.0)
         skip_samples = gcmd.get_int("SKIP", 0)
         allow_faulty = gcmd.get_int("ALLOW_FAULTY_COORDINATE", 0) != 0
-        lift_speed = self.get_lift_speed(gcmd)
         toolhead = self.printer.lookup_object("toolhead")
         curtime = self.reactor.monotonic()
         if "z" not in toolhead.get_status(curtime)["homed_axes"]:
@@ -1700,7 +1703,6 @@ class Scanner:
                 gcmd, kin_pos, nozzle_z, forced_z=False, touch=False, manual_mode=False
             )
         else:
-            speed = gcmd.get_float("SPEED", float(self.speed), 50)
             curtime = self.printer.get_reactor().monotonic()
             kin_status = self.toolhead.get_kinematics().get_status(curtime)
             if "xy" not in kin_status["homed_axes"]:
