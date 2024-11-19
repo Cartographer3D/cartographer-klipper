@@ -539,6 +539,7 @@ sort_firmware_files() {
 flashFirmware(){
 	# List Firmware for Found Device FUNCTION
 	header;
+	options=()
 	echo "Pick which firmware you want to install, if unsure ask on discord (https://discord.gg/yzazQMEGS2)"
 	echo
 	# Check if canbootID or katapultID are set
@@ -630,7 +631,7 @@ flashFirmware(){
 			esac
 		done
 	fi
-
+	options=()
 	if [[ -n $queryID ]] && [[ $2 == 4 ]] && [[ $usbID == "" ]]; then
 		# Retrieve CANBus bitrate
 		bitrate=$(ip -s -d link show can0 | grep -oP 'bitrate\s\K\w+')
@@ -719,6 +720,7 @@ flashFirmware(){
 			esac
 		done
 	fi
+	options=()
 	# If found device is DFU
 	if [[ $dfuID != "" ]] && [[ $2 == 2 ]]; then
 		printf "${BLUE}Flashing via ${GREEN}DFU${NC}\n\n"
@@ -752,6 +754,7 @@ flashFirmware(){
 			esac
 		done
 	fi
+	options=()
 	# If found device is USB
 	if [[ -n $usbID ]] && [[ $2 == 3 ]]; then
 		printf "${BLUE}Flashing via ${GREEN}USB - KATAPULT${NC}\n\n"
