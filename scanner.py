@@ -165,7 +165,9 @@ class Scanner:
         }
         self.gcode = self.printer.lookup_object("gcode")
         self.probe_calibrate_z = 0.
-        
+
+        if config.get("moonraker_channel_updated", None) is None:
+            raise self.printer.command_error("Please visit https://docs.cartographer3d.com/readme/moonraker-channel-migration before proceeding.")
         if config.getint("detect_threshold_z", None) is not None:
             raise self.printer.command_error("Please change detect_threshold_z to scanner_touch_threshold in printer.cfg")
         self.detect_threshold_z = self.scanner_touch_config["threshold"]
