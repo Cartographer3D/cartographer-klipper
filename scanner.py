@@ -413,9 +413,10 @@ class Scanner:
             self.init_adxl()
         else:
             self.trigger_method = 0
-            raise gcmd.error(
-                "Must use touch or adxl mode. Check your config before trying again."
-            )
+            self.calibration_method = "scan"
+            if calibrate == 1 or gcmd.get("METHOD", "None").lower() == "manual":
+                self._start_calibration(gcmd)
+            return
         
         self.check_temp(gcmd)
         self.log_debug_info(
