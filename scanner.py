@@ -313,7 +313,14 @@ class Scanner:
     cmd_SCANNER_CALIBRATE_help = "Calibrate scanner response curve"
     def cmd_SCANNER_CALIBRATE(self,gcmd):
         if self.calibration_method != "scan":
-            raise gcmd.error("You are not in scan mode. Please set 'calibration_method: scan' in your printer.cfg and retry.")
+            cmd = self.sensor_name + "_TOUCH"
+            params = {}
+            if gcmd.get("METHOD","None").lower() == "manual":
+                params["METHOD"] = "manual"
+            else:
+                params["CALIBRATE"] = "1"
+            cmd = self.gcode.create_gcode_command(cmd, cmd, params)
+            self.cmd_SCANNER_TOUCH(cmd)
         else:
             self.calibration_method = "scan"
             self._start_calibration(gcmd)
