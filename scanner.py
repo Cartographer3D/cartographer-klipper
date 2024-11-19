@@ -585,16 +585,17 @@ class Scanner:
             cur_temp = hotend.get_heater().get_status(curtime)["temperature"]
             self.extruder_target = hotend.get_heater().get_status(curtime)["target"]
             max_temp = self.scanner_touch_config['max_temp']
+            wait_temp = max_temp + 5
             if self.extruder_target > max_temp:
                 gcmd.respond_info("Target hotend temperature %.1f exceeds maximum allowed temperature %.1f lowering to %.1f" % (cur_temp, max_temp, max_temp))
                 cmd = "M104 S"+str(max_temp)
                 self.gcode.run_script_from_command(cmd)
-                cmd = f"TEMPERATURE_WAIT SENSOR=extruder MAXIMUM={max_temp}"
+                cmd = f"TEMPERATURE_WAIT SENSOR=extruder MAXIMUM={wait_temp}"
                 self.gcode.run_script_from_command(cmd)
             else:
                 if cur_temp > max_temp:
-                    gcmd.respond_info('Extruder temperature %.1fC is still too high, waiting until below %.1fC' % (cur_temp, max_temp))
-                    cmd = f"TEMPERATURE_WAIT SENSOR=extruder MAXIMUM={max_temp}"
+                    gcmd.respond_info('Extruder temperature %.1fC is still too high, waiting until below %.1fC' % (cur_temp, wait_temp))
+                    cmd = f"TEMPERATURE_WAIT SENSOR=extruder MAXIMUM={wait_temp}"
                     self.gcode.run_script_from_command(cmd)
                     
     def set_temp(self,gcmd):
@@ -604,7 +605,7 @@ class Scanner:
             cur_temp = hotend.get_heater().get_status(curtime)["temperature"]
             if self.extruder_target > cur_temp:
                 gcmd.respond_info("Heating hotend to %.1f" % (self.extruder_target))
-                cmd = "M109 S"+str(self.extruder_target)
+                cmd = f"TEMPERATURE_WAIT SENSOR=extruder MINIMUM="+str(self.extruder_target)
                 self.gcode.run_script_from_command(cmd)
                 
     def run_touch_probe(self, gcmd):
