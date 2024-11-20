@@ -2447,8 +2447,7 @@ class Scanner:
             gcmd.respond_info(f"Scanner model offset has been updated to {self.model.offset:.3f}.\n"
                     "You must run the SAVE_CONFIG command now to update the\n"
                     "printer config file and restart the printer.")
-            self.model.offset = old_offset
-
+                    
     cmd_SAVE_TOUCH_OFFSET_help = "Save offset to z_offset for TOUCH method"
     def cmd_SAVE_TOUCH_OFFSET(self, gcmd):
         gcode_move = self.printer.lookup_object("gcode_move")
