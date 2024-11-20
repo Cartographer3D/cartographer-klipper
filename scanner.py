@@ -2434,13 +2434,12 @@ class Scanner:
                 # offset would compound with the gcode offset. To ensure this doesn't
                 # happen, we revert to the old model offset afterwards.
                 # Really, the user should just be calling `SAVE_CONFIG` now.
-                if self.calibration_method == "touch":
-                    self.scanner_touch_config['z_offset'] = newoffset
-                    configfile = self.printer.lookup_object('configfile')
-                    configfile.set("scanner", "scanner_touch_z_offset", "%.3f" % self.scanner_touch_config['z_offset'])
-                    gcmd.respond_info(f"Touch offset has been updated by {offset:.3f} to {self.scanner_touch_config['z_offset']:.3f}.\n"
-                        "You must run the SAVE_CONFIG command now to update the\n"
-                        "printer config file and restart the printer.")
+                self.scanner_touch_config['z_offset'] = newoffset
+                configfile = self.printer.lookup_object('configfile')
+                configfile.set("scanner", "scanner_touch_z_offset", "%.3f" % self.scanner_touch_config['z_offset'])
+                gcmd.respond_info(f"Touch offset has been updated by {offset:.3f} to {self.scanner_touch_config['z_offset']:.3f}.\n"
+                    "You must run the SAVE_CONFIG command now to update the\n"
+                    "printer config file and restart the printer.")
         else:
             old_offset = self.model.offset
             self.model.offset += offset
