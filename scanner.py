@@ -31,12 +31,6 @@ import numpy as np
 import pins
 from clocksync import SecondarySync
 from matplotlib.ticker import FuncFormatter
-from numpy.polynomial import Polynomial
-from . import manual_probe
-from . import probe
-from . import bed_mesh
-from . import thermistor
-from . import adxl345
 from mcu import MCU, MCU_trsync
 from numpy.polynomial import Polynomial
 
@@ -266,7 +260,7 @@ class Scanner:
         self.raw_axis_twist_comp = None
 
         mainsync = self.printer.lookup_object("mcu")._clocksync
-        mcu = config.get("mcu",None)
+        mcu = config.get("mcu", None)
         if mcu is not None:
             if mcu == "mcu":
                 self._mcu = self.printer.lookup_object("mcu")
@@ -548,7 +542,7 @@ class Scanner:
             )
 
             result = self.start_touch(gcmd, touch_settings, vars["verbose"])
-            
+
             standard_deviation = result["standard_deviation"]
             final_position = result["final_position"]
             retries = result["retries"]
