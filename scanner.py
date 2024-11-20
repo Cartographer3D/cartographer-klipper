@@ -1729,14 +1729,17 @@ class Scanner:
                 forced_z = True
             self._move([touch_location_x, touch_location_y, None], 40)
             self.toolhead.wait_moves()
-            cb = lambda kin_pos: self._calibrate(
-                gcmd,
-                kin_pos,
-                cal_nozzle_z=None,
-                forced_z=forced_z,
-                touch=False,
-                manual_mode=True,
-            )
+
+            def cb(kin_pos):
+                return self._calibrate(
+                    gcmd,
+                    kin_pos,
+                    cal_nozzle_z=None,
+                    forced_z=forced_z,
+                    touch=False,
+                    manual_mode=True,
+                )
+
             manual_probe.ManualProbeHelper(self.printer, gcmd, cb)
 
     def _calibrate(
