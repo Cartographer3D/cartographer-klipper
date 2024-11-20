@@ -2404,12 +2404,15 @@ class Scanner:
         return ThresholdResults(max_value, min_value, range_value, avg_value, median_, sigma, in_range, early, late, len(zs))
 
     cmd_Z_OFFSET_APPLY_PROBE_help = "Adjust the probe's z_offset"
-  def cmd_Z_OFFSET_APPLY_PROBE(self, gcmd):
+    def cmd_Z_OFFSET_APPLY_PROBE(self, gcmd):
         gcode_move = self.printer.lookup_object("gcode_move")
         offset = gcode_move.get_status()["homing_origin"].z
         if offset == 0:
             self.gcode.respond_info("Nothing to do: Z Offset is 0")
             return
+            
+        if not self.model:
+            raise self.gcode.error("You must calibrate your model first.")
          
         if self.calibration_method == "touch":
             newoffset = self.scanner_touch_config['z_offset']
@@ -2422,10 +2425,6 @@ class Scanner:
                     "However it cannot be less than 0. So its been set to 0.\n"
                     "Please check your printers calibration and try again.")
                 return
-
-        if not self.model:
-            raise self.gcode.error("You must calibrate your model first, "
-                                   "use SCANNER_CALIBRATE.")
                                    
         
         else:
