@@ -1803,7 +1803,8 @@ class Scanner:
                 toolhead.manual_move(curpos, cal_speed)
                 toolhead.dwell(0.250)
                 self._sample_printtime_sync(50)
-        except:
+        except Exception as e:
+            print(f"Error encounted while calibrating: {e}")
             self.trigger_method = 0
             self._zhop()
         finally:
