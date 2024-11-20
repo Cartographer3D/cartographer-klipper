@@ -2418,7 +2418,7 @@ class Scanner:
             newoffset = self.scanner_touch_config['z_offset']
             newoffset += offset
             if newoffset < 0:
-                self.scanner_touch_config['z_offset'] = newoffset
+                self.scanner_touch_config['z_offset'] = 0
                 configfile = self.printer.lookup_object('configfile')
                 configfile.set("scanner", "scanner_touch_z_offset", "%.3f" % 0)
                 gcmd.respond_info(f"Touch offset attempted to update to {newoffset:.3f}.\n"
