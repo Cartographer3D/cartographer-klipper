@@ -253,11 +253,10 @@ initialChecks(){
 	echo 
 	installPre
 	
-	if [[ ! -d "$TEMP_DIR" ]]; then
-		# Create /tmp directory if not exists
-		mkdir -p "$TEMP_DIR"
-		curl -L "$TARBALL_URL" | tar -xz -C "$TEMP_DIR"
-	fi
+	# Clean out temp_dir
+	rm -rf "$TEMP_DIR"
+	mkdir -p "$TEMP_DIR"
+	curl -L "$TARBALL_URL" | tar -xz -C "$TEMP_DIR"
 	# Find the extracted folder name (GitHub includes commit hash in the folder name)
 	CARTOGRAPHER_KLIPPER_DIR=$(find "$TEMP_DIR" -mindepth 1 -maxdepth 1 -type d)
 	
