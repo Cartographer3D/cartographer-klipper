@@ -81,7 +81,7 @@ printf "${BLUE}
   \____|  \__,_| |_|     \__|  \___/   \__, | |_|     \__,_| | .__/  |_| |_|  \___| |_|   
                                        |___/                 |_|                          
 ${NC}"
-printf "${RED}Firmware Script ${NC} v1.1.0\n"
+printf "${RED}Firmware Script ${NC} v1.1.1\n"
 printf "Created by ${GREEN}KrauTech${NC} ${BLUE}(https://github.com/krautech)${NC}\n"
 echo
 echo
@@ -729,31 +729,46 @@ flashFirmware(){
 	# If found device is DFU
 	if [[ $dfuID != "" ]] && [[ $2 == 2 ]]; then
 		printf "${BLUE}Flashing via ${GREEN}DFU${NC}\n\n"
-		cd "$CARTOGRAPHER_KLIPPER_DIR/firmware/v2-v3/combined-firmware"
-		if [[ $1 == 1 ]]; then
-			findFiles="Full_Survey_*"
-		else
-			findFiles="Full_Cartographer_*"
+		search_pattern="Full_Survey_*"
+
+		archive_dir="$CARTOGRAPHER_KLIPPER_DIR/firmware/v2-v3/combined-firmware" # Corrected path
+		if [[ -d $archive_dir ]]; then
+			# Get the folder names sorted from largest to smallest version
+			cd $archive_dir
+			folders=($(ls -d "$archive_dir"/*/ | sort -rV))
+
+			for folder in "${folders[@]}"; do
+				if [[ -d "$folder" ]]; then
+					folder_name=$(basename "$folder")
+					# List the files inside each folder using the same search pattern
+					for file in "$folder"/$search_pattern; do
+						if [[ -f "$file" ]]; then
+							options+=("${folder_name}/$(basename "$file")")
+						fi
+					done
+				fi
+			done
 		fi
-		DIRECTORY=.
-		unset options i
-		declare -A arr
-		while IFS= read -r -d $'\0' f; do
-		  options[i++]="$f"
-		done < <(find $DIRECTORY -maxdepth 1 -type f \( -name "${findFiles}"  \) -print0)
+		
+		# Add "Back" option
+		options+=("Back")
+		
 		#done < <(find $DIRECTORY -maxdepth 1 -type f  \( -name 'katapult_and_carto_can_1m_beta.bin' \)  -print0)
 		COLUMNS=12
-		select opt in "${options[@]}" "Back"; do
+		PS3="Please select a firmware to flash: "
+		select opt in "${options[@]}"; do
 			case $opt in
 				*.bin)
-					flashing $opt $1 "dfu";
+					flashing "$opt" "$1" "dfu"
+					break
 					;;
 				"Back")
-					menu ; break
+					menu
+					break
 					;;
 				*)
-					echo "This is not a number"
-				;;
+					echo "Invalid selection. Please try again."
+					;;
 			esac
 		done
 	fi
