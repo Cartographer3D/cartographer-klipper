@@ -1,21 +1,23 @@
 #!/bin/bash
 
+SCRIPT_VERSION="v1.2.0"
+
 while getopts s:t:f:b: flag; do
   case "${flag}" in
   s) switch=${OPTARG} ;;
   t) ftype=${OPTARG} ;;
   f) flash=${OPTARG} ;;
-  b) beta=${OPTARG} ;;
+  b) branch=${OPTARG} ;;
   esac
 done
 # Define repository URLs
 CARTOGRAPHER_KLIPPER_REPO="https://github.com/Cartographer3D/cartographer-klipper.git"
 KATAPULT_REPO="https://github.com/Arksine/katapult.git"
 
-if [[ $beta == "beta" ]]; then
-  TARBALL_URL="https://api.github.com/repos/Cartographer3D/cartographer-klipper/tarball/master"
+if [[ -n $branch ]]; then
+  TARBALL_URL="https://api.github.com/repos/Cartographer3D/cartographer-klipper/tarball/$branch"
 else
-  TARBALL_URL="https://api.github.com/repos/Cartographer3D/cartographer-klipper/tarball/beta-firmware"
+  TARBALL_URL="https://api.github.com/repos/Cartographer3D/cartographer-klipper/tarball/master"
 fi
 TEMP_DIR="/tmp/cartographer-klipper"
 
@@ -80,7 +82,7 @@ header() {
   \____|  \__,_| |_|     \__|  \___/   \__, | |_|     \__,_| | .__/  |_| |_|  \___| |_|   
                                        |___/                 |_|                          
 ${NC}"
-  printf "${RED}Firmware Script ${NC} v1.1.1\n"
+  printf "${RED}Firmware Script ${NC} ${SCRIPT_VERSION}\n"
   printf "Created by ${GREEN}KrauTech${NC} ${BLUE}(https://github.com/krautech)${NC}\n"
   echo
   echo
