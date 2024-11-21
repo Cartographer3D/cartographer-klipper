@@ -517,7 +517,6 @@ class Scanner:
                 gcmd,
                 f"new Initial Pos [Initial Z - Z Max]: {initial_position} \nnew Homing Pos [Homing Pos - Z Min]: {homing_position}",
             )
-            samples = []
 
             max_accel = self.toolhead.get_status(curtime)["max_accel"]
             self.log_debug_info(
@@ -1370,7 +1369,6 @@ class Scanner:
             return
         self.trigger_method = 0
         manual_probe.verify_no_manual_probe(self.printer)
-        lift_speed = self.get_lift_speed(gcmd)
         # Perform initial probe
         curpos = self.run_probe(gcmd)
         self.probe_calibrate_z = curpos[2] - self.trigger_distance
