@@ -1,5 +1,7 @@
 #!/bin/bash
 
+SCRIPT_VERSION="v1.2.0"
+
 while getopts s:t:f:b: flag; do
   case "${flag}" in
   s) switch=${OPTARG} ;;
@@ -80,7 +82,7 @@ header() {
   \____|  \__,_| |_|     \__|  \___/   \__, | |_|     \__,_| | .__/  |_| |_|  \___| |_|   
                                        |___/                 |_|                          
 ${NC}"
-  printf "${RED}Firmware Script ${NC} v1.1.1\n"
+  printf "${RED}Firmware Script ${NC} ${SCRIPT_VERSION}\n"
   printf "Created by ${GREEN}KrauTech${NC} ${BLUE}(https://github.com/krautech)${NC}\n"
   echo
   echo
