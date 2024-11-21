@@ -5,17 +5,17 @@ while getopts s:t:f:b: flag; do
   s) switch=${OPTARG} ;;
   t) ftype=${OPTARG} ;;
   f) flash=${OPTARG} ;;
-  b) beta=${OPTARG} ;;
+  b) branch=${OPTARG} ;;
   esac
 done
 # Define repository URLs
 CARTOGRAPHER_KLIPPER_REPO="https://github.com/Cartographer3D/cartographer-klipper.git"
 KATAPULT_REPO="https://github.com/Arksine/katapult.git"
 
-if [[ $beta == "beta" ]]; then
-  TARBALL_URL="https://api.github.com/repos/Cartographer3D/cartographer-klipper/tarball/master"
+if [[ -n $branch ]]; then
+  TARBALL_URL="https://api.github.com/repos/Cartographer3D/cartographer-klipper/tarball/$branch"
 else
-  TARBALL_URL="https://api.github.com/repos/Cartographer3D/cartographer-klipper/tarball/beta-firmware"
+  TARBALL_URL="https://api.github.com/repos/Cartographer3D/cartographer-klipper/tarball/master"
 fi
 TEMP_DIR="/tmp/cartographer-klipper"
 
