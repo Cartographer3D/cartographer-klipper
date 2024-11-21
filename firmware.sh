@@ -968,7 +968,7 @@ flashing() {
     if [[ $usbID != "" ]] && [[ $3 == "usb" ]] && [[ $flashed == 0 ]]; then
       echo "Flashing USB Device $usbID"
       # FLash USB Firmware
-      ~/klippy-env/bin/python ~/klipper/lib/canboot/flash_can.py -f $firmwareFile -d /dev/serial/by-id/$usbID
+      python3 ~/katapult/scripts/flash_can.py -f $firmwareFile -d /dev/serial/by-id/$usbID
       read -p "Press enter to continue"
       display_flashed $cartoID "usb" $survey
       flashed=1
