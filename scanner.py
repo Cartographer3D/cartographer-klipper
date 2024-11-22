@@ -524,9 +524,6 @@ class Scanner:
                 vars["verbose"], gcmd, f"Current Accel: {int(max_accel)}"
             )
 
-            if calibrate == 1:
-                manual_z_offset = 0
-
             touch_settings = TouchSettings(
                 initial_position,
                 homing_position,
@@ -543,6 +540,9 @@ class Scanner:
                 manual_z_offset,
                 vars["randomize"],
             )
+
+            if calibrate == 1:
+                manual_z_offset = 0
 
             result = self.start_touch(gcmd, touch_settings, vars["verbose"])
 
@@ -569,7 +569,6 @@ class Scanner:
                     self._calibrate(
                         gcmd, final_position, final_position[2], True, True, False
                     )
-
             else:
                 self.trigger_method = 0
                 gcmd.respond_info("Touch procedure failed.")
