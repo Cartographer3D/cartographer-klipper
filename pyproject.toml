@@ -6,7 +6,6 @@ reportPrivateLocalImportUsage = false
 strictDictionaryInference = false
 reportUninitializedInstanceVariable = false
 failOnWarnings = false
-extraPaths = ["stubs"]
 
 [tool.ruff]
 include = ["scanner.py"]

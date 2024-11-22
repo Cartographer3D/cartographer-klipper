@@ -1,7 +1,11 @@
+import configparser
 from typing import final, overload
 
-from printer import Printer
+from klippy import Printer
 
+error = configparser.Error
+
+@final
 class sentinel:
     pass
 

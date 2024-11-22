@@ -23,7 +23,7 @@ import struct
 import threading
 import time
 import traceback
-from typing import TYPE_CHECKING, final
+from typing import final
 
 import chelper
 import matplotlib.pyplot as plt
@@ -31,16 +31,13 @@ import msgproto
 import numpy as np
 import pins
 from clocksync import SecondarySync
+from configfile import ConfigWrapper
 from matplotlib.ticker import FuncFormatter
 from mcu import MCU, MCU_trsync
 from numpy.polynomial import Polynomial
+from klippy import Printer
 
 from . import adxl345, bed_mesh, manual_probe, probe, thermistor
-
-# We put types used purely for type checking in this block.
-if TYPE_CHECKING:
-    from configfile import ConfigWrapper
-    from printer import Printer
 
 STREAM_BUFFER_LIMIT_DEFAULT = 100
 STREAM_TIMEOUT = 2.0

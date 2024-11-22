@@ -2,18 +2,16 @@ import configparser
 from typing import Callable, TypeVar, final
 
 from configfile import ConfigWrapper, sentinel
+import configfile
+import gcode
 from reactor import Reactor
 
 T = TypeVar("T")
 
 @final
-class CommandError(Exception):
-    pass
-
-@final
 class Printer:
-    config_error = configparser.Error
-    command_error = CommandError
+    config_error = configfile.error
+    command_error = gcode.CommandError
     def add_object(self, name: str, obj: object) -> None:
         pass
     def lookup_object(self, name: str, default: T | type[sentinel] = sentinel) -> T:
