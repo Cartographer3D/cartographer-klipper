@@ -546,6 +546,9 @@ class Scanner:
                 vars["randomize"],
             )
 
+            if calibrate == 1:
+                manual_z_offset = 0
+
             result = self.start_touch(gcmd, touch_settings, vars["verbose"])
 
             standard_deviation = result["standard_deviation"]
