@@ -25,3 +25,9 @@ Inside [./typings] is a file named after the module with some dummy classes.
 These are the modules that our code will be checked against when pyright is executed.
 We can improve our confidence by ensuring these are well defined and up to date with the actual code.
 The files that we import with `from . import probe` are reexported in [./__init__.py] to allow pyright to infer this.
+
+## Testing changes
+
+A convenience macro, [./cartographer_ci_test.cfg], has been made to help us test changes.
+This can be linked into your `printer_data/configs` and included in `printer.cfg` for ease of use.
+We should strive to keep this up to date.
