@@ -201,7 +201,7 @@ class Scanner:
             "z_offset": config.getfloat("scanner_touch_z_offset", 0.05),
             "threshold": config.getint("scanner_touch_threshold", 2500),
             "max_temp": config.getfloat("scanner_touch_max_temp", 150),
-            "fuzzy_touch": config.getfloat("scanner_touch_fuzzy_touch", 0),
+            "fuzzy_touch": config.getfloat("scanner_touch_fuzzy_touch", 0, maxval=10),
         }
         self.gcode = self.printer.lookup_object("gcode")
         self.probe_calibrate_z = 0.0
