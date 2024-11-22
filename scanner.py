@@ -526,6 +526,9 @@ class Scanner:
                 vars["verbose"], gcmd, f"Current Accel: {int(max_accel)}"
             )
 
+            if calibrate == 1:
+                manual_z_offset = 0
+
             touch_settings = TouchSettings(
                 initial_position,
                 homing_position,
@@ -564,7 +567,9 @@ class Scanner:
                     f"Standard Deviation: {standard_deviation:.4f}",
                 )
                 if calibrate == 1:
-                    self._calibrate(gcmd, final_position, 0, True, True, False)
+                    self._calibrate(
+                        gcmd, final_position, final_position[2], True, True, False
+                    )
 
             else:
                 self.trigger_method = 0
