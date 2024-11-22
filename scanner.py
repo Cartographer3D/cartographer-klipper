@@ -406,7 +406,7 @@ class Scanner:
                 self.log_debug_info(verbose, gcmd, f"Standard Deviation: {standard_deviation:.4f}")
                 if calibrate == 1:
                     self._calibrate(
-                        gcmd, final_position, final_position[2], True, True, False
+                        gcmd, final_position, final_position[2], True, True
                     )
             else:
                 self.trigger_method = 0
