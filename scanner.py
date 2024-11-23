@@ -345,11 +345,6 @@ class Scanner:
             "PROBE_ACCURACY", self.cmd_PROBE_ACCURACY, desc=self.cmd_PROBE_ACCURACY_help
         )
         self.gcode.register_command(
-            "PROBE_CALIBRATE",
-            self.cmd_PROBE_CALIBRATE,
-            desc=self.cmd_PROBE_CALIBRATE_help,
-        )
-        self.gcode.register_command(
             "PROBE_SWITCH", self.cmd_PROBE_SWITCH, desc=self.cmd_PROBE_SWITCH_help
         )
         self.gcode.register_command(
@@ -1272,120 +1267,6 @@ class Scanner:
                     self.extruder_target
                 )
                 self.gcode.run_script_from_command(cmd)
-
-    def run_touch_probe(self, gcmd):
-        speed = gcmd.get_float("PROBE_SPEED", self.probe_speed, above=0.0)
-
-        lift_speed = self.get_lift_speed(gcmd)
-        sample_count = self.get_samples(gcmd)
-        sample_retract_dist = self.get_sample_retract_dist(gcmd)
-        samples_tolerance = self.get_samples_tolerance(gcmd)
-        samples_retries = self.get_samples_tolerance_retries(gcmd)
-        samples_result = self.get_samples_result(gcmd)
-        pos = self.toolhead.get_position()
-        gcmd.respond_info(
-            "PROBE at X:%.3f Y:%.3f Z:%.3f"
-            " (samples=%d sample_retract_dist=%.3f"
-            " speed=%.1f lift_speed=%.1f"
-            " samples_tolerance=%.5f samples_retries=%d"
-            " samples_result=%s"
-            ")\n"
-            % (
-                pos[0],
-                pos[1],
-                pos[2],
-                sample_count,
-                sample_retract_dist,
-                speed,
-                lift_speed,
-                samples_tolerance,
-                samples_retries,
-                samples_result,
-            )
-        )
-
-        probexy = self.printer.lookup_object("toolhead").get_position()[:2]
-        retries = 0
-        positions = []
-        while len(positions) < sample_count:
-            # Probe position
-            pos = self.touch_probe(speed)
-            positions.append(pos)
-            # Check samples tolerance
-            z_positions = [p[2] for p in positions]
-            if max(z_positions) - min(z_positions) > samples_tolerance:
-                if retries >= samples_retries:
-                    self._zhop()
-                    self.trigger_method = 0
-                    raise gcmd.error("Probe samples exceed samples_tolerance")
-                gcmd.respond_info("Probe samples exceed tolerance. Retrying...")
-                retries += 1
-                positions = []
-            # Retract
-            if len(positions) < sample_count:
-                self._move(probexy + [pos[2] + sample_retract_dist], lift_speed)
-        # Calculate and return result
-        if samples_result == "median":
-            return self._calc_median(positions)
-        return self._calc_mean(positions)
-
-    def probe_calibrate_finalize(self, kin_pos):
-        if kin_pos is None or self.model is None:
-            return
-        z_offset = kin_pos[2] - self.probe_calibrate_z
-        self.model.offset = self.model.offset + z_offset
-        pos = self.toolhead.get_position()
-        pos[2] = pos[2] - z_offset
-        self.toolhead.set_position(pos)
-        configfile = self.printer.lookup_object("configfile")
-        configfile.set(
-            "scanner model " + self.model.name,
-            "model_offset",
-            "%.3f" % (self.model.offset),
-        )
-
-    cmd_PROBE_CALIBRATE_help = "Calibrate the probe's z_offset"
-
-    def cmd_PROBE_CALIBRATE(self, gcmd):
-        if gcmd.get("METHOD", "MANUAL").lower() == "auto":
-            touch_location_x = gcmd.get_float(
-                "TOUCH_LOCATION_X", float(self.touch_location[0])
-            )
-            touch_location_y = gcmd.get_float(
-                "TOUCH_LOCATION_Y", float(self.touch_location[1])
-            )
-            if self.calibration_method == "touch":
-                self.trigger_method = 1
-            elif self.calibration_method == "adxl":
-                self.trigger_method = 2
-                self.adxl345 = self.printer.lookup_object("adxl345")
-                self.init_adxl()
-            else:
-                return
-            # self.gcode.run_script_from_command("G28 Z")
-            self._move([touch_location_x, touch_location_y, None], 40)
-            curpos = self.run_touch_probe(gcmd)
-            gcode_move = self.printer.lookup_object("gcode_move")
-            self.check_temp(gcmd)
-            offset = gcode_move.get_status()["homing_origin"].z
-            self.probe_calibrate_z = offset - curpos[2]
-            self.probe_calibrate_finalize([0, 0, self.offset["z"]])
-            self.trigger_method = 0
-            self._zhop()
-            return
-        self.trigger_method = 0
-        manual_probe.verify_no_manual_probe(self.printer)
-        # Perform initial probe
-        curpos = self.run_probe(gcmd)
-        self.probe_calibrate_z = curpos[2] - self.trigger_distance
-        # Move the nozzle over the probe point
-        curpos[0] += self.offset["x"]
-        curpos[1] += self.offset["y"]
-        self._move(curpos, self.speed)
-        # Start manual probe
-        manual_probe.ManualProbeHelper(
-            self.printer, gcmd, self.probe_calibrate_finalize
-        )
 
     def set_accel(self, value):
         self.gcode.run_script_from_command("SET_VELOCITY_LIMIT ACCEL=%.3f" % (value,))
