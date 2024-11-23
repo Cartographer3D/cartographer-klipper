@@ -1,4 +1,3 @@
-import configparser
 from typing import Callable, TypeVar, final
 
 from configfile import ConfigWrapper, sentinel
@@ -14,8 +13,10 @@ class Printer:
     command_error = gcode.CommandError
     def add_object(self, name: str, obj: object) -> None:
         pass
+
     def lookup_object(self, name: str, default: T | type[sentinel] = sentinel) -> T:
         pass
+
     def load_object(
         self,
         config: ConfigWrapper,
@@ -23,6 +24,7 @@ class Printer:
         default: T | type[sentinel] = sentinel,
     ) -> T:
         pass
+
     def is_shutdown(self) -> bool:
         pass
     def invoke_shutdown(self, msg: str) -> None:
