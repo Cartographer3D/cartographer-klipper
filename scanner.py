@@ -23,16 +23,19 @@ import struct
 import threading
 import time
 import traceback
-import msgproto
+from typing import final
 
 import chelper
 import matplotlib.pyplot as plt
+import msgproto
 import numpy as np
 import pins
 from clocksync import SecondarySync
+from configfile import ConfigWrapper
 from matplotlib.ticker import FuncFormatter
 from mcu import MCU, MCU_trsync
 from numpy.polynomial import Polynomial
+from klippy import Printer
 
 from . import adxl345, bed_mesh, manual_probe, probe, thermistor
 
@@ -60,19 +63,20 @@ THRESHOLD_STEP_MULTIPLIER = 10
 THRESHOLD_ACCEPTANCE_FACTOR = 0.66
 
 
+@final
 class ThresholdResults:
     def __init__(
         self,
-        max_value,
-        min_value,
-        range_value,
-        avg_value,
-        median,
-        sigma,
-        in_range,
-        early,
-        late,
-        nb_samples,
+        max_value: float,
+        min_value: float,
+        range_value: float,
+        avg_value: float,
+        median: float,
+        sigma: float,
+        in_range: int,
+        early: int,
+        late: int,
+        nb_samples: int,
     ):
         self.max_value = max_value
         self.min_value = min_value
@@ -86,12 +90,13 @@ class ThresholdResults:
         self.nb_samples = nb_samples
 
 
+@final
 class Scanner:
-    def __init__(self, config):
-        self.printer = config.get_printer()
+    def __init__(self, config: ConfigWrapper):
+        self.printer: Printer = config.get_printer()
         self.reactor = self.printer.get_reactor()
         self.name = config.get_name()
-        self.sensor = config.get("sensor", None)
+        self.sensor = config.get("sensor")
         self.sensor_alt = config.get("sensor_alt", None)
 
         if not self.sensor and not self.sensor_alt:
@@ -99,31 +104,32 @@ class Scanner:
                 "Please set at least one sensor type (sensor or sensor_alt) in printer.cfg"
             )
 
-        self.speed = config.getfloat("speed", 5, above=0.0)
-        self.lift_speed = config.getfloat("lift_speed", self.speed, above=0.0)
-        self.backlash_comp = config.getfloat("backlash_comp", 0.5)
+        self.speed: float = config.getfloat("speed", 5, above=0.0)
+        self.lift_speed: float = config.getfloat("lift_speed", self.speed, above=0.0)
+        self.backlash_comp: float = config.getfloat("backlash_comp", 0.5)
 
-        if config.get("temp_sensor_override", None):
+        temp_sensor_override = config.get("temp_sensor_override", None)
+        if temp_sensor_override is not None:
             self.thermistor_override = config.printer.load_object(
-                config, "temperature_sensor " + config.get("temp_sensor_override")
+                config, "temperature_sensor " + temp_sensor_override
             )
         else:
             self.thermistor_override = None
 
         self.model_temp_warning_disable = config.getint("model_temp_warning_disable", 0)
-        self.probe_speed = config.getfloat("probe_speed", self.speed)
+        self.probe_speed: float = config.getfloat("probe_speed", self.speed)
 
         if config.has_section("bed_mesh"):
             mesh_config = config.getsection("bed_mesh")
-            if mesh_config.get("zero_reference_position", None) is not None:
-                if config.get("scanner_touch_location", None) is not None:
-                    manual_location = config.get("scanner_touch_location").split(",")
+            zero_reference_position = mesh_config.get("zero_reference_position", None)
+            if zero_reference_position is not None:
+                manual_location = config.get("scanner_touch_location", None)
+                if manual_location is not None:
+                    manual_location = manual_location.split(",")
                     if manual_location:
                         self.touch_location = manual_location
                 else:
-                    self.touch_location = mesh_config.get(
-                        "zero_reference_position"
-                    ).split(",")
+                    self.touch_location = zero_reference_position.split(",")
             else:
                 stepper_x = config.getsection("stepper_x")
                 use_x = stepper_x.getfloat("position_max") / 2
@@ -1739,6 +1745,8 @@ class Scanner:
 
     def _update_thresholds(self, moving_up=False):
         self.trigger_freq = self.dist_to_freq(self.trigger_distance, self.last_temp)
+        if self.trigger_freq is None:
+            return
         self.untrigger_freq = self.trigger_freq * (1 - self.trigger_hysteresis)
 
     def _apply_threshold(self, moving_up=False):
@@ -2266,10 +2274,10 @@ class Scanner:
         start_height = self.trigger_distance + sample_retract_dist
         liftpos = [None, None, start_height]
         cur_range_value = 0
+        positions: list[list[float]] = []
         if self.trigger_method == 0:
             self.toolhead.manual_move(liftpos, lift_speed)
             self.multi_probe_begin()
-            positions = []
             while (len(positions) < sample_count) and (cur_range_value < abort_range):
                 if len(positions) < skip_samples:
                     pos = self._probe(
@@ -2285,7 +2293,6 @@ class Scanner:
                 cur_range_value = max(cur_zs) - min(cur_zs) if cur_zs else 0
             self.multi_probe_end()
         else:
-            positions = []
             while (len(positions) < sample_count) and (cur_range_value < abort_range):
                 try:
                     if len(positions) < skip_samples:
@@ -2310,12 +2317,12 @@ class Scanner:
         zs = [p[2] for p in positions[skip_samples:]]
         if not zs:
             return ThresholdResults(
-                float("inf"),
-                float("-inf"),
-                float("inf"),
-                float("inf"),
-                float("inf"),
-                float("inf"),
+                math.inf,
+                -math.inf,
+                math.inf,
+                math.inf,
+                math.inf,
+                math.inf,
                 0,
                 0,
                 0,
@@ -2342,8 +2349,8 @@ class Scanner:
 
         deviation_sum = 0
         for i in range(len(zs)):
-            deviation_sum += pow(zs[i] - avg_value, 2.0)
-        sigma = (deviation_sum / len(zs)) ** 0.5
+            deviation_sum += pow(zs[i] - avg_value, 2)
+        sigma = math.sqrt(deviation_sum / len(zs))
 
         return ThresholdResults(
             max_value,
@@ -3858,7 +3865,7 @@ def opt_max(a, b):
     return max(a, b)
 
 
-def load_config(config):
+def load_config(config: ConfigWrapper):
     scanner = Scanner(config)
 
     config.get_printer().add_object("probe", ScannerWrapper(scanner))
