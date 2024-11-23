@@ -423,7 +423,9 @@ def add_probe_config(probe_type):
     )
 
     # Adding [scanner] section for touch probe type
-    if not scanner_exists and not cartographer_exists:
+    if scanner_exists or cartographer_exists:
+        debug_print(f"No updates made: Configuration already exists.")
+    else:
         canbus_uuid = get_canbus_uuid()
 
         serial_entry = "#serial: /dev/serial/by-id/ # CHANGE ME FOR USB"
