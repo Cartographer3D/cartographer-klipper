@@ -201,6 +201,7 @@ class Scanner:
             "z_offset": config.getfloat("scanner_touch_z_offset", 0.05),
             "threshold": config.getint("scanner_touch_threshold", 2500),
             "max_temp": config.getfloat("scanner_touch_max_temp", 150),
+            "fuzzy_touch": config.getfloat("scanner_touch_fuzzy_touch", 0, maxval=10),
         }
         self.gcode = self.printer.lookup_object("gcode")
         self.probe_calibrate_z = 0.0
@@ -325,11 +326,6 @@ class Scanner:
                     desc=self.cmd_SCANNER_CALIBRATE_help,
                 )
                 self.gcode.register_command(
-                    sensor_name + "_THRESHOLD_TEST",
-                    self.cmd_SCANNER_THRESHOLD_TEST,
-                    desc=self.cmd_SCANNER_THRESHOLD_TEST_help,
-                )
-                self.gcode.register_command(
                     sensor_name + "_THRESHOLD_SCAN",
                     self.cmd_SCANNER_THRESHOLD_SCAN,
                     desc=self.cmd_SCANNER_THRESHOLD_SCAN_help,
@@ -347,11 +343,6 @@ class Scanner:
         self.gcode.register_command("PROBE", self.cmd_PROBE, desc=self.cmd_PROBE_help)
         self.gcode.register_command(
             "PROBE_ACCURACY", self.cmd_PROBE_ACCURACY, desc=self.cmd_PROBE_ACCURACY_help
-        )
-        self.gcode.register_command(
-            "PROBE_CALIBRATE",
-            self.cmd_PROBE_CALIBRATE,
-            desc=self.cmd_PROBE_CALIBRATE_help,
         )
         self.gcode.register_command(
             "PROBE_SWITCH", self.cmd_PROBE_SWITCH, desc=self.cmd_PROBE_SWITCH_help
@@ -424,7 +415,9 @@ class Scanner:
             "touch_location_y": gcmd.get_float(
                 "TOUCH_LOCATION_Y", float(self.touch_location[1])
             ),
-            "randomize": gcmd.get_float("MOVE", 0, maxval=10),
+            "randomize": gcmd.get_float(
+                "FUZZZY_TOUCH", self.scanner_touch_config["fuzzy_touch"], maxval=10
+            ),
             "verbose": gcmd.get_int("DEBUG", 0),
         }
 
@@ -517,12 +510,14 @@ class Scanner:
                 gcmd,
                 f"new Initial Pos [Initial Z - Z Max]: {initial_position} \nnew Homing Pos [Homing Pos - Z Min]: {homing_position}",
             )
-            samples = []
 
             max_accel = self.toolhead.get_status(curtime)["max_accel"]
             self.log_debug_info(
                 vars["verbose"], gcmd, f"Current Accel: {int(max_accel)}"
             )
+
+            if calibrate == 1:
+                manual_z_offset = 0
 
             touch_settings = TouchSettings(
                 initial_position,
@@ -541,9 +536,11 @@ class Scanner:
                 vars["randomize"],
             )
 
+            if calibrate == 1:
+                manual_z_offset = 0
+
             result = self.start_touch(gcmd, touch_settings, vars["verbose"])
 
-            samples = result["samples"]
             standard_deviation = result["standard_deviation"]
             final_position = result["final_position"]
             retries = result["retries"]
@@ -563,7 +560,9 @@ class Scanner:
                     f"Standard Deviation: {standard_deviation:.4f}",
                 )
                 if calibrate == 1:
-                    self._calibrate(gcmd, final_position, 0, True, True, False)
+                    self._calibrate(
+                        gcmd, final_position, final_position[2], True, True, False
+                    )
 
             else:
                 self.trigger_method = 0
@@ -801,7 +800,6 @@ class Scanner:
         # Set initial scan values
         self.previous_probe_success = 0
         current_threshold = threshold_min
-        retries, attempts = 0, 0
 
         start_position = kin_status["axis_maximum"][2]
         try:
@@ -1270,121 +1268,6 @@ class Scanner:
                 )
                 self.gcode.run_script_from_command(cmd)
 
-    def run_touch_probe(self, gcmd):
-        speed = gcmd.get_float("PROBE_SPEED", self.probe_speed, above=0.0)
-
-        lift_speed = self.get_lift_speed(gcmd)
-        sample_count = self.get_samples(gcmd)
-        sample_retract_dist = self.get_sample_retract_dist(gcmd)
-        samples_tolerance = self.get_samples_tolerance(gcmd)
-        samples_retries = self.get_samples_tolerance_retries(gcmd)
-        samples_result = self.get_samples_result(gcmd)
-        pos = self.toolhead.get_position()
-        gcmd.respond_info(
-            "PROBE at X:%.3f Y:%.3f Z:%.3f"
-            " (samples=%d sample_retract_dist=%.3f"
-            " speed=%.1f lift_speed=%.1f"
-            " samples_tolerance=%.5f samples_retries=%d"
-            " samples_result=%s"
-            ")\n"
-            % (
-                pos[0],
-                pos[1],
-                pos[2],
-                sample_count,
-                sample_retract_dist,
-                speed,
-                lift_speed,
-                samples_tolerance,
-                samples_retries,
-                samples_result,
-            )
-        )
-
-        probexy = self.printer.lookup_object("toolhead").get_position()[:2]
-        retries = 0
-        positions = []
-        while len(positions) < sample_count:
-            # Probe position
-            pos = self.touch_probe(speed)
-            positions.append(pos)
-            # Check samples tolerance
-            z_positions = [p[2] for p in positions]
-            if max(z_positions) - min(z_positions) > samples_tolerance:
-                if retries >= samples_retries:
-                    self._zhop()
-                    self.trigger_method = 0
-                    raise gcmd.error("Probe samples exceed samples_tolerance")
-                gcmd.respond_info("Probe samples exceed tolerance. Retrying...")
-                retries += 1
-                positions = []
-            # Retract
-            if len(positions) < sample_count:
-                self._move(probexy + [pos[2] + sample_retract_dist], lift_speed)
-        # Calculate and return result
-        if samples_result == "median":
-            return self._calc_median(positions)
-        return self._calc_mean(positions)
-
-    def probe_calibrate_finalize(self, kin_pos):
-        if kin_pos is None or self.model is None:
-            return
-        z_offset = kin_pos[2] - self.probe_calibrate_z
-        self.model.offset = self.model.offset + z_offset
-        pos = self.toolhead.get_position()
-        pos[2] = pos[2] - z_offset
-        self.toolhead.set_position(pos)
-        configfile = self.printer.lookup_object("configfile")
-        configfile.set(
-            "scanner model " + self.model.name,
-            "model_offset",
-            "%.3f" % (self.model.offset),
-        )
-
-    cmd_PROBE_CALIBRATE_help = "Calibrate the probe's z_offset"
-
-    def cmd_PROBE_CALIBRATE(self, gcmd):
-        if gcmd.get("METHOD", "MANUAL").lower() == "auto":
-            touch_location_x = gcmd.get_float(
-                "TOUCH_LOCATION_X", float(self.touch_location[0])
-            )
-            touch_location_y = gcmd.get_float(
-                "TOUCH_LOCATION_Y", float(self.touch_location[1])
-            )
-            if self.calibration_method == "touch":
-                self.trigger_method = 1
-            elif self.calibration_method == "adxl":
-                self.trigger_method = 2
-                self.adxl345 = self.printer.lookup_object("adxl345")
-                self.init_adxl()
-            else:
-                return
-            # self.gcode.run_script_from_command("G28 Z")
-            self._move([touch_location_x, touch_location_y, None], 40)
-            curpos = self.run_touch_probe(gcmd)
-            gcode_move = self.printer.lookup_object("gcode_move")
-            self.check_temp(gcmd)
-            offset = gcode_move.get_status()["homing_origin"].z
-            self.probe_calibrate_z = offset - curpos[2]
-            self.probe_calibrate_finalize([0, 0, self.offset["z"]])
-            self.trigger_method = 0
-            self._zhop()
-            return
-        self.trigger_method = 0
-        manual_probe.verify_no_manual_probe(self.printer)
-        lift_speed = self.get_lift_speed(gcmd)
-        # Perform initial probe
-        curpos = self.run_probe(gcmd)
-        self.probe_calibrate_z = curpos[2] - self.trigger_distance
-        # Move the nozzle over the probe point
-        curpos[0] += self.offset["x"]
-        curpos[1] += self.offset["y"]
-        self._move(curpos, self.speed)
-        # Start manual probe
-        manual_probe.ManualProbeHelper(
-            self.printer, gcmd, self.probe_calibrate_finalize
-        )
-
     def set_accel(self, value):
         self.gcode.run_script_from_command("SET_VELOCITY_LIMIT ACCEL=%.3f" % (value,))
 
@@ -1558,7 +1441,6 @@ class Scanner:
         speed = gcmd.get_float("PROBE_SPEED", self.speed, above=0.0)
         skip_samples = gcmd.get_int("SKIP", 0)
         allow_faulty = gcmd.get_int("ALLOW_FAULTY_COORDINATE", 0) != 0
-        lift_speed = self.get_lift_speed(gcmd)
         toolhead = self.printer.lookup_object("toolhead")
         curtime = self.reactor.monotonic()
         if "z" not in toolhead.get_status(curtime)["homed_axes"]:
@@ -1700,7 +1582,6 @@ class Scanner:
                 gcmd, kin_pos, nozzle_z, forced_z=False, touch=False, manual_mode=False
             )
         else:
-            speed = gcmd.get_float("SPEED", float(self.speed), 50)
             curtime = self.printer.get_reactor().monotonic()
             kin_status = self.toolhead.get_kinematics().get_status(curtime)
             if "xy" not in kin_status["homed_axes"]:
@@ -1729,14 +1610,17 @@ class Scanner:
                 forced_z = True
             self._move([touch_location_x, touch_location_y, None], 40)
             self.toolhead.wait_moves()
-            cb = lambda kin_pos: self._calibrate(
-                gcmd,
-                kin_pos,
-                cal_nozzle_z=None,
-                forced_z=forced_z,
-                touch=False,
-                manual_mode=True,
-            )
+
+            def cb(kin_pos):
+                return self._calibrate(
+                    gcmd,
+                    kin_pos,
+                    cal_nozzle_z=None,
+                    forced_z=forced_z,
+                    touch=False,
+                    manual_mode=True,
+                )
+
             manual_probe.ManualProbeHelper(self.printer, gcmd, cb)
 
     def _calibrate(
@@ -2198,161 +2082,6 @@ class Scanner:
         configfile = self.printer.lookup_object("configfile")
         configfile.set("scanner", "scanner_touch_threshold", "%d" % int(threshold))
         configfile.set("scanner", "scanner_touch_speed", "%d" % int(speed))
-
-    cmd_SCANNER_THRESHOLD_TEST_help = (
-        "Home using touch and check with coil to see how consistent it is"
-    )
-
-    def cmd_SCANNER_THRESHOLD_TEST(self, gcmd):
-        threshold = gcmd.get_int("THRESHOLD", self.detect_threshold_z)
-        sample_count = gcmd.get_int("SAMPLES", 5, minval=1)
-        skip_samples = gcmd.get_int("SKIP", 1)
-        lift_speed = self.get_lift_speed(gcmd)
-        touch_location_x = gcmd.get_float(
-            "TOUCH_LOCATION_X", float(self.touch_location[0])
-        )
-        touch_location_y = gcmd.get_float(
-            "TOUCH_LOCATION_Y", float(self.touch_location[1])
-        )
-        accel = gcmd.get_float("ACCEL", self.scanner_touch_config["accel"], minval=1)
-        curtime = self.printer.get_reactor().monotonic()
-        max_accel = self.toolhead.get_status(curtime)["max_accel"]
-        self._move([touch_location_x, touch_location_y, None], 40)
-        gcmd.respond_info(
-            "Threshold Testing"
-            " (samples=%d threshold=%d skip=%d)\n"
-            % (sample_count, threshold, skip_samples)
-        )
-
-        original_trigger_method = self.trigger_method
-        original_threshold = self.detect_threshold_z
-        self.toolhead.wait_moves()
-        self.check_temp(gcmd)
-        try:
-            self.set_accel(accel)
-            self.trigger_method = 1
-            self.detect_threshold_z = threshold
-            result = self._probe_accuracy_check(
-                self.scanner_touch_config["speed"],
-                skip_samples,
-                sample_count,
-                5,
-                False,
-                lift_speed,
-            )
-
-            gcmd.respond_info(
-                "scanner threshold results: threshold quality: %r,  maximum %.6f, minimum %.6f, range %.6f, "
-                "average %.6f, median %.6f, standard deviation %.6f, %d/%d within 0.1 range, %d early, %d late, %d skipped"
-                % (
-                    # self._get_threshold_quality(result.range_value),
-                    "Unknown",
-                    result.max_value,
-                    result.min_value,
-                    result.range_value,
-                    result.avg_value,
-                    result.median,
-                    result.sigma,
-                    result.in_range,
-                    sample_count,
-                    result.early,
-                    result.late,
-                    skip_samples,
-                )
-            )
-        finally:
-            self._zhop()
-            self.detect_threshold_z = original_threshold
-            self.trigger_method = original_trigger_method
-            self.set_accel(max_accel)
-
-    def _test_threshold(self, threshold, sample_count):
-        toolhead = self.printer.lookup_object("toolhead")
-        curtime = self.printer.get_reactor().monotonic()
-        if "z" not in toolhead.get_status(curtime)["homed_axes"]:
-            raise self.printer.command_error("Must home before probe")
-
-        original_trigger_method = self.trigger_method
-        original_threshold = self.detect_threshold_z
-
-        try:
-            self.detect_threshold_z = threshold
-
-            positions = []
-            while len(positions) < sample_count:
-                # Change method to touch
-                self.trigger_method = 1
-                # home
-                self.gcode.run_script_from_command("G28 Z")
-                # Change method to scan
-                # Move to Z = 2 to get some solid data
-                self.toolhead.manual_move([None, None, 2], 1500)
-                self.toolhead.wait_moves()
-                self.trigger_method = 0
-                # probe to get position
-                (dist, samples) = self._sample(self.z_settling_time, 10)
-                # Reset the trigger method
-                positions.append(dist)
-                self.toolhead.manual_move([None, None, 10], 1500)
-                self.toolhead.wait_moves()
-
-            zs = positions
-            max_value = max(zs)
-            min_value = min(zs)
-            range_value = max_value - min_value
-            avg_value = sum(zs) / len(positions)
-            median_ = median(zs)
-            in_range = 0
-            early = 0
-            late = 0
-
-            for sampl in zs:
-                if abs(median_ - sampl) < 0.05:
-                    in_range += 1
-                elif sampl > median_:
-                    early += 1
-                else:
-                    late += 1
-
-            deviation_sum = 0
-            for i in range(len(zs)):
-                deviation_sum += pow(zs[i] - avg_value, 2.0)
-            sigma = (deviation_sum / len(zs)) ** 0.5
-
-            return ThresholdResults(
-                max_value,
-                min_value,
-                range_value,
-                avg_value,
-                median_,
-                sigma,
-                in_range,
-                early,
-                late,
-                len(zs),
-            )
-        except:
-            self.trigger_method = 0
-            self.gcode.run_script_from_command("G28")
-            return ThresholdResults(
-                float("inf"),
-                float("inf"),
-                float("inf"),
-                float("inf"),
-                float("inf"),
-                float("inf"),
-                0,
-                0,
-                0,
-                0,
-            )
-        finally:
-            # Change method to scan
-            self.trigger_method = 0
-            self.gcode.run_script_from_command("G28 Z")
-
-            self.detect_threshold_z = original_threshold
-            self.trigger_method = original_trigger_method
 
     cmd_SCANNER_ESTIMATE_BACKLASH_help = "Estimate Z axis backlash"
 
