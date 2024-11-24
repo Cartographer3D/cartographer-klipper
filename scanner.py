@@ -2506,7 +2506,7 @@ class ScannerModel:
         configfile.set(section, "model_offset", "%.5f" % (self.offset,))
         configfile.set(section, "model_mode", "%s" % (self.scanner.calibration_method))
         configfile.set(section, "model_created_on", str(timestamp))
-        configfile.set(section, "model_mcu_fw", str(mcufw))
+        configfile.set(section, "model_firmware_version", str(mcufw))
         configfile.set(section, "model_scanner_version", str(SCANNER_VERSION))
         if show_message:
             scanner.gcode.respond_info(
