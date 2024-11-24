@@ -1,6 +1,6 @@
 #!/bin/bash
 
-SCRIPT_VERSION="v1.2.0"
+SCRIPT_VERSION="v1.2.1"
 
 while getopts s:t:f:b:ht flag; do
   case "${flag}" in
@@ -645,12 +645,12 @@ flashFirmware() {
             folder_name=$(basename "$folder")
 
             # Check if $hightemp is true
-            if [[ "$hightemp" == true ]]; then
+            if [[ $hightemp ]]; then
               # Process only if "HT" subdirectory exists
               if [[ -d "$folder/HT" ]]; then
                 for file in "$folder"/$search_pattern; do
                   if [[ -f "$file" ]]; then
-                    options+=("${folder_name}/$(basename "$file")")
+                    options+=("${folder_name}/HT/$(basename "$file")")
                   fi
                 done
               fi
@@ -746,12 +746,12 @@ flashFirmware() {
             folder_name=$(basename "$folder")
 
             # Check if $hightemp is true
-            if [[ "$hightemp" == true ]]; then
+            if [[ $hightemp ]]; then
               # Process only if "HT" subdirectory exists
               if [[ -d "$folder/HT" ]]; then
                 for file in "$folder"/$search_pattern; do
                   if [[ -f "$file" ]]; then
-                    options+=("${folder_name}/$(basename "$file")")
+                    options+=("${folder_name}/HT/$(basename "$file")")
                   fi
                 done
               fi
@@ -806,12 +806,12 @@ flashFirmware() {
           folder_name=$(basename "$folder")
 
           # Check if $hightemp is true
-          if [[ "$hightemp" == true ]]; then
+          if [[ $hightemp ]]; then
             # Process only if "HT" subdirectory exists
             if [[ -d "$folder/HT" ]]; then
               for file in "$folder"/$search_pattern; do
                 if [[ -f "$file" ]]; then
-                  options+=("${folder_name}/$(basename "$file")")
+                  options+=("${folder_name}/HT/$(basename "$file")")
                 fi
               done
             fi
@@ -904,12 +904,12 @@ flashFirmware() {
             folder_name=$(basename "$folder")
 
             # Check if $hightemp is true
-            if [[ "$hightemp" == true ]]; then
+            if [[ $hightemp ]]; then
               # Process only if "HT" subdirectory exists
               if [[ -d "$folder/HT" ]]; then
                 for file in "$folder"/$search_pattern; do
                   if [[ -f "$file" ]]; then
-                    options+=("${folder_name}/$(basename "$file")")
+                    options+=("${folder_name}/HT/$(basename "$file")")
                   fi
                 done
               fi
