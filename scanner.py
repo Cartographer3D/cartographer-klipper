@@ -1660,6 +1660,7 @@ class Scanner:
         move_speed = gcmd.get_float("MOVE_SPEED", self.cal_config["move_speed"])
         model_name = gcmd.get("MODEL_NAME", "default")
 
+        timestamp = int(time.time())
         toolhead = self.toolhead
         curtime = self.reactor.monotonic()
         toolhead.wait_moves()
@@ -1724,6 +1725,7 @@ class Scanner:
             min(z_offset),
             max(z_offset),
             self.calibration_method,
+            str(timestamp),
         )
         self.models[self.model.name] = self.model
         self.model.save(self)
@@ -2479,10 +2481,15 @@ class ScannerModel:
         [min_z, max_z] = config.getfloatlist("model_range", count=2)
         offset = config.getfloat("model_offset", 0.0)
         mode = config.get("model_mode", "None")
+        created_on = config.get("model_created_on", "None")
         poly = Polynomial(coef, domain)
-        return ScannerModel(name, scanner, poly, temp, min_z, max_z, mode, offset)
+        return ScannerModel(
+            name, scanner, poly, temp, min_z, max_z, mode, created_on, offset
+        )
 
-    def __init__(self, name, scanner, poly, temp, min_z, max_z, mode, offset=0):
+    def __init__(
+        self, name, scanner, poly, temp, min_z, max_z, mode, created_on, offset=0
+    ):
         self.name = name
         self.scanner = scanner
         self.poly = poly
@@ -2491,8 +2498,10 @@ class ScannerModel:
         self.temp = temp
         self.offset = offset
         self.mode = mode
+        self.created_on = created_on
 
     def save(self, scanner, show_message=True):
+        timestamp = int(time.time())
         configfile = scanner.printer.lookup_object("configfile")
         section = "scanner model " + self.name
         configfile.set(section, "model_coef", ",\n  ".join(map(str, self.poly.coef)))
@@ -2501,6 +2510,7 @@ class ScannerModel:
         configfile.set(section, "model_temp", "%f" % (self.temp))
         configfile.set(section, "model_offset", "%.5f" % (self.offset,))
         configfile.set(section, "model_mode", "%s" % (self.scanner.calibration_method))
+        configfile.set(section, "model_created_on", str(timestamp))
         if show_message:
             scanner.gcode.respond_info(
                 "Scanner calibration for model '%s' has "
