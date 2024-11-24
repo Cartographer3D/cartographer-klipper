@@ -1662,7 +1662,6 @@ class Scanner:
         move_speed = gcmd.get_float("MOVE_SPEED", self.cal_config["move_speed"])
         model_name = gcmd.get("MODEL_NAME", "default")
 
-        timestamp = int(time.time())
         toolhead = self.toolhead
         curtime = self.reactor.monotonic()
         toolhead.wait_moves()
