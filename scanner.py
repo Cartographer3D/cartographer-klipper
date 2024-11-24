@@ -40,6 +40,8 @@ from klippy import Printer
 
 from . import adxl345, bed_mesh, manual_probe, probe, thermistor
 
+SCANNER_VERSION = "1.1.0"
+
 STREAM_BUFFER_LIMIT_DEFAULT = 100
 STREAM_TIMEOUT = 2.0
 
@@ -1725,7 +1727,6 @@ class Scanner:
             min(z_offset),
             max(z_offset),
             self.calibration_method,
-            str(timestamp),
         )
         self.models[self.model.name] = self.model
         self.model.save(self)
@@ -2481,15 +2482,10 @@ class ScannerModel:
         [min_z, max_z] = config.getfloatlist("model_range", count=2)
         offset = config.getfloat("model_offset", 0.0)
         mode = config.get("model_mode", "None")
-        created_on = config.get("model_created_on", "None")
         poly = Polynomial(coef, domain)
-        return ScannerModel(
-            name, scanner, poly, temp, min_z, max_z, mode, created_on, offset
-        )
+        return ScannerModel(name, scanner, poly, temp, min_z, max_z, mode, offset)
 
-    def __init__(
-        self, name, scanner, poly, temp, min_z, max_z, mode, created_on, offset=0
-    ):
+    def __init__(self, name, scanner, poly, temp, min_z, max_z, mode, offset=0):
         self.name = name
         self.scanner = scanner
         self.poly = poly
@@ -2498,9 +2494,9 @@ class ScannerModel:
         self.temp = temp
         self.offset = offset
         self.mode = mode
-        self.created_on = created_on
 
     def save(self, scanner, show_message=True):
+        mcufw = scanner._mcu.get_status()["mcu_version"]
         timestamp = int(time.time())
         configfile = scanner.printer.lookup_object("configfile")
         section = "scanner model " + self.name
@@ -2511,6 +2507,8 @@ class ScannerModel:
         configfile.set(section, "model_offset", "%.5f" % (self.offset,))
         configfile.set(section, "model_mode", "%s" % (self.scanner.calibration_method))
         configfile.set(section, "model_created_on", str(timestamp))
+        configfile.set(section, "model_mcu_fw", str(mcufw))
+        configfile.set(section, "model_scanner_version", str(SCANNER_VERSION))
         if show_message:
             scanner.gcode.respond_info(
                 "Scanner calibration for model '%s' has "
