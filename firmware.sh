@@ -1,13 +1,20 @@
 #!/bin/bash
 
-SCRIPT_VERSION="v1.2.0"
+SCRIPT_VERSION="v1.2.1"
 
-while getopts s:t:f:b: flag; do
+while getopts s:t:f:b:ht flag; do
   case "${flag}" in
-  s) switch=${OPTARG} ;;
-  t) ftype=${OPTARG} ;;
-  f) flash=${OPTARG} ;;
-  b) branch=${OPTARG} ;;
+  s) switch=${OPTARG} ;; # Argument for -s
+  t) ftype=${OPTARG} ;;  # Argument for -t
+  f) flash=${OPTARG} ;;  # Argument for -f
+  b) branch=${OPTARG} ;; # Argument for -b
+  h) hightemp=true ;;    # Set hightemp to true if -h flag is present
+  t)                     # Handle 't' as required, though there may be a conflict with `ht` as written
+    ;;
+  *)
+    echo "Invalid option: -$flag" >&2
+    exit 1
+    ;;
   esac
 done
 # Define repository URLs
@@ -85,7 +92,9 @@ ${NC}"
   printf "${RED}Firmware Script ${NC} ${SCRIPT_VERSION}\n"
   printf "Created by ${GREEN}KrauTech${NC} ${BLUE}(https://github.com/krautech)${NC}\n"
   echo
-  echo
+  if [[ $hightemp ]]; then
+    printf "${BLUE}Flashing High Temp Firmware${NC}\n"
+  fi
   printf "${RED}###################################################################################${NC}\n"
   #echo $switch
   #echo $ftype
@@ -634,12 +643,25 @@ flashFirmware() {
         for folder in "${folders[@]}"; do
           if [[ -d "$folder" ]]; then
             folder_name=$(basename "$folder")
-            # List the files inside each folder using the same search pattern
-            for file in "$folder"/$search_pattern; do
-              if [[ -f "$file" ]]; then
-                options+=("${folder_name}/$(basename "$file")")
+
+            # Check if $hightemp is true
+            if [[ $hightemp ]]; then
+              # Process only if "HT" subdirectory exists
+              if [[ -d "$folder/HT" ]]; then
+                for file in "$folder"/$search_pattern; do
+                  if [[ -f "$file" ]]; then
+                    options+=("${folder_name}/HT/$(basename "$file")")
+                  fi
+                done
               fi
-            done
+            else
+              # Process all folders regardless of "HT" subdirectory
+              for file in "$folder"/$search_pattern; do
+                if [[ -f "$file" ]]; then
+                  options+=("${folder_name}/$(basename "$file")")
+                fi
+              done
+            fi
           fi
         done
       fi
@@ -722,12 +744,25 @@ flashFirmware() {
         for folder in "${folders[@]}"; do
           if [[ -d "$folder" ]]; then
             folder_name=$(basename "$folder")
-            # List the files inside each folder using the same search pattern
-            for file in "$folder"/$search_pattern; do
-              if [[ -f "$file" ]]; then
-                options+=("${folder_name}/$(basename "$file")")
+
+            # Check if $hightemp is true
+            if [[ $hightemp ]]; then
+              # Process only if "HT" subdirectory exists
+              if [[ -d "$folder/HT" ]]; then
+                for file in "$folder"/$search_pattern; do
+                  if [[ -f "$file" ]]; then
+                    options+=("${folder_name}/HT/$(basename "$file")")
+                  fi
+                done
               fi
-            done
+            else
+              # Process all folders regardless of "HT" subdirectory
+              for file in "$folder"/$search_pattern; do
+                if [[ -f "$file" ]]; then
+                  options+=("${folder_name}/$(basename "$file")")
+                fi
+              done
+            fi
           fi
         done
       fi
@@ -764,18 +799,30 @@ flashFirmware() {
     archive_dir="$CARTOGRAPHER_KLIPPER_DIR/firmware/v2-v3/combined-firmware" # Corrected path
     if [[ -d $archive_dir ]]; then
       # Get the folder names sorted from largest to smallest version
-      cd $archive_dir
       folders=($(ls -d "$archive_dir"/*/ | sort -rV))
 
       for folder in "${folders[@]}"; do
         if [[ -d "$folder" ]]; then
           folder_name=$(basename "$folder")
-          # List the files inside each folder using the same search pattern
-          for file in "$folder"/$search_pattern; do
-            if [[ -f "$file" ]]; then
-              options+=("${folder_name}/$(basename "$file")")
+
+          # Check if $hightemp is true
+          if [[ $hightemp ]]; then
+            # Process only if "HT" subdirectory exists
+            if [[ -d "$folder/HT" ]]; then
+              for file in "$folder"/$search_pattern; do
+                if [[ -f "$file" ]]; then
+                  options+=("${folder_name}/HT/$(basename "$file")")
+                fi
+              done
             fi
-          done
+          else
+            # Process all folders regardless of "HT" subdirectory
+            for file in "$folder"/$search_pattern; do
+              if [[ -f "$file" ]]; then
+                options+=("${folder_name}/$(basename "$file")")
+              fi
+            done
+          fi
         fi
       done
     fi
@@ -855,12 +902,25 @@ flashFirmware() {
         for folder in "${folders[@]}"; do
           if [[ -d "$folder" ]]; then
             folder_name=$(basename "$folder")
-            # List the files inside each folder using the same search pattern
-            for file in "$folder"/$search_pattern; do
-              if [[ -f "$file" ]]; then
-                options+=("${folder_name}/$(basename "$file")")
+
+            # Check if $hightemp is true
+            if [[ $hightemp ]]; then
+              # Process only if "HT" subdirectory exists
+              if [[ -d "$folder/HT" ]]; then
+                for file in "$folder"/$search_pattern; do
+                  if [[ -f "$file" ]]; then
+                    options+=("${folder_name}/HT/$(basename "$file")")
+                  fi
+                done
               fi
-            done
+            else
+              # Process all folders regardless of "HT" subdirectory
+              for file in "$folder"/$search_pattern; do
+                if [[ -f "$file" ]]; then
+                  options+=("${folder_name}/$(basename "$file")")
+                fi
+              done
+            fi
           fi
         done
       fi
