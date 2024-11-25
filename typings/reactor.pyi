@@ -19,3 +19,5 @@ class Reactor:
         self, callback: Callable[[float], None], waketime: float = NOW
     ) -> None:
         pass
+    def pause(self, waketime: float) -> float:
+        pass

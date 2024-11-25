@@ -29,7 +29,7 @@ class ConfigWrapper:
     def get(
         self,
         option: str,
-        default: str,
+        default: str | type[sentinel] = sentinel,
         note_valid: bool = True,
     ) -> str:
         pass
@@ -41,20 +41,12 @@ class ConfigWrapper:
         note_valid: bool = True,
     ) -> str | None:
         pass
-    @overload
-    def get(
-        self,
-        option: str,
-        default: type[sentinel] = sentinel,
-        note_valid: bool = True,
-    ) -> str:
-        pass
 
     @overload
     def getint(
         self,
         option: str,
-        default: int,
+        default: int | type[sentinel] = sentinel,
         minval: int | None = None,
         maxval: int | None = None,
         note_valid: bool = True,
@@ -70,22 +62,12 @@ class ConfigWrapper:
         note_valid: bool = True,
     ) -> int | None:
         pass
-    @overload
-    def getint(
-        self,
-        option: str,
-        default: type[sentinel],
-        minval: int | None = None,
-        maxval: int | None = None,
-        note_valid: bool = True,
-    ) -> int:
-        pass
 
     @overload
     def getfloat(
         self,
         option: str,
-        default: float,
+        default: float | type[sentinel] = sentinel,
         minval: float | None = None,
         maxval: float | None = None,
         above: float | None = None,
@@ -105,24 +87,12 @@ class ConfigWrapper:
         note_valid: bool = True,
     ) -> float | None:
         pass
-    @overload
-    def getfloat(
-        self,
-        option: str,
-        default: type[sentinel] = sentinel,
-        minval: float | None = None,
-        maxval: float | None = None,
-        above: float | None = None,
-        below: float | None = None,
-        note_valid: bool = True,
-    ) -> float:
-        pass
 
     @overload
     def getboolean(
         self,
         option: str,
-        default: bool,
+        default: bool | type[sentinel] = sentinel,
         note_valid: bool = True,
     ) -> bool:
         pass
@@ -134,21 +104,13 @@ class ConfigWrapper:
         note_valid: bool = True,
     ) -> bool | None:
         pass
-    @overload
-    def getboolean(
-        self,
-        option: str,
-        default: type[sentinel] = sentinel,
-        note_valid: bool = True,
-    ) -> bool:
-        pass
 
     @overload
     def getchoice(
         self,
         option: str,
         choices: dict[str, str],
-        default: str,
+        default: str | type[sentinel] = sentinel,
         note_valid: bool = True,
     ) -> str:
         pass
@@ -161,12 +123,46 @@ class ConfigWrapper:
         note_valid: bool = True,
     ) -> str | None:
         pass
+
     @overload
-    def getchoice(
+    def getintlist(
         self,
         option: str,
-        choices: dict[str, str],
-        default: type[sentinel] = sentinel,
+        default: list[int] | type[sentinel] = sentinel,
+        sep: str = ",",
+        count: int | None = None,
         note_valid: bool = True,
-    ) -> str:
+    ) -> list[int]:
+        pass
+
+    @overload
+    def getintlist(
+        self,
+        option: str,
+        default: None,
+        sep: str = ",",
+        count: int | None = None,
+        note_valid: bool = True,
+    ) -> list[int] | None:
+        pass
+
+    @overload
+    def getfloatlist(
+        self,
+        option: str,
+        default: list[float] | type[sentinel] = sentinel,
+        sep: str = ",",
+        count: int | None = None,
+        note_valid: bool = True,
+    ) -> list[float]:
+        pass
+    @overload
+    def getfloatlist(
+        self,
+        option: str,
+        default: None,
+        sep: str = ",",
+        count: int | None = None,
+        note_valid: bool = True,
+    ) -> list[float] | None:
         pass
