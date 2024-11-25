@@ -248,16 +248,17 @@ class Scanner:
 
         mainsync = self.printer.lookup_object("mcu")._clocksync
         mcu = config.get("mcu", None)
-        if mcu is not None:
+        if mcu is None:
+            self._mcu: MCU = MCU(config, SecondarySync(self.reactor, mainsync))
+            self.printer.add_object("mcu " + self.name, self._mcu)
+        else:
             if mcu == "mcu":
                 self._mcu = self.printer.lookup_object("mcu")
             else:
                 self._mcu = self.printer.lookup_object("mcu " + mcu)
-        else:
-            self._mcu = MCU(config, SecondarySync(self.reactor, mainsync))
-            self.printer.add_object("mcu " + self.name, self._mcu)
         self.cmd_queue = self._mcu.alloc_command_queue()
         self.mcu_probe = ScannerEndstopWrapper(self)
+        self.fw_version = self._mcu.get_status()["mcu_version"]
 
         self.results = []
 
@@ -1582,9 +1583,11 @@ class Scanner:
             min(z_offset),
             max(z_offset),
             self.calibration_method,
+            0.0,
+            self.fw_version,
         )
         self.models[self.model.name] = self.model
-        self.model.save(self)
+        self.model.save()
         self._apply_threshold()
 
         toolhead.get_last_move_time()
@@ -1620,10 +1623,10 @@ class Scanner:
         untrigger_c = int(self.freq_to_count(self.untrigger_freq))
         self.scanner_set_threshold.send([trigger_c, untrigger_c])
 
-    def _register_model(self, name, model):
+    def register_model(self, name: str, model: "ScannerModel"):
         if name in self.models:
             raise self.printer.config_error(
-                "Multiple Scanner models with same" "name '%s'" % (name,)
+                "Multiple Scanner models with same name '%s'" % (name,)
             )
         self.models[name] = model
 
@@ -2265,7 +2268,7 @@ class Scanner:
                 )
         else:
             self.model.offset += offset
-            self.model.save(self, False)
+            self.model.save(False)
             gcmd.respond_info(
                 f"Scanner model offset has been updated to {self.model.offset:.3f}.\n"
                 "You must run the SAVE_CONFIG command now to update the\n"
@@ -2315,19 +2318,36 @@ class TouchSettings:
         self.randomize = randomize
 
 
+@final
 class ScannerModel:
-    @classmethod
-    def load(cls, name, config, scanner):
+    _CONFIG_FW_VERSION = "model_fw_version"
+
+    @staticmethod
+    def load(name: str, config: ConfigWrapper, scanner: Scanner):
         coef = config.getfloatlist("model_coef")
         temp = config.getfloat("model_temp")
         domain = config.getfloatlist("model_domain", count=2)
         [min_z, max_z] = config.getfloatlist("model_range", count=2)
         offset = config.getfloat("model_offset", 0.0)
         mode = config.get("model_mode", "None")
+        fw_version = config.get(ScannerModel._CONFIG_FW_VERSION, "UNKNOWN")
         poly = Polynomial(coef, domain)
-        return ScannerModel(name, scanner, poly, temp, min_z, max_z, mode, offset)
+        return ScannerModel(
+            name, scanner, poly, temp, min_z, max_z, mode, offset, fw_version
+        )
 
-    def __init__(self, name, scanner, poly, temp, min_z, max_z, mode, offset=0):
+    def __init__(
+        self,
+        name: str,
+        scanner: Scanner,
+        poly: Polynomial,
+        temp: float,
+        min_z: float,
+        max_z: float,
+        mode: str,
+        offset: float,
+        fw_version: str,
+    ):
         self.name = name
         self.scanner = scanner
         self.poly = poly
@@ -2336,9 +2356,10 @@ class ScannerModel:
         self.temp = temp
         self.offset = offset
         self.mode = mode
+        self.fw_version = fw_version
 
-    def save(self, scanner, show_message=True):
-        configfile = scanner.printer.lookup_object("configfile")
+    def save(self, show_message: bool = True):
+        configfile = self.scanner.printer.lookup_object("configfile")
         section = "scanner model " + self.name
         configfile.set(section, "model_coef", ",\n  ".join(map(str, self.poly.coef)))
         configfile.set(section, "model_domain", ",".join(map(str, self.poly.domain)))
@@ -2346,8 +2367,9 @@ class ScannerModel:
         configfile.set(section, "model_temp", "%f" % (self.temp))
         configfile.set(section, "model_offset", "%.5f" % (self.offset,))
         configfile.set(section, "model_mode", "%s" % (self.scanner.calibration_method))
+        configfile.set(section, ScannerModel._CONFIG_FW_VERSION, self.fw_version)
         if show_message:
-            scanner.gcode.respond_info(
+            self.scanner.gcode.respond_info(
                 "Scanner calibration for model '%s' has "
                 "been updated\nfor the current session. The SAVE_CONFIG "
                 "command will\nupdate the printer config file and restart "
@@ -3705,13 +3727,13 @@ def load_config(config: ConfigWrapper):
     return scanner
 
 
-def load_config_prefix(config):
+def load_config_prefix(config: ConfigWrapper):
     scanner = config.get_printer().lookup_object("scanner")
     name = config.get_name()
     if name.startswith("scanner model "):
         name = name[14:]
         model = ScannerModel.load(name, config, scanner)
-        scanner._register_model(name, model)
+        scanner.register_model(name, model)
         return model
     else:
         raise config.error("Unknown scanner config directive '%s'" % (name[7:],))
