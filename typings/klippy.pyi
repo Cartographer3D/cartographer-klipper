@@ -30,7 +30,7 @@ class Printer:
         pass
     def get_reactor(self) -> Reactor:
         pass
-    def register_event_handler(self, event: str, callback: Callable[[], None]) -> None:
+    def register_event_handler(self, event: str, callback: Callable[..., None]) -> None:
         pass
 
     @overload

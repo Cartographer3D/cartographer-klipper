@@ -2376,6 +2376,15 @@ class ScannerModel:
                 "the printer." % (self.name,)
             )
 
+    def validate(self) -> None:
+        cur_fw = self.scanner.fw_version
+        if cur_fw != self.fw_version:
+            raise self.scanner.printer.command_error(
+                "Scanner model '%s' was created with firmware version %s, "
+                "current firmware version is %s. Please recalibrate the model."
+                % (self.name, self.fw_version, cur_fw)
+            )
+
     def freq_to_dist_raw(self, freq):
         [begin, end] = self.poly.domain
         invfreq = 1 / freq
@@ -2793,8 +2802,9 @@ TRSYNC_TIMEOUT = 0.025
 TRSYNC_SINGLE_MCU_TIMEOUT = 0.250
 
 
+@final
 class ScannerEndstopWrapper:
-    def __init__(self, scanner):
+    def __init__(self, scanner: Scanner):
         self.scanner = scanner
         self._mcu = scanner._mcu
 
@@ -2904,6 +2914,8 @@ class ScannerEndstopWrapper:
     def home_start(
         self, print_time, sample_time, sample_count, rest_time, triggered=True
     ):
+        if self.scanner.model is not None:
+            self.scanner.model.validate()
         if self.scanner.model is None and self.scanner.trigger_method == 0:
             raise self.scanner.printer.command_error("No Scanner model loaded")
 

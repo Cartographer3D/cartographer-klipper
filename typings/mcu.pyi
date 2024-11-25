@@ -32,6 +32,8 @@ class MCU:
         pass
     def get_status(self) -> MCUStatus:
         pass
+    def is_fileoutput(self) -> bool:
+        pass
 
 class MCU_trsync:
     REASON_ENDSTOP_HIT = 1
