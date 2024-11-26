@@ -1,4 +1,5 @@
 [tool.pyright]
+pythonVersion = "3.9"
 include = ["scanner.py"]
 reportMissingModuleSource = false     # klippy imports are always missing sources
 reportPrivateLocalImportUsage = false
@@ -8,4 +9,5 @@ reportUninitializedInstanceVariable = false
 failOnWarnings = false
 
 [tool.ruff]
+target-version = "py39"
 include = ["scanner.py"]
