@@ -3332,8 +3332,6 @@ class ScannerMeshHelper:
         # Calculate original step size and apply the new bounds
         orig_span_x = self.max_x - self.min_x
         orig_span_y = self.max_y - self.min_y
-        orig_step_x = orig_span_x / (self.res_x - 1)
-        orig_step_y = orig_span_y / (self.res_y - 1)
 
         if bound_min_x >= self.min_x:
             self.min_x = bound_min_x
