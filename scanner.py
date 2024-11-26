@@ -338,6 +338,7 @@ class Scanner:
     cmd_SCANNER_CALIBRATE_help = "Calibrate scanner response curve"
 
     def cmd_SCANNER_CALIBRATE(self, gcmd: GCodeCommand):
+        orig_params = gcmd.get_command_parameters()
         if self.calibration_method != "scan":
             cmd = self.sensor_name + "_TOUCH"
             params = {}
@@ -345,6 +346,9 @@ class Scanner:
                 params["METHOD"] = "manual"
             else:
                 params["CALIBRATE"] = "1"
+
+            params.update(orig_params)
+
             cmd = self.gcode.create_gcode_command(cmd, cmd, params)
             self.cmd_SCANNER_TOUCH(cmd)
         else:
