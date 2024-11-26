@@ -35,22 +35,11 @@ from mcu import MCU, MCU_trsync
 from numpy.polynomial import Polynomial
 from klippy import Printer
 
-from . import adxl345, bed_mesh, manual_probe, probe, thermistor
+from . import bed_mesh, manual_probe, probe, thermistor
 
 STREAM_BUFFER_LIMIT_DEFAULT = 100
 STREAM_TIMEOUT = 2.0
 
-REG_THRESH_TOUCH = 0x1D
-REG_DUR = 0x21
-REG_INT_MAP = 0x2F
-REG_TOUCH_AXES = 0x2A
-REG_INT_ENABLE = 0x2E
-REG_INT_SOURCE = 0x30
-
-DUR_SCALE = 0.000625  # 0.625 msec / LSB
-TOUCH_SCALE = 0.0625 * adxl345.FREEFALL_ACCEL  # 62.5mg/LSB * Earth gravity in mm/s**2
-
-ADXL345_REST_TIME = 0.1
 
 THRESHOLD_MIN_LIMIT = 750
 THRESHOLD_SCALING_FACTOR = 0.25
@@ -168,13 +157,6 @@ class Scanner:
             self.z_hop_dist = config.getfloat("z_hop_dist", 5.0, above=0.0)
             self.z_hop_speed = config.getfloat("z_hop_speed", 5.0, above=0.0)
 
-        self.int_map = 0x40
-        self.touch_thresh = config.getfloat(
-            "touch_thresh", 5000, minval=TOUCH_SCALE, maxval=100000.0
-        )
-        self.touch_dur = config.getfloat("touch_dur", 0.01, above=DUR_SCALE, maxval=0.1)
-        self.adxl345 = None
-
         self.calibration_method = config.get(
             "mode", config.get("calibration_method", "scan")
         )
@@ -284,13 +266,6 @@ class Scanner:
 
         if probe_pin != "none":
             pin_params = ppins.lookup_pin(probe_pin, can_invert=True, can_pullup=True)
-
-            adxl_mcu = pin_params["chip"]
-            self.adxl_mcu_endstop = adxl_mcu.setup_pin("endstop", pin_params)
-            self.adxl_add_stepper = self.adxl_mcu_endstop.add_stepper
-        else:
-            self.adxl_mcu_endstop = None
-            self.adxl_add_stepper = None
         # Register z_virtual_endstop
         self.printer.lookup_object("pins").register_chip("probe", self)
         # Register event handlers
@@ -460,14 +435,9 @@ class Scanner:
             f"MOVE: {vars['randomize']}",
         )
 
-        # Switch between Touch and ADXL probing
+        # Switch between Touch and Scan Probing
         if self.calibration_method == "touch":
             self.trigger_method = 1
-        elif self.calibration_method == "adxl":
-            self.trigger_method = 2
-            if self.adxl345 is None:
-                self.adxl345 = self.printer.lookup_object("adxl345")
-            self.init_adxl()
         else:
             self.trigger_method = 0
             self.calibration_method = "scan"
@@ -1440,11 +1410,6 @@ class Scanner:
         )
         if self.calibration_method == "touch":
             self.trigger_method = 1
-        elif self.calibration_method == "adxl":
-            self.trigger_method = 2
-            if self.adxl345 is None:
-                self.adxl345 = self.printer.lookup_object("adxl345")
-            self.init_adxl()
         allow_faulty = gcmd.get_int("ALLOW_FAULTY_COORDINATE", 0) != 0
         if (
             self.trigger_method != 0
@@ -1945,18 +1910,6 @@ class Scanner:
     def _handle_req_dump(self, web_request):
         self._api_dump_helper.add_client(web_request)
 
-    def init_adxl(self):
-        chip = self.adxl345
-        if chip is None:
-            # TODO: Show the error
-            return
-        chip.set_reg(adxl345.REG_POWER_CTL, 0x00)
-        chip.set_reg(adxl345.REG_DATA_FORMAT, 0x0B)
-        chip.set_reg(REG_INT_MAP, self.int_map)
-        chip.set_reg(REG_TOUCH_AXES, 0x7)
-        chip.set_reg(REG_THRESH_TOUCH, int(self.touch_thresh / TOUCH_SCALE))
-        chip.set_reg(REG_DUR, int(self.touch_dur / DUR_SCALE))
-
     # GCode command handlers
     cmd_PROBE_SWITCH_help = "swith between scan and touch"
 
@@ -2316,7 +2269,6 @@ class Scanner:
                     "printer config file and restart the printer."
                 )
         else:
-            old_offset = self.model.offset
             self.model.offset += offset
             self.model.save(self, False)
             gcmd.respond_info(
@@ -2856,8 +2808,6 @@ class ScannerEndstopWrapper:
         for stepper in kin.get_steppers():
             if stepper.is_active_axis("z"):
                 self.add_stepper(stepper)
-                if self.scanner.adxl_add_stepper is not None:
-                    self.scanner.adxl_add_stepper(stepper)
 
     def _handle_home_rails_begin(self, homing_state, rails):
         self.is_homing = False
@@ -2937,11 +2887,6 @@ class ScannerEndstopWrapper:
     def home_start(
         self, print_time, sample_time, sample_count, rest_time, triggered=True
     ):
-        if self.scanner.trigger_method == 2:
-            self.is_homing = True
-            return self.scanner.adxl_mcu_endstop.home_start(
-                print_time, sample_time, sample_count, rest_time, triggered
-            )
         if self.scanner.model is None and self.scanner.trigger_method == 0:
             raise self.scanner.printer.command_error("No Scanner model loaded")
 
@@ -2984,8 +2929,6 @@ class ScannerEndstopWrapper:
         return self._trigger_completion
 
     def home_wait(self, home_end_time):
-        if self.scanner.trigger_method == 2:
-            return self.scanner.adxl_mcu_endstop.home_wait(home_end_time)
         etrsync = self._trsyncs[0]
         etrsync.set_home_end_time(home_end_time)
         if self._mcu.is_fileoutput():
@@ -3004,48 +2947,6 @@ class ScannerEndstopWrapper:
         if self._mcu.is_fileoutput():
             return home_end_time
         return home_end_time
-
-    def _try_clear_touch(self):
-        chip = self.scanner.adxl345
-        tries = 8
-        while tries > 0:
-            val = chip.read_reg(REG_INT_SOURCE)
-            if not (val & 0x40):
-                return True
-            tries -= 1
-        return False
-
-    def probe_prepare(self, hmove):
-        chip = self.scanner.adxl345
-        toolhead = self.scanner.printer.lookup_object("toolhead")
-        toolhead.flush_step_generation()
-        toolhead.dwell(ADXL345_REST_TIME)
-        print_time = toolhead.get_last_move_time()
-        clock = self.scanner.adxl345.mcu.print_time_to_clock(print_time)
-        chip.set_reg(REG_INT_ENABLE, 0x00, minclock=clock)
-        chip.read_reg(REG_INT_SOURCE)
-        chip.set_reg(REG_INT_ENABLE, 0x40, minclock=clock)
-        self.is_measuring = chip.read_reg(adxl345.REG_POWER_CTL) == 0x08
-        if not self.is_measuring:
-            chip.set_reg(adxl345.REG_POWER_CTL, 0x08, minclock=clock)
-        if not self._try_clear_touch():
-            raise self.scanner.printer.command_error(
-                "ADXL345 touch triggered before move, it may be set too sensitive."
-            )
-
-    def probe_finish(self, hmove):
-        chip = self.scanner.adxl345
-        toolhead = self.scanner.printer.lookup_object("toolhead")
-        toolhead.dwell(ADXL345_REST_TIME)
-        print_time = toolhead.get_last_move_time()
-        clock = chip.mcu.print_time_to_clock(print_time)
-        chip.set_reg(REG_INT_ENABLE, 0x00, minclock=clock)
-        if not self.is_measuring:
-            chip.set_reg(adxl345.REG_POWER_CTL, 0x00)
-        if not self._try_clear_touch():
-            raise self.scanner.printer.command_error(
-                "ADXL345 touch triggered after move, it may be set too sensitive."
-            )
 
     def query_endstop(self, print_time):
         if self.scanner.model is None:
