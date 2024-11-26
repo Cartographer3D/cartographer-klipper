@@ -3694,7 +3694,7 @@ def coord_fallback(
         try:
             x, y = [parse(p.strip()) for p in param.split(",", 1)]
             return map(x, def_x), map(y, def_y)
-        except:
+        except ValueError:
             raise gcmd.error("Unable to parse parameter '%s'" % (name,))
     else:
         return def_x, def_y
