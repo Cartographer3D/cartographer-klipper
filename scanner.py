@@ -3463,7 +3463,7 @@ class ScannerMeshHelper:
                 child_conn.send(
                     (False, self._do_process_clusters(raw_clusters, dump_file))
                 )
-            except Exception as e:
+            except Exception:
                 child_conn.send((True, traceback.format_exc()))
             finally:
                 child_conn.close()
