@@ -3463,9 +3463,10 @@ class ScannerMeshHelper:
                 child_conn.send(
                     (False, self._do_process_clusters(raw_clusters, dump_file))
                 )
-            except:
+            except Exception as e:
                 child_conn.send((True, traceback.format_exc()))
-            child_conn.close()
+            finally:
+                child_conn.close()
 
         child = multiprocessing.Process(target=do)
         child.daemon = True
