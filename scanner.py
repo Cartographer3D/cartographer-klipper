@@ -1528,7 +1528,6 @@ class Scanner:
         model_name = gcmd.get("MODEL_NAME", "default")
 
         toolhead = self.toolhead
-        curtime = self.reactor.monotonic()
         toolhead.wait_moves()
 
         if manual_mode:
