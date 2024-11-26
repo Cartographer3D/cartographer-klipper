@@ -259,13 +259,8 @@ class Scanner:
         self.cmd_queue = self._mcu.alloc_command_queue()
         self.mcu_probe = ScannerEndstopWrapper(self)
 
-        ppins = self.printer.lookup_object("pins")
-        probe_pin = config.get("probe_pin", "none")
-
         self.results = []
 
-        if probe_pin != "none":
-            pin_params = ppins.lookup_pin(probe_pin, can_invert=True, can_pullup=True)
         # Register z_virtual_endstop
         self.printer.lookup_object("pins").register_chip("probe", self)
         # Register event handlers
