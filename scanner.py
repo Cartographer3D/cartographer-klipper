@@ -3440,7 +3440,7 @@ class ScannerMeshHelper:
                 clusters[k] = []
             clusters[k].append(d)
 
-        with self.scanner.streaming_session(cb) as ss:
+        with self.scanner.streaming_session(cb):
             self._fly_path(path, speed, runs)
 
         gcmd.respond_info(
@@ -3491,7 +3491,6 @@ class ScannerMeshHelper:
             with open(dump_file, "w") as f:
                 f.write("x,y,xp,xy,dist\n")
                 for yi in range(self.res_y):
-                    line = []
                     for xi in range(self.res_x):
                         cluster = raw_clusters.get((xi, yi), [])
                         xp = xi * self.step_x + self.min_x
