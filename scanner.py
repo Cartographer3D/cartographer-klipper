@@ -2985,7 +2985,6 @@ class ScannerEndstopWrapper:
     def query_endstop(self, print_time):
         if self.scanner.model is None:
             return 1
-        clock = self._mcu.print_time_to_clock(print_time)
         sample = self.scanner._sample_async()
         if self.scanner.trigger_freq <= sample["freq"]:
             return 1
