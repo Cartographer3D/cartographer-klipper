@@ -1559,7 +1559,7 @@ class Scanner:
         try:
             self._start_streaming()
             self._sample_printtime_sync(50)
-            with self.streaming_session(cb) as ss:
+            with self.streaming_session(cb):
                 self._sample_printtime_sync(50)
                 toolhead.dwell(0.250)
                 curpos[2] = cal_min_z
@@ -2507,7 +2507,7 @@ class ScannerTempModel:
         return a * x + b
 
     def compensate(self, freq, temp_source, temp_target, tctl=None):
-        if self.a_a == None or self.a_b == None or self.b_a == None or self.b_b == None:
+        if self.a_a is None or self.a_b is None or self.b_a is None or self.b_b is None:
             return freq
         A = (
             4 * (temp_source * self.a_a) ** 2
@@ -2648,7 +2648,7 @@ class AlphaBetaFilter:
         self.tl = None
 
     def update(self, time, measurement):
-        if self.xl == None:
+        if self.xl is None:
             self.xl = measurement
         if self.tl is not None:
             dt = time - self.tl
