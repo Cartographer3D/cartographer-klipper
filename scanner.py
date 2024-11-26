@@ -23,7 +23,7 @@ import struct
 import threading
 import time
 import traceback
-from typing import Any, final
+from typing import Any, Optional, final
 
 import chelper
 from gcode import GCodeCommand, GCodeDispatch
@@ -1406,31 +1406,31 @@ class Scanner:
     def get_offsets(self):
         return self.offset["x"], self.offset["y"], self.trigger_distance
 
-    def get_lift_speed(self, gcmd: GCodeCommand | None = None):
+    def get_lift_speed(self, gcmd: Optional[GCodeCommand] = None):
         if gcmd is not None:
             return gcmd.get_float("LIFT_SPEED", self.lift_speed, above=0.0)
         return self.lift_speed
 
-    def get_samples(self, gcmd: GCodeCommand | None = None):
+    def get_samples(self, gcmd: Optional[GCodeCommand] = None):
         if gcmd is not None:
             return gcmd.get_int("SAMPLES", self.samples_config["samples"], minval=1)
         return self.samples_config["samples"]
 
-    def get_sample_retract_dist(self, gcmd: GCodeCommand | None = None):
+    def get_sample_retract_dist(self, gcmd: Optional[GCodeCommand] = None):
         if gcmd is not None:
             return gcmd.get_float(
                 "SAMPLE_RETRACT_DIST", self.samples_config["retract_dist"], above=0.0
             )
         return self.samples_config["retract_dist"]
 
-    def get_samples_tolerance(self, gcmd: GCodeCommand | None = None):
+    def get_samples_tolerance(self, gcmd: Optional[GCodeCommand] = None):
         if gcmd is not None:
             return gcmd.get_float(
                 "SAMPLES_TOLERANCE", self.samples_config["tolerance"], minval=0.0
             )
         return self.samples_config["retract_dist"]
 
-    def get_samples_tolerance_retries(self, gcmd: GCodeCommand | None = None):
+    def get_samples_tolerance_retries(self, gcmd: Optional[GCodeCommand] = None):
         if gcmd is not None:
             return gcmd.get_int(
                 "SAMPLES_TOLERANCE_RETRIES",
@@ -1439,7 +1439,7 @@ class Scanner:
             )
         return self.samples_config["tolerance_retries"]
 
-    def get_samples_result(self, gcmd: GCodeCommand | None = None):
+    def get_samples_result(self, gcmd: Optional[GCodeCommand] = None):
         if gcmd is not None:
             return gcmd.get("SAMPLES_RESULT", self.samples_config["result"])
         return self.samples_config["result"]
@@ -2871,7 +2871,7 @@ class ScannerWrapper:
     def get_offsets(self):
         return self.scanner.get_offsets()
 
-    def get_lift_speed(self, gcmd: GCodeCommand | None = None):
+    def get_lift_speed(self, gcmd: Optional[GCodeCommand] = None):
         return self.scanner.get_lift_speed(gcmd)
 
     def run_probe(self, gcmd: GCodeCommand):
@@ -2883,7 +2883,7 @@ class ScannerWrapper:
     def probe_finish(self, hmove):
         return self.scanner.probe_finish(hmove)
 
-    def get_probe_params(self, gcmd: GCodeCommand | None = None):
+    def get_probe_params(self, gcmd: Optional[GCodeCommand] = None):
         return {
             "probe_speed": self.scanner.probe_speed,
             "lift_speed": self.scanner.lift_speed,
