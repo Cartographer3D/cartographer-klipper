@@ -37,6 +37,8 @@ from klippy import Printer
 
 from . import bed_mesh, manual_probe, probe, thermistor
 
+SCANNER_VERSION = "1.1.0"
+
 STREAM_BUFFER_LIMIT_DEFAULT = 100
 STREAM_TIMEOUT = 2.0
 
@@ -2338,6 +2340,8 @@ class ScannerModel:
         self.mode = mode
 
     def save(self, scanner, show_message=True):
+        mcufw = scanner._mcu.get_status()["mcu_version"]
+        timestamp = int(time.time())
         configfile = scanner.printer.lookup_object("configfile")
         section = "scanner model " + self.name
         configfile.set(section, "model_coef", ",\n  ".join(map(str, self.poly.coef)))
@@ -2346,6 +2350,9 @@ class ScannerModel:
         configfile.set(section, "model_temp", "%f" % (self.temp))
         configfile.set(section, "model_offset", "%.5f" % (self.offset,))
         configfile.set(section, "model_mode", "%s" % (self.scanner.calibration_method))
+        configfile.set(section, "model_created_on", str(timestamp))
+        configfile.set(section, "model_firmware_version", str(mcufw))
+        configfile.set(section, "model_software_version", str(SCANNER_VERSION))
         if show_message:
             scanner.gcode.respond_info(
                 "Scanner calibration for model '%s' has "
