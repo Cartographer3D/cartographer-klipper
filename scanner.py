@@ -2822,9 +2822,6 @@ class ScannerEndstopWrapper:
         printer.register_event_handler(
             "homing:homing_move_begin", self._handle_homing_move_begin
         )
-        printer.register_event_handler(
-            "homing:homing_move_end", self._handle_homing_move_end
-        )
         self.z_homed = False
         self.is_homing = False
 
@@ -2874,15 +2871,6 @@ class ScannerEndstopWrapper:
                         self.scanner.trigger_method,
                     ]
                 )
-            elif self.scanner.trigger_method == 2:
-                self.scanner.mcu_probe.probe_prepare(hmove)
-
-    def _handle_homing_move_end(self, hmove):
-        if (
-            self.scanner.mcu_probe in hmove.get_mcu_endstops()
-            and self.scanner.trigger_method == 2
-        ):
-            self.scanner.mcu_probe.probe_finish(hmove)
 
     def get_mcu(self):
         return self._mcu
