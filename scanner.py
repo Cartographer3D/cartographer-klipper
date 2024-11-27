@@ -401,15 +401,13 @@ class Scanner:
             "num_samples": gcmd.get_int(
                 "SAMPLES", self.scanner_touch_config["sample_count"], minval=1
             ),
-            "tolerance": (
-                round(
-                    gcmd.get_float(
-                        "TOLERANCE",
-                        float(self.scanner_touch_config["tolerance"]),
-                        above=0.0,
-                    ),
-                    4,
+            "tolerance": round(
+                gcmd.get_float(
+                    "TOLERANCE",
+                    float(self.scanner_touch_config["tolerance"]),
+                    above=0.0,
                 ),
+                4,
             ),
             "target": gcmd.get_float(
                 "TARGET", 0.015, above=0.0
