@@ -258,7 +258,6 @@ class Scanner:
                 self._mcu = self.printer.lookup_object("mcu " + mcu)
         self.cmd_queue = self._mcu.alloc_command_queue()
         self.mcu_probe = ScannerEndstopWrapper(self)
-        self.fw_version = self._mcu.get_status()["mcu_version"]
 
         self.results = []
 
@@ -1221,6 +1220,7 @@ class Scanner:
 
             self.toolhead = self.printer.lookup_object("toolhead")
             self.trapq = self.toolhead.get_trapq()
+            self.fw_version = self._mcu.get_status()["mcu_version"]
         except msgproto.error as e:
             raise msgproto.error(str(e))
 
