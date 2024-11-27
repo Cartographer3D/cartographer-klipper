@@ -22,6 +22,8 @@ import struct
 import threading
 import time
 import traceback
+from typing import final
+from configfile import ConfigWrapper
 import msgproto
 
 import chelper
@@ -32,6 +34,9 @@ from mcu import MCU, MCU_trsync
 from numpy.polynomial import Polynomial
 
 from . import adxl345, bed_mesh, manual_probe, probe, thermistor
+
+DOCS_TOUCH_CALIBRATION = "https://docs.cartographer3d.com/cartographer-probe/installation-and-setup/installation/touch-based-calibration"
+DOCS_SCAN_CALIBRATION = "https://docs.cartographer3d.com/cartographer-probe/installation-and-setup/installation/scan-based-calibration"
 
 STREAM_BUFFER_LIMIT_DEFAULT = 100
 STREAM_TIMEOUT = 2.0
@@ -258,14 +263,14 @@ class Scanner:
 
         mainsync = self.printer.lookup_object("mcu")._clocksync
         mcu = config.get("mcu", None)
-        if mcu is not None:
+        if mcu is None:
+            self._mcu: MCU = MCU(config, SecondarySync(self.reactor, mainsync))
+            self.printer.add_object("mcu " + self.name, self._mcu)
+        else:
             if mcu == "mcu":
                 self._mcu = self.printer.lookup_object("mcu")
             else:
                 self._mcu = self.printer.lookup_object("mcu " + mcu)
-        else:
-            self._mcu = MCU(config, SecondarySync(self.reactor, mainsync))
-            self.printer.add_object("mcu " + self.name, self._mcu)
         self.cmd_queue = self._mcu.alloc_command_queue()
         self.mcu_probe = ScannerEndstopWrapper(self)
 
@@ -1370,6 +1375,7 @@ class Scanner:
 
             self.toolhead = self.printer.lookup_object("toolhead")
             self.trapq = self.toolhead.get_trapq()
+            self.fw_version = self._mcu.get_status()["mcu_version"]
         except msgproto.error as e:
             raise msgproto.error(str(e))
 
@@ -1735,9 +1741,11 @@ class Scanner:
             min(z_offset),
             max(z_offset),
             self.calibration_method,
+            0.0,
+            self.fw_version,
         )
         self.models[self.model.name] = self.model
-        self.model.save(self)
+        self.model.save()
         self._apply_threshold()
 
         toolhead.get_last_move_time()
@@ -1771,10 +1779,10 @@ class Scanner:
         untrigger_c = int(self.freq_to_count(self.untrigger_freq))
         self.scanner_set_threshold.send([trigger_c, untrigger_c])
 
-    def _register_model(self, name, model):
+    def register_model(self, name: str, model: "ScannerModel"):
         if name in self.models:
             raise self.printer.config_error(
-                "Multiple Scanner models with same" "name '%s'" % (name,)
+                "Multiple Scanner models with same name '%s'" % (name,)
             )
         self.models[name] = model
 
@@ -2585,7 +2593,7 @@ class Scanner:
         else:
             old_offset = self.model.offset
             self.model.offset += offset
-            self.model.save(self, False)
+            self.model.save(False)
             gcmd.respond_info(
                 f"Scanner model offset has been updated to {self.model.offset:.3f}.\n"
                 "You must run the SAVE_CONFIG command now to update the\n"
@@ -2635,19 +2643,36 @@ class TouchSettings:
         self.randomize = randomize
 
 
+@final
 class ScannerModel:
-    @classmethod
-    def load(cls, name, config, scanner):
+    _CONFIG_FW_VERSION = "model_fw_version"
+
+    @staticmethod
+    def load(name: str, config: ConfigWrapper, scanner: Scanner):
         coef = config.getfloatlist("model_coef")
         temp = config.getfloat("model_temp")
         domain = config.getfloatlist("model_domain", count=2)
         [min_z, max_z] = config.getfloatlist("model_range", count=2)
         offset = config.getfloat("model_offset", 0.0)
         mode = config.get("model_mode", "None")
+        fw_version = config.get(ScannerModel._CONFIG_FW_VERSION, "UNKNOWN")
         poly = Polynomial(coef, domain)
-        return ScannerModel(name, scanner, poly, temp, min_z, max_z, mode, offset)
+        return ScannerModel(
+            name, scanner, poly, temp, min_z, max_z, mode, offset, fw_version
+        )
 
-    def __init__(self, name, scanner, poly, temp, min_z, max_z, mode, offset=0):
+    def __init__(
+        self,
+        name: str,
+        scanner: Scanner,
+        poly: Polynomial,
+        temp: float,
+        min_z: float,
+        max_z: float,
+        mode: str,
+        offset: float,
+        fw_version: str,
+    ):
         self.name = name
         self.scanner = scanner
         self.poly = poly
@@ -2656,9 +2681,10 @@ class ScannerModel:
         self.temp = temp
         self.offset = offset
         self.mode = mode
+        self.fw_version = fw_version
 
-    def save(self, scanner, show_message=True):
-        configfile = scanner.printer.lookup_object("configfile")
+    def save(self, show_message: bool = True):
+        configfile = self.scanner.printer.lookup_object("configfile")
         section = "scanner model " + self.name
         configfile.set(section, "model_coef", ",\n  ".join(map(str, self.poly.coef)))
         configfile.set(section, "model_domain", ",".join(map(str, self.poly.domain)))
@@ -2666,12 +2692,25 @@ class ScannerModel:
         configfile.set(section, "model_temp", "%f" % (self.temp))
         configfile.set(section, "model_offset", "%.5f" % (self.offset,))
         configfile.set(section, "model_mode", "%s" % (self.scanner.calibration_method))
+        configfile.set(section, ScannerModel._CONFIG_FW_VERSION, self.fw_version)
         if show_message:
-            scanner.gcode.respond_info(
+            self.scanner.gcode.respond_info(
                 "Scanner calibration for model '%s' has "
                 "been updated\nfor the current session. The SAVE_CONFIG "
                 "command will\nupdate the printer config file and restart "
                 "the printer." % (self.name,)
+            )
+
+    def validate(self) -> None:
+        cur_fw = self.scanner.fw_version
+        if cur_fw != self.fw_version:
+            url = DOCS_TOUCH_CALIBRATION
+            if self.mode == "scan":
+                url = DOCS_SCAN_CALIBRATION
+            raise self.scanner.printer.command_error(
+                f"Scanner model '{self.name}' was created with firmware version '{self.fw_version}', "
+                f"current firmware version is '{cur_fw}'. Please recalibrate the your threshold and model."
+                f" Click <a href='{url}'>HERE</a> for more information"
             )
 
     def freq_to_dist_raw(self, freq):
@@ -3091,8 +3130,9 @@ TRSYNC_TIMEOUT = 0.025
 TRSYNC_SINGLE_MCU_TIMEOUT = 0.250
 
 
+@final
 class ScannerEndstopWrapper:
-    def __init__(self, scanner):
+    def __init__(self, scanner: Scanner):
         self.scanner = scanner
         self._mcu = scanner._mcu
 
@@ -3110,9 +3150,6 @@ class ScannerEndstopWrapper:
         )
         printer.register_event_handler(
             "homing:homing_move_begin", self._handle_homing_move_begin
-        )
-        printer.register_event_handler(
-            "homing:homing_move_end", self._handle_homing_move_end
         )
         self.z_homed = False
         self.is_homing = False
@@ -3165,15 +3202,6 @@ class ScannerEndstopWrapper:
                         self.scanner.trigger_method,
                     ]
                 )
-            elif self.scanner.trigger_method == 2:
-                self.scanner.mcu_probe.probe_prepare(hmove)
-
-    def _handle_homing_move_end(self, hmove):
-        if (
-            self.scanner.mcu_probe in hmove.get_mcu_endstops()
-            and self.scanner.trigger_method == 2
-        ):
-            self.scanner.mcu_probe.probe_finish(hmove)
 
     def get_mcu(self):
         return self._mcu
@@ -3206,9 +3234,12 @@ class ScannerEndstopWrapper:
     ):
         if self.scanner.trigger_method == 2:
             self.is_homing = True
-            return self.scanner.adxl_mcu_endstop.home_start(
+            return self.scanner.adxl_mcu_endstop.home_start(  # pyright: ignore[reportOptionalMemberAccess]
                 print_time, sample_time, sample_count, rest_time, triggered
             )
+
+        if self.scanner.model is not None:
+            self.scanner.model.validate()
         if self.scanner.model is None and self.scanner.trigger_method == 0:
             raise self.scanner.printer.command_error("No Scanner model loaded")
 
@@ -3252,7 +3283,7 @@ class ScannerEndstopWrapper:
 
     def home_wait(self, home_end_time):
         if self.scanner.trigger_method == 2:
-            return self.scanner.adxl_mcu_endstop.home_wait(home_end_time)
+            return self.scanner.adxl_mcu_endstop.home_wait(home_end_time)  # pyright: ignore[reportOptionalMemberAccess]
         etrsync = self._trsyncs[0]
         etrsync.set_home_end_time(home_end_time)
         if self._mcu.is_fileoutput():
@@ -3276,7 +3307,7 @@ class ScannerEndstopWrapper:
         chip = self.scanner.adxl345
         tries = 8
         while tries > 0:
-            val = chip.read_reg(REG_INT_SOURCE)
+            val = chip.read_reg(REG_INT_SOURCE)  # pyright: ignore[reportOptionalMemberAccess]
             if not (val & 0x40):
                 return True
             tries -= 1
@@ -3288,13 +3319,13 @@ class ScannerEndstopWrapper:
         toolhead.flush_step_generation()
         toolhead.dwell(ADXL345_REST_TIME)
         print_time = toolhead.get_last_move_time()
-        clock = self.scanner.adxl345.mcu.print_time_to_clock(print_time)
-        chip.set_reg(REG_INT_ENABLE, 0x00, minclock=clock)
-        chip.read_reg(REG_INT_SOURCE)
-        chip.set_reg(REG_INT_ENABLE, 0x40, minclock=clock)
-        self.is_measuring = chip.read_reg(adxl345.REG_POWER_CTL) == 0x08
+        clock = self.scanner.adxl345.mcu.print_time_to_clock(print_time)  # pyright: ignore[reportOptionalMemberAccess]
+        chip.set_reg(REG_INT_ENABLE, 0x00, minclock=clock)  # pyright: ignore[reportOptionalMemberAccess]
+        chip.read_reg(REG_INT_SOURCE)  # pyright: ignore[reportOptionalMemberAccess]
+        chip.set_reg(REG_INT_ENABLE, 0x40, minclock=clock)  # pyright: ignore[reportOptionalMemberAccess]
+        self.is_measuring = chip.read_reg(adxl345.REG_POWER_CTL) == 0x08  # pyright: ignore[reportOptionalMemberAccess]
         if not self.is_measuring:
-            chip.set_reg(adxl345.REG_POWER_CTL, 0x08, minclock=clock)
+            chip.set_reg(adxl345.REG_POWER_CTL, 0x08, minclock=clock)  # pyright: ignore[reportOptionalMemberAccess]
         if not self._try_clear_touch():
             raise self.scanner.printer.command_error(
                 "ADXL345 touch triggered before move, it may be set too sensitive."
@@ -3305,10 +3336,10 @@ class ScannerEndstopWrapper:
         toolhead = self.scanner.printer.lookup_object("toolhead")
         toolhead.dwell(ADXL345_REST_TIME)
         print_time = toolhead.get_last_move_time()
-        clock = chip.mcu.print_time_to_clock(print_time)
-        chip.set_reg(REG_INT_ENABLE, 0x00, minclock=clock)
+        clock = chip.mcu.print_time_to_clock(print_time)  # pyright: ignore[reportOptionalMemberAccess]
+        chip.set_reg(REG_INT_ENABLE, 0x00, minclock=clock)  # pyright: ignore[reportOptionalMemberAccess]
         if not self.is_measuring:
-            chip.set_reg(adxl345.REG_POWER_CTL, 0x00)
+            chip.set_reg(adxl345.REG_POWER_CTL, 0x00)  # pyright: ignore[reportOptionalMemberAccess]
         if not self._try_clear_touch():
             raise self.scanner.printer.command_error(
                 "ADXL345 touch triggered after move, it may be set too sensitive."
@@ -4061,13 +4092,13 @@ def load_config(config):
     return scanner
 
 
-def load_config_prefix(config):
+def load_config_prefix(config: ConfigWrapper):
     scanner = config.get_printer().lookup_object("scanner")
     name = config.get_name()
     if name.startswith("scanner model "):
         name = name[14:]
         model = ScannerModel.load(name, config, scanner)
-        scanner._register_model(name, model)
+        scanner.register_model(name, model)
         return model
     else:
         raise config.error("Unknown scanner config directive '%s'" % (name[7:],))
