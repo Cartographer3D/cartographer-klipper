@@ -11,6 +11,7 @@ class sentinel:
 
 @final
 class ConfigWrapper:
+    error = configparser.Error
     printer: Printer
     def get_printer(self) -> Printer:
         pass
@@ -165,4 +166,15 @@ class ConfigWrapper:
         count: int | None = None,
         note_valid: bool = True,
     ) -> list[float] | None:
+        pass
+
+@final
+class PrinterConfig:
+    def get_printer(self) -> Printer:
+        pass
+    def deprecate(self, option: str, value: str | None = None) -> None:
+        pass
+    def set(self, section: str, option: str, value: object) -> None:
+        pass
+    def remove_section(self, section: str) -> None:
         pass

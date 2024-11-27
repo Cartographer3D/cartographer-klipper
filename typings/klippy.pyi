@@ -1,9 +1,12 @@
-from typing import Callable, TypeVar, final
+from typing import Callable, Literal, TypeVar, final, overload
 
-from configfile import ConfigWrapper, sentinel
 import configfile
 import gcode
+from configfile import ConfigWrapper, PrinterConfig, sentinel
+from mcu import MCU
 from reactor import Reactor
+
+from scanner import Scanner
 
 T = TypeVar("T")
 
@@ -13,10 +16,6 @@ class Printer:
     command_error = gcode.CommandError
     def add_object(self, name: str, obj: object) -> None:
         pass
-
-    def lookup_object(self, name: str, default: T | type[sentinel] = sentinel) -> T:
-        pass
-
     def load_object(
         self,
         config: ConfigWrapper,
@@ -31,5 +30,18 @@ class Printer:
         pass
     def get_reactor(self) -> Reactor:
         pass
-    def register_event_handler(self, event: str, callback: Callable[[], None]) -> None:
+    def register_event_handler(self, event: str, callback: Callable[..., None]) -> None:
+        pass
+
+    @overload
+    def lookup_object(self, name: Literal["configfile"]) -> PrinterConfig:
+        pass
+    @overload
+    def lookup_object(self, name: Literal["mcu"]) -> MCU:
+        pass
+    @overload
+    def lookup_object(self, name: Literal["scanner"]) -> Scanner:
+        pass
+    @overload
+    def lookup_object(self, name: str, default: T | type[sentinel] = sentinel) -> T:
         pass
