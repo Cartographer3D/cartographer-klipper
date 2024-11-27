@@ -11,7 +11,6 @@
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
 import copy
-import csv
 import importlib
 import logging
 import math
@@ -27,13 +26,11 @@ from typing import Any, Optional, final
 
 import chelper
 from gcode import GCodeCommand, GCodeDispatch
-import matplotlib.pyplot as plt
 import msgproto
 import numpy as np
 import pins
 from clocksync import SecondarySync
 from configfile import ConfigWrapper
-from matplotlib.ticker import FuncFormatter
 from mcu import MCU, MCU_trsync
 from numpy.polynomial import Polynomial
 from klippy import Printer
@@ -784,11 +781,6 @@ class Scanner:
         max_acceptable_std_dev = vars["target"]
 
         verbose = vars["verbose"]
-        csv_filename = (
-            f"/tmp/scanner_touch_scan_{time.strftime('%Y%m%d_%H%M%S')}.csv"
-            if verbose == 1
-            else None
-        )
 
         # Prepare to track results
         results = []
@@ -818,14 +810,6 @@ class Scanner:
                 kin_status["axis_minimum"][2],
             )
             max_accel = self.toolhead.get_status(curtime)["max_accel"]
-
-            # CSV setup if verbose
-            if verbose == 1 and csv_filename is not None:
-                with open(csv_filename, "w", newline="") as csvfile:
-                    csvwriter = csv.writer(csvfile)
-                    csvwriter.writerow(
-                        ["Sample Number", "Position (Z)", "Time (s)", "Threshold"]
-                    )
 
             # Threshold scanning loop
             while current_threshold <= threshold_max:
@@ -978,10 +962,6 @@ class Scanner:
             gcmd.respond_info("You can now SAVE_CONFIG to save your threshold.")
 
             self.trigger_method = 0
-            if verbose == 1:
-                self.generate_graph_from_csv(
-                    csv_filename, gcmd, start_position, test_type="scan"
-                )
 
     def start_threshold_scan(self, gcmd: GCodeCommand, touch_settings, verbose):
         kinematics = self.toolhead.get_kinematics()
@@ -1117,83 +1097,6 @@ class Scanner:
             if hasattr(kinematics, "note_z_not_homed"):
                 kinematics.note_z_not_homed()
             raise
-
-    def generate_graph_from_csv(
-        self, csv_filename, gcmd: GCodeCommand, z_max, test_type="scan"
-    ):
-        try:
-            # Read the CSV file manually
-            sample_numbers = []
-            positions = []
-            times = []
-            thresholds = []
-
-            with open(csv_filename, "r") as csvfile:
-                csvreader = csv.reader(csvfile)
-                next(csvreader)  # Skip the header
-                for row in csvreader:
-                    sample_numbers.append(int(row[0]))
-                    positions.append(
-                        float(row[1])
-                    )  # These positions are already relative (negative from start)
-                    times.append(float(row[2]))
-                    thresholds.append(int(row[3]))
-
-            # Plotting using matplotlib
-            fig, ax1 = plt.subplots(figsize=(10, 6))
-
-            # Plot Position on the left y-axis (Negative values indicate movement towards the bed)
-            ax1.plot(
-                sample_numbers,
-                positions,
-                marker="o",
-                linestyle="-",
-                color="b",
-                label="Position (Z relative to start)",
-            )
-            ax1.set_xlabel("Sample Number")
-            ax1.set_ylabel("Position (Z relative to start)")
-            ax1.yaxis.set_major_formatter(FuncFormatter(lambda x, _: f"{x:.3f}"))
-
-            # Plot Time on the right y-axis
-            ax2 = ax1.twinx()
-            ax2.plot(
-                sample_numbers,
-                times,
-                marker="x",
-                linestyle="--",
-                color="r",
-                label="Time (s)",
-            )
-            ax2.set_ylabel("Time (s)")
-            ax2.yaxis.set_major_formatter(FuncFormatter(lambda x, _: f"{x:.3f}"))
-
-            # Annotate threshold values on the plot
-            for i, txt in enumerate(thresholds):
-                ax1.annotate(
-                    f"{txt}",
-                    (sample_numbers[i], positions[i]),
-                    textcoords="offset points",
-                    xytext=(0, 10),
-                    ha="center",
-                )
-
-            # Set the title based on the test type
-            if test_type == "scan":
-                ax1.set_title("Threshold Scan Results (Relative to Start Position)")
-            elif test_type == "test":
-                ax1.set_title("Threshold Test Results (Relative to Start Position)")
-            else:
-                ax1.set_title("Test Results (Relative to Start Position)")
-
-            # Save the graph as a PNG file
-            png_filename = csv_filename.replace(".csv", ".png")
-            plt.tight_layout()
-            plt.savefig(png_filename)
-
-            gcmd.respond_info(f"Graph saved as {png_filename}")
-        except Exception as e:
-            gcmd.respond_raw(f"!! An error occurred while generating the graph: {e}")
 
     def touch_probe(self, speed, skip=0, verbose=True):
         skipped_msg = ""
