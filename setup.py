@@ -367,7 +367,7 @@ def check_canbus_in_log(canbus_uuids):
 
             if debug:
                 if found:
-                    print(f"One or more canbus_uuids found in the log.")
+                    print("One or more canbus_uuids found in the log.")
                 else:
                     print("No canbus_uuids found in the log.")
 
@@ -408,39 +408,40 @@ def add_probe_config(probe_type):
         print("\n" + "=" * 60)
         print(f" Debugging Output for add_probe_config ".center(60, "="))
         print("=" * 60 + "\n")
-        print(f"Adding configuration for probe type: touch")
+        print(f"Adding configuration for probe type: {probe_type}")
 
-        print("Configuring settings for touch probe...")
+    # Define the directory and configuration file path
+    cartographer_dir = os.path.expanduser("~/printer_data/config/CARTOGRAPHER")
+    cartographer_config_path = os.path.join(cartographer_dir, "cartographer.cfg")
+    config_file_path = os.path.expanduser("~/printer_data/config/printer.cfg")
 
-    # backup_config_file()  # Backup the config file before editing
+    # Create the CARTOGRAPHER directory if it doesn't exist
+    if not os.path.exists(cartographer_dir):
+        os.makedirs(cartographer_dir)
+        debug_print(f"Created directory: {cartographer_dir}")
 
-    with open(config_file_path, "r") as config_file:
-        lines = config_file.readlines()
+    # If the cartographer.cfg file does not exist, create it
+    if not os.path.exists(cartographer_config_path):
+        with open(cartographer_config_path, "w") as f:
+            f.write("# Cartographer configuration\n")
+        debug_print(f"Created file: {cartographer_config_path}")
 
-    scanner_exists = any(line.strip().startswith("[scanner]") for line in lines)
-    cartographer_exists = any(
-        line.strip().startswith("[cartographer]") for line in lines
-    )
+    # Prepare the scanner configuration lines to be added to cartographer.cfg
+    canbus_uuid = get_canbus_uuid()
 
-    # Adding [scanner] section for touch probe type
-    if scanner_exists or cartographer_exists:
-        debug_print(f"No updates made: Configuration already exists.")
+    serial_entry = "#serial: /dev/serial/by-id/ # CHANGE ME FOR USB"
+    canbus_entry = "#canbus_uuid:  # CHANGE ME FOR CANBUS"
+
+    if canbus_uuid and not check_canbus_in_log(canbus_uuid):
+        canbus_entry = f"canbus_uuid: {canbus_uuid}"
     else:
-        canbus_uuid = get_canbus_uuid()
+        serial_id = find_cartographer_serial_id()
+        if serial_id:
+            serial_entry = f"serial: {serial_id}"
+            canbus_entry = "#canbus_uuid: # CHANGE ME FOR CANBUS"
 
-        serial_entry = "#serial: /dev/serial/by-id/ # CHANGE ME FOR USB"
-        canbus_entry = "#canbus_uuid:  # CHANGE ME FOR CANBUS"
-
-        if canbus_uuid and not check_canbus_in_log(canbus_uuid):
-            canbus_entry = f"canbus_uuid: {canbus_uuid}"
-        else:
-            serial_id = find_cartographer_serial_id()
-            if serial_id:
-                serial_entry = f"serial: {serial_id}"
-                canbus_entry = "#canbus_uuid: # CHANGE ME FOR CANBUS"
-
-        # Scanner config lines
-        config_lines = f"""
+    # Scanner config lines
+    config_lines = f"""
 [scanner]
 {serial_entry}            
 {canbus_entry}
@@ -449,80 +450,94 @@ def add_probe_config(probe_type):
 #   https://docs.cartographer3d.com/cartographer-probe/installation-and-setup/classic-installation/klipper-setup#finding-the-serial-or-uuid
 #        
 x_offset: 0              
-#    adjust for your cartographers offset from nozzle to middle of coil            
 y_offset: 15        
-#    adjust for your cartographers offset from nozzle to middle of coil 
-#    Offsets are measured from the centre of your coil, to the tip of your nozzle 
-#    on a level axis. It is vital that this is accurate.                 
 backlash_comp: 0.5
-#   Backlash compensation distance for removing Z backlash before measuring
-#   the sensor response.
 sensor: cartographer
-#    this must be set as cartographer unless using IDM etc.
 sensor_alt: carto
-#    alternate name to call commands. CARTO_TOUCH etc    
-mode: {probe_mode} 
+mode: {probe_type} 
 mesh_runs: 2
-#    Number of mesh runs to complete a BED_MESH_CALIBRATE
 
 [temperature_sensor Cartographer_MCU]
 sensor_type:   temperature_mcu
-sensor_mcu:            scanner
-min_temp:                    0
-max_temp:                  105
+sensor_mcu:    scanner
+min_temp:      0
+max_temp:      105
 """
 
-        # Bed mesh section for touch probe type
-        bed_mesh_lines = f"""
+    # Bed mesh section for touch probe type
+    bed_mesh_lines = f"""
 [bed_mesh]
 zero_reference_position: {x_mid}, {y_mid}   
-#    set this to the middle of your bed 
 speed: 200
-#    movement speed of toolhead during bed mesh
 horizontal_move_z: 5
-#    height of scanner during bed mesh scan
 mesh_min: 50, 50
-#    start point of bed mesh [X, Y].
 mesh_max: {x_mesh_max}, {y_mesh_max}
-#    end point of bed mesh [X, Y]
 probe_count: 30, 30
 algorithm: bicubic
 """
 
-        # Insert the scanner and bed mesh config lines
-        insert_index = 0
-        for i, line in enumerate(lines):
-            if line.strip().startswith("[include"):
-                insert_index = i + 1
-
-        lines.insert(insert_index, config_lines)
-        lines.insert(insert_index + 1, bed_mesh_lines)
-
-        # Adding [adxl345] and [resonance_tester] sections for touch probe type
-        adxl345_lines = f"""
+    # [adxl345] and [resonance_tester] sections
+    adxl345_lines = f"""
 [adxl345]
 cs_pin: scanner:PA3
 spi_bus: spi1
 """
 
-        resonance_tester_lines = f"""
+    resonance_tester_lines = f"""
 [resonance_tester]
 accel_chip: adxl345
 probe_points:
     {x_mid}, {y_mid}, 20
 """
 
-        # Insert the adxl345 and resonance_tester config lines
-        lines.insert(insert_index + 2, adxl345_lines)
-        lines.insert(insert_index + 3, resonance_tester_lines)
+    # Write all configurations to `cartographer.cfg`
+    with open(cartographer_config_path, "a") as config_file:
+        config_file.write(config_lines)
+        config_file.write(bed_mesh_lines)
+        config_file.write(adxl345_lines)
+        config_file.write(resonance_tester_lines)
 
-        # Write the updated lines back to the configuration file
-        with open(config_file_path, "w") as config_file:
-            config_file.writelines(lines)
+    debug_print(f"Configuration sections added to cartographer.cfg successfully.")
 
-        debug_print(f"[scanner] section added to printer.cfg successfully.")
+    # Append [include CARTOGRAPHER/*.cfg] to printer.cfg under the last [include ...]
+    with open(config_file_path, "r") as config_file:
+        lines = config_file.readlines()
+
+    last_include_index = -1
+
+    # Find the last [include ...] line in printer.cfg
+    for i, line in enumerate(lines):
+        if line.strip().startswith("[include"):
+            last_include_index = i
+
+    if last_include_index != -1:
+        # Insert the new [include CARTOGRAPHER/*] line after the last [include ...]
+        include_line = "[include CARTOGRAPHER/*.cfg]\n"
+        if include_line not in lines:
+            lines.insert(last_include_index + 1, include_line)
+
+            # Write back the updated lines to printer.cfg
+            with open(config_file_path, "w") as config_file:
+                config_file.writelines(lines)
+
+            debug_print(
+                "[include CARTOGRAPHER/*.cfg] added to printer.cfg successfully."
+            )
+        else:
+            debug_print("[include CARTOGRAPHER/*.cfg] already exists in printer.cfg.")
     else:
-        debug_print(f"No updates made: Configuration already exists.")
+        # If no [include ...] found, add it at the end of printer.cfg
+        include_line = "[include CARTOGRAPHER/*.cfg]\n"
+        if include_line not in lines:
+            lines.append(include_line)
+
+            # Write back the updated lines to printer.cfg
+            with open(config_file_path, "w") as config_file:
+                config_file.writelines(lines)
+
+            debug_print(
+                "[include CARTOGRAPHER/*.cfg] added to the end of printer.cfg successfully."
+            )
 
 
 # Function to update the [stepper_z] section
@@ -548,24 +563,24 @@ def update_stepper_z():
                 inside_stepper_z = True
                 stepper_z_found = True
                 updated_lines.append(line)  # Keep the [stepper_z] line
-                debug_print(f"Found [stepper_z] section.")  # Debugging output
+                debug_print("Found [stepper_z] section.")  # Debugging output
             elif inside_stepper_z and stripped_line == "":
                 # End of [stepper_z] section
                 inside_stepper_z = False
-                debug_print(f"Exiting [stepper_z] section.")  # Debugging output
+                debug_print("Exiting [stepper_z] section.")  # Debugging output
                 # Add new lines if they haven't been added
                 if not endstop_pin_updated:
                     updated_lines.append(
                         "endstop_pin: probe:z_virtual_endstop # uses cartographer as virtual endstop\n"
                     )
                     endstop_pin_updated = True
-                    debug_print(f"Added endstop_pin line.")  # Debugging output
+                    debug_print("Added endstop_pin line.")  # Debugging output
                 if not homing_retract_updated:
                     updated_lines.append(
                         "homing_retract_dist: 0 # cartographer needs this to be set to 0\n"
                     )
                     homing_retract_updated = True
-                    debug_print(f"Added homing_retract_dist line.")  # Debugging output
+                    debug_print("Added homing_retract_dist line.")  # Debugging output
                 updated_lines.append("")  # Blank line for separation
             else:
                 if inside_stepper_z:
@@ -575,7 +590,7 @@ def update_stepper_z():
                             "endstop_pin: probe:z_virtual_endstop # uses cartographer as virtual endstop\n"
                         )
                         endstop_pin_updated = True
-                        debug_print(f"Updated endstop_pin line.")  # Debugging output
+                        debug_print("Updated endstop_pin line.")  # Debugging output
                     elif (
                         "homing_retract_dist:" in stripped_line
                         and not homing_retract_updated
@@ -585,7 +600,7 @@ def update_stepper_z():
                         )
                         homing_retract_updated = True
                         debug_print(
-                            f"Updated homing_retract_dist line."
+                            "Updated homing_retract_dist line."
                         )  # Debugging output
                     elif stripped_line.startswith("position_endstop:"):
                         # Check if it's already commented out
@@ -593,9 +608,8 @@ def update_stepper_z():
                             updated_lines.append(
                                 "#" + stripped_line + "\n"
                             )  # Comment out the existing line
-                            position_endstop_commented = True
                             debug_print(
-                                f"Commented out position_endstop line."
+                                "Commented out position_endstop line."
                             )  # Debugging output
                         else:
                             updated_lines.append(
@@ -622,7 +636,7 @@ def update_stepper_z():
             # print("[stepper_z] section not found in this file.")
 
     if not stepper_z_found:
-        debug_print(f"[stepper_z] section not found in any configuration files.")
+        debug_print("[stepper_z] section not found in any configuration files.")
 
 
 def add_safe_z_home():
@@ -686,14 +700,14 @@ def add_safe_z_home():
                 )
             else:
                 debug_print(
-                    f"[safe_z_home] section already exists (commented or active)."
+                    "[safe_z_home] section already exists (commented or active)."
                 )
         else:
             debug_print(
-                f"[safe_z_home] section was not added because no [include] sections were found."
+                "[safe_z_home] section was not added because no [include] sections were found."
             )
     else:
-        debug_print(f"[homing_override] section exists; [safe_z_home] not added.")
+        debug_print("[homing_override] section exists; [safe_z_home] not added.")
 
 
 # Function to find lines containing UUIDs in the log file
@@ -727,7 +741,7 @@ def find_uuid_lines_in_log(canbus_uuids):
                     if uuid in line:
                         # Get the last three section headers (if available)
                         last_sections = section_headers[
-                            -3:
+                            -1:
                         ]  # Get the last three section headers
 
                         # Check if any of the last sections are "scanner" or "cartographer"
@@ -765,6 +779,25 @@ def find_uuid_lines_in_log(canbus_uuids):
         return []
 
 
+def uninstall():
+    """Uninstall by deleting the CARTOGRAPHER folder and its contents."""
+    cartographer_folder = os.path.expanduser("~/printer_data/config/CARTOGRAPHER")
+
+    print("\n" + "=" * 60)
+    print(" Uninstalling CARTOGRAPHER Folder ".center(60, "="))
+    print("=" * 60 + "\n")
+
+    try:
+        if os.path.exists(cartographer_folder):
+            shutil.rmtree(cartographer_folder)  # Delete the folder and its contents
+            print(f"Successfully deleted the '{cartographer_folder}' folder.\n")
+        else:
+            print(f"The '{cartographer_folder}' folder does not exist.\n")
+    except Exception as e:
+        print(f"An error occurred during uninstallation: {e}")
+        raise
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Install probe configuration in printer.cfg"
@@ -775,61 +808,68 @@ if __name__ == "__main__":
     parser.add_argument(
         "--mode",
         choices=["touch", "scan"],
-        required=True,
-        help="Specify the probe mode: 'touch' or 'scan'"
+        help="Specify the probe mode: 'touch' or 'scan'",
+    )
+    parser.add_argument(
+        "--u",
+        action="store_true",
+        help="Run uninstall function to remove probe configurations",
     )
     args = parser.parse_args()
     debug = args.debug
     probe_mode = args.mode
+    uninstall_mode = args.u
     try:
-        x_mid, y_mid, x_mesh_max, y_mesh_max = get_position_max()
-        included_files = process_includes(config_file_path)
-        create_backup_zip(config_file_path, included_files)
-        comment_headers_in_file(config_file_path)
-        delete_scanner_lines(config_file_path, keywords_to_delete)
-        for included_file in included_files:
-            comment_headers_in_file(included_file)
-            delete_scanner_lines(included_file, keywords_to_delete)
-        add_probe_config(args.mode)
-        update_stepper_z()
-        add_safe_z_home()
+        if uninstall_mode:
+            uninstall()
+        elif args.mode:
+            x_mid, y_mid, x_mesh_max, y_mesh_max = get_position_max()
+            included_files = process_includes(config_file_path)
+            create_backup_zip(config_file_path, included_files)
+            comment_headers_in_file(config_file_path)
+            delete_scanner_lines(config_file_path, keywords_to_delete)
+            for included_file in included_files:
+                comment_headers_in_file(included_file)
+                delete_scanner_lines(included_file, keywords_to_delete)
+            add_probe_config(args.mode)
+            update_stepper_z()
+            add_safe_z_home()
 
-        # Inform the user of the configuration changes
-        print("\n" + "=" * 60)
-        print(" Configuration Update Complete ".center(60, "="))
-        print("=" * 60 + "\n")
-        # Get the canbus UUIDs
-        canbus_uuids = get_canbus_uuid(True)
+            # Inform the user of the configuration changes
+            print("\n" + "=" * 60)
+            print(" Configuration Update Complete ".center(60, "="))
+            print("=" * 60 + "\n")
+            # Get the canbus UUIDs
+            canbus_uuids = get_canbus_uuid(True)
 
-        # Check if UUIDs were retrieved successfully
-        if canbus_uuids:
-            # Find and display the lines in the log that contain the UUIDs
-            uuid_lines = find_uuid_lines_in_log(canbus_uuids)
-            for line, sections in uuid_lines:
-                # Print the section headers followed by the colored line
-                for section in sections:
-                    print(section)
-                print(line)  # Output the line with potential green color
-                print()  # Add spacing between entries for readability
+            # Check if UUIDs were retrieved successfully
+            if canbus_uuids:
+                # Find and display the lines in the log that contain the UUIDs
+                uuid_lines = find_uuid_lines_in_log(canbus_uuids)
+                for line, sections in uuid_lines:
+                    # Print the section headers followed by the colored line
+                    for section in sections:
+                        print(section)
+                    print(line)  # Output the line with potential green color
+                    print()  # Add spacing between entries for readability
 
-        print(
-            "All previous instances of 'cartographer' or 'scanner' have been commented out or removed from your configuration files."
-        )
-        print(
-            "Your Klipper configuration in 'printer.cfg' has had the necessary settings for cartographer/scanner added and configured to your printer.\n"
-        )
-        print(
-            "⚠️  Please double-check the configuration before proceeding by following the link below.\n"
-        )
+            print(
+                "All previous instances of 'cartographer' or 'scanner' have been commented out or removed from your configuration files."
+            )
+            print(
+                "Your Klipper configuration in 'printer.cfg' has had the necessary settings for cartographer/scanner added and configured to your printer.\n"
+            )
+            print(
+                "⚠️  Please double-check the configuration before proceeding by following the link below.\n"
+            )
 
-        print("🔗 Touch Mode Setup:")
-        print("   Please visit:")
-        print(
-            "   https://docs.cartographer3d.com/cartographer-probe/installation-and-setup/klipper-configuation"
-        )
+            print("🔗 Touch Mode Setup:")
+            print("   Please visit:")
+            print(
+                "   https://docs.cartographer3d.com/cartographer-probe/installation-and-setup/installation/klipper-configuration"
+            )
 
-        print("\n" + "=" * 60)
-        print(" End of Instructions ".center(60, "="))
-        print("=" * 60 + "\n")
+        else:
+            print("Error: You must specify either --mode or --u.")
     except Exception as e:
         print(f"An error occurred: {e}")
