@@ -1,8 +1,14 @@
-from clocksync import SecondarySync
+from typing import TypedDict
+from clocksync import ClockSync, SecondarySync
+from configfile import ConfigWrapper
+
+class MCUStatus(TypedDict):
+    mcu_version: str
 
 class MCU:
-    _mcu_freq = 42
-    def __init__(self, _, sync: SecondarySync):
+    _mcu_freq: float
+    _clocksync: ClockSync
+    def __init__(self, config: ConfigWrapper, sync: SecondarySync) -> None:
         pass
     def alloc_command_queue(self):
         pass
@@ -23,6 +29,10 @@ class MCU:
     def print_time_to_clock(self, _):
         pass
     def get_printer(self):
+        pass
+    def get_status(self) -> MCUStatus:
+        pass
+    def is_fileoutput(self) -> bool:
         pass
 
 class MCU_trsync:
