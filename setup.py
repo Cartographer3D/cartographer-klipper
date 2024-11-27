@@ -11,6 +11,11 @@ from datetime import datetime
 config_file_path = os.path.expanduser("~/printer_data/config/printer.cfg")
 klippy_log_path = os.path.expanduser("~/printer_data/logs/klippy.log")
 
+cartographer_folder = os.path.expanduser("~/printer_data/config/CARTOGRAPHER")
+
+# Define the directory and configuration file path
+cartographer_config_path = os.path.join(cartographer_folder, "cartographer.cfg")
+
 # Define the headers to comment out
 headers_to_comment = [
     "scanner",
@@ -410,15 +415,10 @@ def add_probe_config(probe_type):
         print("=" * 60 + "\n")
         print(f"Adding configuration for probe type: {probe_type}")
 
-    # Define the directory and configuration file path
-    cartographer_dir = os.path.expanduser("~/printer_data/config/CARTOGRAPHER")
-    cartographer_config_path = os.path.join(cartographer_dir, "cartographer.cfg")
-    config_file_path = os.path.expanduser("~/printer_data/config/printer.cfg")
-
     # Create the CARTOGRAPHER directory if it doesn't exist
-    if not os.path.exists(cartographer_dir):
-        os.makedirs(cartographer_dir)
-        debug_print(f"Created directory: {cartographer_dir}")
+    if not os.path.exists(cartographer_folder):
+        os.makedirs(cartographer_folder)
+        debug_print(f"Created directory: {cartographer_folder}")
 
     # If the cartographer.cfg file does not exist, create it
     if not os.path.exists(cartographer_config_path):
@@ -779,9 +779,35 @@ def find_uuid_lines_in_log(canbus_uuids):
         return []
 
 
+def remove_cartographer_include(file_path):
+    """Remove [include CARTOGRAPHER/*.cfg] line from the specified file."""
+    try:
+        if not os.path.exists(file_path):
+            print(f"File '{file_path}' not found. Skipping...")
+            return
+
+        with open(file_path, "r") as file:
+            lines = file.readlines()
+
+        # Filter out lines that include CARTOGRAPHER
+        updated_lines = [
+            line for line in lines if "include CARTOGRAPHER/*.cfg" not in line
+        ]
+
+        if len(lines) != len(updated_lines):
+            with open(file_path, "w") as file:
+                file.writelines(updated_lines)
+            print(f"Removed '[include CARTOGRAPHER/*.cfg]' from '{file_path}'.")
+        else:
+            print(f"No '[include CARTOGRAPHER/*.cfg]' line found in '{file_path}'.")
+
+    except Exception as e:
+        print(f"An error occurred while modifying '{file_path}': {e}")
+        raise
+
+
 def uninstall():
     """Uninstall by deleting the CARTOGRAPHER folder and its contents."""
-    cartographer_folder = os.path.expanduser("~/printer_data/config/CARTOGRAPHER")
 
     print("\n" + "=" * 60)
     print(" Uninstalling CARTOGRAPHER Folder ".center(60, "="))
@@ -793,6 +819,12 @@ def uninstall():
             print(f"Successfully deleted the '{cartographer_folder}' folder.\n")
         else:
             print(f"The '{cartographer_folder}' folder does not exist.\n")
+
+        # Remove [include CARTOGRAPHER/*.cfg] line from printer.cfg
+        remove_cartographer_include(config_file_path)
+
+        print("\nUninstallation complete. Please verify the configuration.")
+        print("=" * 60 + "\n")
     except Exception as e:
         print(f"An error occurred during uninstallation: {e}")
         raise
