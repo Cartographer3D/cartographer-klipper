@@ -37,6 +37,9 @@ from klippy import Printer
 
 from . import bed_mesh, manual_probe, probe, thermistor
 
+DOCS_TOUCH_CALIBRATION = "https://docs.cartographer3d.com/cartographer-probe/installation-and-setup/installation/touch-based-calibration"
+DOCS_SCAN_CALIBRATION = "https://docs.cartographer3d.com/cartographer-probe/installation-and-setup/installation/scan-based-calibration"
+
 STREAM_BUFFER_LIMIT_DEFAULT = 100
 STREAM_TIMEOUT = 2.0
 
@@ -2379,9 +2382,13 @@ class ScannerModel:
     def validate(self) -> None:
         cur_fw = self.scanner.fw_version
         if cur_fw != self.fw_version:
+            url = DOCS_TOUCH_CALIBRATION
+            if self.mode == "scan":
+                url = DOCS_SCAN_CALIBRATION
             raise self.scanner.printer.command_error(
                 f"Scanner model '{self.name}' was created with firmware version '{self.fw_version}', "
-                f"current firmware version is '{cur_fw}'. Please recalibrate the model."
+                f"current firmware version is '{cur_fw}'. Please recalibrate the your threshold and model."
+                f" Click <a href='{url}'>HERE</a> for more information"
             )
 
     def freq_to_dist_raw(self, freq):
