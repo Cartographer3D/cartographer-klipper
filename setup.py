@@ -442,13 +442,15 @@ def add_probe_config(probe_type):
 
     # Scanner config lines
     config_lines = f"""
-[scanner]
+[mcu scanner]
 {serial_entry}            
 {canbus_entry}
 #
 #   Visit the link below for help finding your device ID
 #   https://docs.cartographer3d.com/cartographer-probe/installation-and-setup/classic-installation/klipper-setup#finding-the-serial-or-uuid
-#        
+#     
+[scanner]
+mcu: scanner   
 x_offset: 0              
 y_offset: 15        
 backlash_comp: 0.5
