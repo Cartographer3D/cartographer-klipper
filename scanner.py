@@ -1157,7 +1157,7 @@ class Scanner:
                 cmd = f"TEMPERATURE_WAIT SENSOR=extruder MAXIMUM={wait_temp}"
                 self.gcode.run_script_from_command(cmd)
             else:
-                if cur_temp > max_temp:
+                if cur_temp > wait_temp:
                     gcmd.respond_info(
                         "Extruder temperature %.1fC is still too high, waiting until below %.1fC"
                         % (cur_temp, wait_temp)
