@@ -1,8 +1,0 @@
-[tool.pyright]
-extends = "pyproject.toml"
-# TODO: False positive in K1 environment
-# https://github.com/DetachHead/basedpyright/issues/911
-reportAttributeAccessIssue = false
-
-[tool.ruff]
-extend = "pyproject.toml"

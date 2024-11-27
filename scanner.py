@@ -32,7 +32,6 @@ import pins
 from clocksync import SecondarySync
 from configfile import ConfigWrapper
 from mcu import MCU, MCU_trsync
-from numpy.polynomial import Polynomial
 from klippy import Printer
 
 from . import bed_mesh, manual_probe, probe, thermistor
@@ -1580,7 +1579,7 @@ class Scanner:
         freq = [s["freq"] for s in samples]
         temp = [s["temp"] for s in samples]
         inv_freq = [1 / f for f in freq]
-        poly = Polynomial.fit(inv_freq, z_offset, 9)
+        poly = np.polynomial.Polynomial.fit(inv_freq, z_offset, 9)
         temp_median = median(temp)
         self.model = ScannerModel(
             model_name,
@@ -2338,7 +2337,7 @@ class ScannerModel:
         offset = config.getfloat("model_offset", 0.0)
         mode = config.get("model_mode", "None")
         fw_version = config.get(ScannerModel._CONFIG_FW_VERSION, "UNKNOWN")
-        poly = Polynomial(coef, domain)
+        poly = np.polynomial.Polynomial(coef, domain)
         return ScannerModel(
             name, scanner, poly, temp, min_z, max_z, mode, offset, fw_version
         )
@@ -2347,7 +2346,7 @@ class ScannerModel:
         self,
         name: str,
         scanner: Scanner,
-        poly: Polynomial,
+        poly: np.polynomial.Polynomial,
         temp: float,
         min_z: float,
         max_z: float,

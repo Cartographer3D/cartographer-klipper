@@ -16,11 +16,9 @@ jobs:
           - name: Standard
             requirements: ./ci/standard-requirements.txt
             python-version: 3.9
-            pyproject: pyproject.toml
           - name: K1
             requirements: ./ci/k1-requirements.txt
             python-version: 3.8
-            pyproject: pyproject.k1.toml
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -36,5 +34,4 @@ jobs:
         continue-on-error: true # let's remove this once ruff has been implemented in scanner.py
       - name: Type check
         run: |
-          pip install basedpyright && \
-          basedpyright --project ${{ matrix.pyproject }}
+          pip install basedpyright && basedpyright
