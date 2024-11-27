@@ -2380,9 +2380,8 @@ class ScannerModel:
         cur_fw = self.scanner.fw_version
         if cur_fw != self.fw_version:
             raise self.scanner.printer.command_error(
-                "Scanner model '%s' was created with firmware version %s, "
-                "current firmware version is %s. Please recalibrate the model."
-                % (self.name, self.fw_version, cur_fw)
+                f"Scanner model '{self.name}' was created with firmware version '{self.fw_version}', "
+                f"current firmware version is '{cur_fw}'. Please recalibrate the model."
             )
 
     def freq_to_dist_raw(self, freq):
