@@ -81,6 +81,8 @@ def display_modes(args):
 
     if args.flash:
         modes.append(f"{args.flash.upper()} MODE")
+    if args.kseries:
+        modes.append("- K Series")
     if args.high_temp:
         modes.append("HIGH TEMP")
     if args.debug:
