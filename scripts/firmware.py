@@ -64,7 +64,6 @@ class Menu:
 
 class Firmware:
     def __init__(self) -> None:
-        self.color = Color()
 
     def error_msg(self, message: str) -> None:
         if message is not None and DEBUG:
