@@ -635,7 +635,7 @@ class Firmware:
             2: Menu.MenuItem("Enter UUID", self.can.enter_uuid),
             3: Menu.MenuItem("Query CAN Devices", self.can.query_can),
             4: Menu.MenuItem(
-                colored_text("Back", Color.CYAN),
+                "Back",
                 self.can_menu,
             ),
             5: Menu.MenuItem(
