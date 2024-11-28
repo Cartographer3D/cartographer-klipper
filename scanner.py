@@ -341,7 +341,7 @@ class Scanner:
         orig_params = gcmd.get_command_parameters()
         if self.calibration_method != "scan":
             cmd = self.sensor_name + "_TOUCH"
-            params = {}
+            params: dict[str, str] = {}
             if gcmd.get("METHOD", "None").lower() == "manual":
                 params["METHOD"] = "manual"
             else:

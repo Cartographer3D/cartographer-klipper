@@ -1,4 +1,5 @@
 from typing import Callable, NamedTuple, final, overload
+# Types for https://github.com/Klipper3d/klipper/blob/master/klippy/gcode.py
 
 @final
 class CommandError(Exception):
@@ -13,6 +14,8 @@ class GCodeCommand:
     def respond_raw(self, msg: str) -> None:
         pass
     def respond_info(self, msg: str, log: bool = True) -> None:
+        pass
+    def get_command_parameters(self) -> dict[str, str]:
         pass
 
     @overload
