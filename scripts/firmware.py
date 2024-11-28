@@ -68,7 +68,8 @@ class Firmware:
 
     def error_msg(self, message: str) -> None:
         if message is not None and DEBUG:
-            print(self.color.colored_text("Error:", self.color.RED), message)
+            print(self.color.colored_text("Error:", Color.RED), message)
+
         return
 
     def success_msg(self, message: str) -> None:
