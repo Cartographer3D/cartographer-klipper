@@ -22,18 +22,19 @@ import struct
 import threading
 import time
 import traceback
-from typing import final
-from configfile import ConfigWrapper
-import msgproto
+from typing import Any, Optional, final
 
 import chelper
+import msgproto
 import numpy as np
 import pins
 from clocksync import SecondarySync
+from configfile import ConfigWrapper
+from gcode import GCodeCommand, GCodeDispatch
+from klippy import Printer
 from mcu import MCU, MCU_trsync
-from numpy.polynomial import Polynomial
 
-from . import adxl345, bed_mesh, manual_probe, probe, thermistor
+from . import bed_mesh, manual_probe, probe, thermistor
 
 DOCS_TOUCH_CALIBRATION = "https://docs.cartographer3d.com/cartographer-probe/installation-and-setup/installation/touch-based-calibration"
 DOCS_SCAN_CALIBRATION = "https://docs.cartographer3d.com/cartographer-probe/installation-and-setup/installation/scan-based-calibration"
@@ -41,17 +42,6 @@ DOCS_SCAN_CALIBRATION = "https://docs.cartographer3d.com/cartographer-probe/inst
 STREAM_BUFFER_LIMIT_DEFAULT = 100
 STREAM_TIMEOUT = 2.0
 
-REG_THRESH_TOUCH = 0x1D
-REG_DUR = 0x21
-REG_INT_MAP = 0x2F
-REG_TOUCH_AXES = 0x2A
-REG_INT_ENABLE = 0x2E
-REG_INT_SOURCE = 0x30
-
-DUR_SCALE = 0.000625  # 0.625 msec / LSB
-TOUCH_SCALE = 0.0625 * adxl345.FREEFALL_ACCEL  # 62.5mg/LSB * Earth gravity in mm/s**2
-
-ADXL345_REST_TIME = 0.1
 
 THRESHOLD_MIN_LIMIT = 750
 THRESHOLD_SCALING_FACTOR = 0.25
@@ -62,19 +52,20 @@ THRESHOLD_STEP_MULTIPLIER = 10
 THRESHOLD_ACCEPTANCE_FACTOR = 0.66
 
 
+@final
 class ThresholdResults:
     def __init__(
         self,
-        max_value,
-        min_value,
-        range_value,
-        avg_value,
-        median,
-        sigma,
-        in_range,
-        early,
-        late,
-        nb_samples,
+        max_value: float,
+        min_value: float,
+        range_value: float,
+        avg_value: float,
+        median: float,
+        sigma: float,
+        in_range: int,
+        early: int,
+        late: int,
+        nb_samples: int,
     ):
         self.max_value = max_value
         self.min_value = min_value
@@ -88,12 +79,13 @@ class ThresholdResults:
         self.nb_samples = nb_samples
 
 
+@final
 class Scanner:
-    def __init__(self, config):
-        self.printer = config.get_printer()
+    def __init__(self, config: ConfigWrapper):
+        self.printer: Printer = config.get_printer()
         self.reactor = self.printer.get_reactor()
         self.name = config.get_name()
-        self.sensor = config.get("sensor", None)
+        self.sensor = config.get("sensor")
         self.sensor_alt = config.get("sensor_alt", None)
 
         if not self.sensor and not self.sensor_alt:
@@ -105,27 +97,28 @@ class Scanner:
         self.lift_speed = config.getfloat("lift_speed", self.speed, above=0.0)
         self.backlash_comp = config.getfloat("backlash_comp", 0.5)
 
-        if config.get("temp_sensor_override", None):
+        temp_sensor_override = config.get("temp_sensor_override", None)
+        if temp_sensor_override is not None:
             self.thermistor_override = config.printer.load_object(
-                config, "temperature_sensor " + config.get("temp_sensor_override")
+                config, "temperature_sensor " + temp_sensor_override
             )
         else:
             self.thermistor_override = None
 
         self.model_temp_warning_disable = config.getint("model_temp_warning_disable", 0)
-        self.probe_speed = config.getfloat("probe_speed", self.speed)
+        self.probe_speed: float = config.getfloat("probe_speed", self.speed)
 
         if config.has_section("bed_mesh"):
             mesh_config = config.getsection("bed_mesh")
-            if mesh_config.get("zero_reference_position", None) is not None:
-                if config.get("scanner_touch_location", None) is not None:
-                    manual_location = config.get("scanner_touch_location").split(",")
+            zero_reference_position = mesh_config.get("zero_reference_position", None)
+            if zero_reference_position is not None:
+                manual_location = config.get("scanner_touch_location", None)
+                if manual_location is not None:
+                    manual_location = manual_location.split(",")
                     if manual_location:
                         self.touch_location = manual_location
                 else:
-                    self.touch_location = mesh_config.get(
-                        "zero_reference_position"
-                    ).split(",")
+                    self.touch_location = zero_reference_position.split(",")
             else:
                 stepper_x = config.getsection("stepper_x")
                 use_x = stepper_x.getfloat("position_max") / 2
@@ -166,13 +159,6 @@ class Scanner:
             self.z_hop_dist = config.getfloat("z_hop_dist", 5.0, above=0.0)
             self.z_hop_speed = config.getfloat("z_hop_speed", 5.0, above=0.0)
 
-        self.int_map = 0x40
-        self.touch_thresh = config.getfloat(
-            "touch_thresh", 5000, minval=TOUCH_SCALE, maxval=100000.0
-        )
-        self.touch_dur = config.getfloat("touch_dur", 0.01, above=DUR_SCALE, maxval=0.1)
-        self.adxl345 = None
-
         self.calibration_method = config.get(
             "mode", config.get("calibration_method", "scan")
         )
@@ -197,14 +183,15 @@ class Scanner:
             ),
             "sample_count": config.getfloat("scanner_touch_sample_count", 3, minval=1),
             "tolerance": config.getfloat("scanner_touch_tolerance", 0.01, above=0.0),
-            "max_retries": config.getfloat("scanner_touch_max_retries", 10, minval=0),
+            "max_retries": config.getint("scanner_touch_max_retries", 10, minval=0),
             "move_speed": config.getfloat("scanner_touch_move_speed", 50, minval=1),
             "calibrate": config.getfloat("scanner_touch_calibrate", 0),
             "z_offset": config.getfloat("scanner_touch_z_offset", 0.05),
             "threshold": config.getint("scanner_touch_threshold", 2500),
             "max_temp": config.getfloat("scanner_touch_max_temp", 150),
+            "fuzzy_touch": config.getfloat("scanner_touch_fuzzy_touch", 0, maxval=10),
         }
-        self.gcode = self.printer.lookup_object("gcode")
+        self.gcode: GCodeDispatch = self.printer.lookup_object("gcode")
         self.probe_calibrate_z = 0.0
 
         if config.getint("detect_threshold_z", None) is not None:
@@ -274,20 +261,8 @@ class Scanner:
         self.cmd_queue = self._mcu.alloc_command_queue()
         self.mcu_probe = ScannerEndstopWrapper(self)
 
-        ppins = self.printer.lookup_object("pins")
-        probe_pin = config.get("probe_pin", "none")
-
         self.results = []
 
-        if probe_pin != "none":
-            pin_params = ppins.lookup_pin(probe_pin, can_invert=True, can_pullup=True)
-
-            adxl_mcu = pin_params["chip"]
-            self.adxl_mcu_endstop = adxl_mcu.setup_pin("endstop", pin_params)
-            self.adxl_add_stepper = self.adxl_mcu_endstop.add_stepper
-        else:
-            self.adxl_mcu_endstop = None
-            self.adxl_add_stepper = None
         # Register z_virtual_endstop
         self.printer.lookup_object("pins").register_chip("probe", self)
         # Register event handlers
@@ -327,11 +302,6 @@ class Scanner:
                     desc=self.cmd_SCANNER_CALIBRATE_help,
                 )
                 self.gcode.register_command(
-                    sensor_name + "_THRESHOLD_TEST",
-                    self.cmd_SCANNER_THRESHOLD_TEST,
-                    desc=self.cmd_SCANNER_THRESHOLD_TEST_help,
-                )
-                self.gcode.register_command(
                     sensor_name + "_THRESHOLD_SCAN",
                     self.cmd_SCANNER_THRESHOLD_SCAN,
                     desc=self.cmd_SCANNER_THRESHOLD_SCAN_help,
@@ -351,11 +321,6 @@ class Scanner:
             "PROBE_ACCURACY", self.cmd_PROBE_ACCURACY, desc=self.cmd_PROBE_ACCURACY_help
         )
         self.gcode.register_command(
-            "PROBE_CALIBRATE",
-            self.cmd_PROBE_CALIBRATE,
-            desc=self.cmd_PROBE_CALIBRATE_help,
-        )
-        self.gcode.register_command(
             "PROBE_SWITCH", self.cmd_PROBE_SWITCH, desc=self.cmd_PROBE_SWITCH_help
         )
         self.gcode.register_command(
@@ -371,21 +336,25 @@ class Scanner:
 
     cmd_SCANNER_CALIBRATE_help = "Calibrate scanner response curve"
 
-    def cmd_SCANNER_CALIBRATE(self, gcmd):
+    def cmd_SCANNER_CALIBRATE(self, gcmd: GCodeCommand):
+        orig_params = gcmd.get_command_parameters()
         if self.calibration_method != "scan":
             cmd = self.sensor_name + "_TOUCH"
-            params = {}
+            params: dict[str, str] = {}
             if gcmd.get("METHOD", "None").lower() == "manual":
                 params["METHOD"] = "manual"
             else:
                 params["CALIBRATE"] = "1"
+
+            params.update(orig_params)
+
             cmd = self.gcode.create_gcode_command(cmd, cmd, params)
             self.cmd_SCANNER_TOUCH(cmd)
         else:
             self.calibration_method = "scan"
             self._start_calibration(gcmd)
 
-    def _get_common_variables(self, gcmd):
+    def _get_common_variables(self, gcmd: GCodeCommand):
         return {
             "speed": gcmd.get_float(
                 "SPEED",
@@ -410,7 +379,9 @@ class Scanner:
             ),
             "tolerance": round(
                 gcmd.get_float(
-                    "TOLERANCE", self.scanner_touch_config["tolerance"], above=0.0
+                    "TOLERANCE",
+                    float(self.scanner_touch_config["tolerance"]),
+                    above=0.0,
                 ),
                 4,
             ),
@@ -426,13 +397,15 @@ class Scanner:
             "touch_location_y": gcmd.get_float(
                 "TOUCH_LOCATION_Y", float(self.touch_location[1])
             ),
-            "randomize": gcmd.get_float("MOVE", 0, maxval=10),
+            "randomize": gcmd.get_float(
+                "FUZZZY_TOUCH", self.scanner_touch_config["fuzzy_touch"], maxval=10
+            ),
             "verbose": gcmd.get_int("DEBUG", 0),
         }
 
     cmd_SCANNER_TOUCH_help = "Home in TOUCH mode"
 
-    def cmd_SCANNER_TOUCH(self, gcmd):
+    def cmd_SCANNER_TOUCH(self, gcmd: GCodeCommand):
         # Retrieve common variables
         vars = self._get_common_variables(gcmd)
 
@@ -463,14 +436,9 @@ class Scanner:
             f"MOVE: {vars['randomize']}",
         )
 
-        # Switch between Touch and ADXL probing
+        # Switch between Touch and Scan Probing
         if self.calibration_method == "touch":
             self.trigger_method = 1
-        elif self.calibration_method == "adxl":
-            self.trigger_method = 2
-            if self.adxl345 is None:
-                self.adxl345 = self.printer.lookup_object("adxl345")
-            self.init_adxl()
         else:
             self.trigger_method = 0
             self.calibration_method = "scan"
@@ -519,12 +487,14 @@ class Scanner:
                 gcmd,
                 f"new Initial Pos [Initial Z - Z Max]: {initial_position} \nnew Homing Pos [Homing Pos - Z Min]: {homing_position}",
             )
-            samples = []
 
             max_accel = self.toolhead.get_status(curtime)["max_accel"]
             self.log_debug_info(
                 vars["verbose"], gcmd, f"Current Accel: {int(max_accel)}"
             )
+
+            if calibrate == 1:
+                manual_z_offset = 0
 
             touch_settings = TouchSettings(
                 initial_position,
@@ -543,12 +513,8 @@ class Scanner:
                 vars["randomize"],
             )
 
-            if calibrate == 1:
-                manual_z_offset = 0
-
             result = self.start_touch(gcmd, touch_settings, vars["verbose"])
 
-            samples = result["samples"]
             standard_deviation = result["standard_deviation"]
             final_position = result["final_position"]
             retries = result["retries"]
@@ -571,6 +537,7 @@ class Scanner:
                     self._calibrate(
                         gcmd, final_position, final_position[2], True, True, False
                     )
+
             else:
                 self.trigger_method = 0
                 gcmd.respond_info("Touch procedure failed.")
@@ -579,7 +546,7 @@ class Scanner:
             self.extruder_target = 0
 
     # Event handlers
-    def start_touch(self, gcmd, touch_settings, verbose):
+    def start_touch(self, gcmd: GCodeCommand, touch_settings, verbose):
         kinematics = self.toolhead.get_kinematics()
         initial_position = touch_settings.initial_position
         homing_position = touch_settings.homing_position
@@ -728,7 +695,7 @@ class Scanner:
 
     cmd_SCANNER_THRESHOLD_SCAN_help = "Scan THRESHOLD in TOUCH mode"
 
-    def cmd_SCANNER_THRESHOLD_SCAN(self, gcmd):
+    def cmd_SCANNER_THRESHOLD_SCAN(self, gcmd: GCodeCommand):
         """Initiate threshold scanning to find the optimal threshold for accurate touch detection."""
 
         # Ensure trigger_method is set for touch calibration
@@ -802,7 +769,6 @@ class Scanner:
         # Set initial scan values
         self.previous_probe_success = 0
         current_threshold = threshold_min
-        retries, attempts = 0, 0
 
         start_position = kin_status["axis_maximum"][2]
         try:
@@ -966,7 +932,7 @@ class Scanner:
 
             self.trigger_method = 0
 
-    def start_threshold_scan(self, gcmd, touch_settings, verbose):
+    def start_threshold_scan(self, gcmd: GCodeCommand, touch_settings, verbose):
         kinematics = self.toolhead.get_kinematics()
         initial_position = touch_settings.initial_position
         homing_position = touch_settings.homing_position
@@ -1139,12 +1105,12 @@ class Scanner:
         count = float(len(positions))
         return [sum([pos[i] for pos in positions]) / count for i in range(3)]
 
-    def log_debug_info(self, verbose, gcmd, *args):
+    def log_debug_info(self, verbose, gcmd: GCodeCommand, *args):
         if verbose:
             for message in args:
                 gcmd.respond_info(str(message))
 
-    def check_temp(self, gcmd):
+    def check_temp(self, gcmd: GCodeCommand):
         hotend = self.toolhead.get_extruder()
         if hotend is not None:
             curtime = self.printer.get_reactor().monotonic()
@@ -1162,7 +1128,7 @@ class Scanner:
                 cmd = f"TEMPERATURE_WAIT SENSOR=extruder MAXIMUM={wait_temp}"
                 self.gcode.run_script_from_command(cmd)
             else:
-                if cur_temp > max_temp:
+                if cur_temp > wait_temp:
                     gcmd.respond_info(
                         "Extruder temperature %.1fC is still too high, waiting until below %.1fC"
                         % (cur_temp, wait_temp)
@@ -1170,7 +1136,7 @@ class Scanner:
                     cmd = f"TEMPERATURE_WAIT SENSOR=extruder MAXIMUM={wait_temp}"
                     self.gcode.run_script_from_command(cmd)
 
-    def set_temp(self, gcmd):
+    def set_temp(self, gcmd: GCodeCommand):
         hotend = self.toolhead.get_extruder()
         if hotend is not None:
             curtime = self.printer.get_reactor().monotonic()
@@ -1183,121 +1149,6 @@ class Scanner:
                     self.extruder_target
                 )
                 self.gcode.run_script_from_command(cmd)
-
-    def run_touch_probe(self, gcmd):
-        speed = gcmd.get_float("PROBE_SPEED", self.probe_speed, above=0.0)
-
-        lift_speed = self.get_lift_speed(gcmd)
-        sample_count = self.get_samples(gcmd)
-        sample_retract_dist = self.get_sample_retract_dist(gcmd)
-        samples_tolerance = self.get_samples_tolerance(gcmd)
-        samples_retries = self.get_samples_tolerance_retries(gcmd)
-        samples_result = self.get_samples_result(gcmd)
-        pos = self.toolhead.get_position()
-        gcmd.respond_info(
-            "PROBE at X:%.3f Y:%.3f Z:%.3f"
-            " (samples=%d sample_retract_dist=%.3f"
-            " speed=%.1f lift_speed=%.1f"
-            " samples_tolerance=%.5f samples_retries=%d"
-            " samples_result=%s"
-            ")\n"
-            % (
-                pos[0],
-                pos[1],
-                pos[2],
-                sample_count,
-                sample_retract_dist,
-                speed,
-                lift_speed,
-                samples_tolerance,
-                samples_retries,
-                samples_result,
-            )
-        )
-
-        probexy = self.printer.lookup_object("toolhead").get_position()[:2]
-        retries = 0
-        positions = []
-        while len(positions) < sample_count:
-            # Probe position
-            pos = self.touch_probe(speed)
-            positions.append(pos)
-            # Check samples tolerance
-            z_positions = [p[2] for p in positions]
-            if max(z_positions) - min(z_positions) > samples_tolerance:
-                if retries >= samples_retries:
-                    self._zhop()
-                    self.trigger_method = 0
-                    raise gcmd.error("Probe samples exceed samples_tolerance")
-                gcmd.respond_info("Probe samples exceed tolerance. Retrying...")
-                retries += 1
-                positions = []
-            # Retract
-            if len(positions) < sample_count:
-                self._move(probexy + [pos[2] + sample_retract_dist], lift_speed)
-        # Calculate and return result
-        if samples_result == "median":
-            return self._calc_median(positions)
-        return self._calc_mean(positions)
-
-    def probe_calibrate_finalize(self, kin_pos):
-        if kin_pos is None or self.model is None:
-            return
-        z_offset = kin_pos[2] - self.probe_calibrate_z
-        self.model.offset = self.model.offset + z_offset
-        pos = self.toolhead.get_position()
-        pos[2] = pos[2] - z_offset
-        self.toolhead.set_position(pos)
-        configfile = self.printer.lookup_object("configfile")
-        configfile.set(
-            "scanner model " + self.model.name,
-            "model_offset",
-            "%.3f" % (self.model.offset),
-        )
-
-    cmd_PROBE_CALIBRATE_help = "Calibrate the probe's z_offset"
-
-    def cmd_PROBE_CALIBRATE(self, gcmd):
-        if gcmd.get("METHOD", "MANUAL").lower() == "auto":
-            touch_location_x = gcmd.get_float(
-                "TOUCH_LOCATION_X", float(self.touch_location[0])
-            )
-            touch_location_y = gcmd.get_float(
-                "TOUCH_LOCATION_Y", float(self.touch_location[1])
-            )
-            if self.calibration_method == "touch":
-                self.trigger_method = 1
-            elif self.calibration_method == "adxl":
-                self.trigger_method = 2
-                self.adxl345 = self.printer.lookup_object("adxl345")
-                self.init_adxl()
-            else:
-                return
-            # self.gcode.run_script_from_command("G28 Z")
-            self._move([touch_location_x, touch_location_y, None], 40)
-            curpos = self.run_touch_probe(gcmd)
-            gcode_move = self.printer.lookup_object("gcode_move")
-            self.check_temp(gcmd)
-            offset = gcode_move.get_status()["homing_origin"].z
-            self.probe_calibrate_z = offset - curpos[2]
-            self.probe_calibrate_finalize([0, 0, self.offset["z"]])
-            self.trigger_method = 0
-            self._zhop()
-            return
-        self.trigger_method = 0
-        manual_probe.verify_no_manual_probe(self.printer)
-        lift_speed = self.get_lift_speed(gcmd)
-        # Perform initial probe
-        curpos = self.run_probe(gcmd)
-        self.probe_calibrate_z = curpos[2] - self.trigger_distance
-        # Move the nozzle over the probe point
-        curpos[0] += self.offset["x"]
-        curpos[1] += self.offset["y"]
-        self._move(curpos, self.speed)
-        # Start manual probe
-        manual_probe.ManualProbeHelper(
-            self.printer, gcmd, self.probe_calibrate_finalize
-        )
 
     def set_accel(self, value):
         self.gcode.run_script_from_command("SET_VELOCITY_LIMIT ACCEL=%.3f" % (value,))
@@ -1428,31 +1279,31 @@ class Scanner:
     def get_offsets(self):
         return self.offset["x"], self.offset["y"], self.trigger_distance
 
-    def get_lift_speed(self, gcmd=None):
+    def get_lift_speed(self, gcmd: Optional[GCodeCommand] = None):
         if gcmd is not None:
             return gcmd.get_float("LIFT_SPEED", self.lift_speed, above=0.0)
         return self.lift_speed
 
-    def get_samples(self, gcmd=None):
+    def get_samples(self, gcmd: Optional[GCodeCommand] = None):
         if gcmd is not None:
             return gcmd.get_int("SAMPLES", self.samples_config["samples"], minval=1)
         return self.samples_config["samples"]
 
-    def get_sample_retract_dist(self, gcmd=None):
+    def get_sample_retract_dist(self, gcmd: Optional[GCodeCommand] = None):
         if gcmd is not None:
             return gcmd.get_float(
                 "SAMPLE_RETRACT_DIST", self.samples_config["retract_dist"], above=0.0
             )
         return self.samples_config["retract_dist"]
 
-    def get_samples_tolerance(self, gcmd=None):
+    def get_samples_tolerance(self, gcmd: Optional[GCodeCommand] = None):
         if gcmd is not None:
             return gcmd.get_float(
                 "SAMPLES_TOLERANCE", self.samples_config["tolerance"], minval=0.0
             )
         return self.samples_config["retract_dist"]
 
-    def get_samples_tolerance_retries(self, gcmd=None):
+    def get_samples_tolerance_retries(self, gcmd: Optional[GCodeCommand] = None):
         if gcmd is not None:
             return gcmd.get_int(
                 "SAMPLES_TOLERANCE_RETRIES",
@@ -1461,19 +1312,18 @@ class Scanner:
             )
         return self.samples_config["tolerance_retries"]
 
-    def get_samples_result(self, gcmd=None):
+    def get_samples_result(self, gcmd: Optional[GCodeCommand] = None):
         if gcmd is not None:
             return gcmd.get("SAMPLES_RESULT", self.samples_config["result"])
         return self.samples_config["result"]
 
-    def run_probe(self, gcmd):
+    def run_probe(self, gcmd: GCodeCommand):
         if self.model is None:
             raise self.printer.command_error("No Scanner model loaded")
 
         speed = gcmd.get_float("PROBE_SPEED", self.speed, above=0.0)
         skip_samples = gcmd.get_int("SKIP", 0)
         allow_faulty = gcmd.get_int("ALLOW_FAULTY_COORDINATE", 0) != 0
-        lift_speed = self.get_lift_speed(gcmd)
         toolhead = self.printer.lookup_object("toolhead")
         curtime = self.reactor.monotonic()
         if "z" not in toolhead.get_status(curtime)["homed_axes"]:
@@ -1552,7 +1402,7 @@ class Scanner:
         return [pos[0], pos[1], pos[2] + target - dist]
 
     # Calibration routines
-    def _start_calibration(self, gcmd):
+    def _start_calibration(self, gcmd: GCodeCommand):
         nozzle_z = gcmd.get_float("NOZZLE_Z", self.cal_config["nozzle_z"])
         touch_location_x = gcmd.get_float(
             "TOUCH_LOCATION_X", float(self.touch_location[0])
@@ -1562,11 +1412,6 @@ class Scanner:
         )
         if self.calibration_method == "touch":
             self.trigger_method = 1
-        elif self.calibration_method == "adxl":
-            self.trigger_method = 2
-            if self.adxl345 is None:
-                self.adxl345 = self.printer.lookup_object("adxl345")
-            self.init_adxl()
         allow_faulty = gcmd.get_int("ALLOW_FAULTY_COORDINATE", 0) != 0
         if (
             self.trigger_method != 0
@@ -1615,7 +1460,6 @@ class Scanner:
                 gcmd, kin_pos, nozzle_z, forced_z=False, touch=False, manual_mode=False
             )
         else:
-            speed = gcmd.get_float("SPEED", float(self.speed), 50)
             curtime = self.printer.get_reactor().monotonic()
             kin_status = self.toolhead.get_kinematics().get_status(curtime)
             if "xy" not in kin_status["homed_axes"]:
@@ -1644,14 +1488,17 @@ class Scanner:
                 forced_z = True
             self._move([touch_location_x, touch_location_y, None], 40)
             self.toolhead.wait_moves()
-            cb = lambda kin_pos: self._calibrate(
-                gcmd,
-                kin_pos,
-                cal_nozzle_z=None,
-                forced_z=forced_z,
-                touch=False,
-                manual_mode=True,
-            )
+
+            def cb(kin_pos):
+                return self._calibrate(
+                    gcmd,
+                    kin_pos,
+                    cal_nozzle_z=None,
+                    forced_z=forced_z,
+                    touch=False,
+                    manual_mode=True,
+                )
+
             manual_probe.ManualProbeHelper(self.printer, gcmd, cb)
 
     def _calibrate(
@@ -1718,7 +1565,8 @@ class Scanner:
                 toolhead.manual_move(curpos, cal_speed)
                 toolhead.dwell(0.250)
                 self._sample_printtime_sync(50)
-        except:
+        except Exception as e:
+            print(f"Error encounted while calibrating: {e}")
             self.trigger_method = 0
             self._zhop()
         finally:
@@ -1731,7 +1579,7 @@ class Scanner:
         freq = [s["freq"] for s in samples]
         temp = [s["temp"] for s in samples]
         inv_freq = [1 / f for f in freq]
-        poly = Polynomial.fit(inv_freq, z_offset, 9)
+        poly = np.polynomial.Polynomial.fit(inv_freq, z_offset, 9)
         temp_median = median(temp)
         self.model = ScannerModel(
             model_name,
@@ -1771,6 +1619,8 @@ class Scanner:
 
     def _update_thresholds(self, moving_up=False):
         self.trigger_freq = self.dist_to_freq(self.trigger_distance, self.last_temp)
+        if self.trigger_freq is None:
+            return
         self.untrigger_freq = self.trigger_freq * (1 - self.trigger_hysteresis)
 
     def _apply_threshold(self, moving_up=False):
@@ -2064,22 +1914,10 @@ class Scanner:
     def _handle_req_dump(self, web_request):
         self._api_dump_helper.add_client(web_request)
 
-    def init_adxl(self):
-        chip = self.adxl345
-        if chip is None:
-            # TODO: Show the error
-            return
-        chip.set_reg(adxl345.REG_POWER_CTL, 0x00)
-        chip.set_reg(adxl345.REG_DATA_FORMAT, 0x0B)
-        chip.set_reg(REG_INT_MAP, self.int_map)
-        chip.set_reg(REG_TOUCH_AXES, 0x7)
-        chip.set_reg(REG_THRESH_TOUCH, int(self.touch_thresh / TOUCH_SCALE))
-        chip.set_reg(REG_DUR, int(self.touch_dur / DUR_SCALE))
-
     # GCode command handlers
     cmd_PROBE_SWITCH_help = "swith between scan and touch"
 
-    def cmd_PROBE_SWITCH(self, gcmd):
+    def cmd_PROBE_SWITCH(self, gcmd: GCodeCommand):
         method = gcmd.get("MODE", "NONE").lower()
         if method == "scan":
             self.calibration_method = "scan"
@@ -2106,7 +1944,7 @@ class Scanner:
 
     cmd_PROBE_help = "Probe Z-height at current XY position"
 
-    def cmd_PROBE(self, gcmd):
+    def cmd_PROBE(self, gcmd: GCodeCommand):
         pos = self.run_probe(gcmd)
         gcmd.respond_info("Result is z=%.6f" % (pos[2],))
 
@@ -2115,164 +1953,9 @@ class Scanner:
         configfile.set("scanner", "scanner_touch_threshold", "%d" % int(threshold))
         configfile.set("scanner", "scanner_touch_speed", "%d" % int(speed))
 
-    cmd_SCANNER_THRESHOLD_TEST_help = (
-        "Home using touch and check with coil to see how consistent it is"
-    )
-
-    def cmd_SCANNER_THRESHOLD_TEST(self, gcmd):
-        threshold = gcmd.get_int("THRESHOLD", self.detect_threshold_z)
-        sample_count = gcmd.get_int("SAMPLES", 5, minval=1)
-        skip_samples = gcmd.get_int("SKIP", 1)
-        lift_speed = self.get_lift_speed(gcmd)
-        touch_location_x = gcmd.get_float(
-            "TOUCH_LOCATION_X", float(self.touch_location[0])
-        )
-        touch_location_y = gcmd.get_float(
-            "TOUCH_LOCATION_Y", float(self.touch_location[1])
-        )
-        accel = gcmd.get_float("ACCEL", self.scanner_touch_config["accel"], minval=1)
-        curtime = self.printer.get_reactor().monotonic()
-        max_accel = self.toolhead.get_status(curtime)["max_accel"]
-        self._move([touch_location_x, touch_location_y, None], 40)
-        gcmd.respond_info(
-            "Threshold Testing"
-            " (samples=%d threshold=%d skip=%d)\n"
-            % (sample_count, threshold, skip_samples)
-        )
-
-        original_trigger_method = self.trigger_method
-        original_threshold = self.detect_threshold_z
-        self.toolhead.wait_moves()
-        self.check_temp(gcmd)
-        try:
-            self.set_accel(accel)
-            self.trigger_method = 1
-            self.detect_threshold_z = threshold
-            result = self._probe_accuracy_check(
-                self.scanner_touch_config["speed"],
-                skip_samples,
-                sample_count,
-                5,
-                False,
-                lift_speed,
-            )
-
-            gcmd.respond_info(
-                "scanner threshold results: threshold quality: %r,  maximum %.6f, minimum %.6f, range %.6f, "
-                "average %.6f, median %.6f, standard deviation %.6f, %d/%d within 0.1 range, %d early, %d late, %d skipped"
-                % (
-                    # self._get_threshold_quality(result.range_value),
-                    "Unknown",
-                    result.max_value,
-                    result.min_value,
-                    result.range_value,
-                    result.avg_value,
-                    result.median,
-                    result.sigma,
-                    result.in_range,
-                    sample_count,
-                    result.early,
-                    result.late,
-                    skip_samples,
-                )
-            )
-        finally:
-            self._zhop()
-            self.detect_threshold_z = original_threshold
-            self.trigger_method = original_trigger_method
-            self.set_accel(max_accel)
-
-    def _test_threshold(self, threshold, sample_count):
-        toolhead = self.printer.lookup_object("toolhead")
-        curtime = self.printer.get_reactor().monotonic()
-        if "z" not in toolhead.get_status(curtime)["homed_axes"]:
-            raise self.printer.command_error("Must home before probe")
-
-        original_trigger_method = self.trigger_method
-        original_threshold = self.detect_threshold_z
-
-        try:
-            self.detect_threshold_z = threshold
-
-            positions = []
-            while len(positions) < sample_count:
-                # Change method to touch
-                self.trigger_method = 1
-                # home
-                self.gcode.run_script_from_command("G28 Z")
-                # Change method to scan
-                # Move to Z = 2 to get some solid data
-                self.toolhead.manual_move([None, None, 2], 1500)
-                self.toolhead.wait_moves()
-                self.trigger_method = 0
-                # probe to get position
-                (dist, samples) = self._sample(self.z_settling_time, 10)
-                # Reset the trigger method
-                positions.append(dist)
-                self.toolhead.manual_move([None, None, 10], 1500)
-                self.toolhead.wait_moves()
-
-            zs = positions
-            max_value = max(zs)
-            min_value = min(zs)
-            range_value = max_value - min_value
-            avg_value = sum(zs) / len(positions)
-            median_ = median(zs)
-            in_range = 0
-            early = 0
-            late = 0
-
-            for sampl in zs:
-                if abs(median_ - sampl) < 0.05:
-                    in_range += 1
-                elif sampl > median_:
-                    early += 1
-                else:
-                    late += 1
-
-            deviation_sum = 0
-            for i in range(len(zs)):
-                deviation_sum += pow(zs[i] - avg_value, 2.0)
-            sigma = (deviation_sum / len(zs)) ** 0.5
-
-            return ThresholdResults(
-                max_value,
-                min_value,
-                range_value,
-                avg_value,
-                median_,
-                sigma,
-                in_range,
-                early,
-                late,
-                len(zs),
-            )
-        except:
-            self.trigger_method = 0
-            self.gcode.run_script_from_command("G28")
-            return ThresholdResults(
-                float("inf"),
-                float("inf"),
-                float("inf"),
-                float("inf"),
-                float("inf"),
-                float("inf"),
-                0,
-                0,
-                0,
-                0,
-            )
-        finally:
-            # Change method to scan
-            self.trigger_method = 0
-            self.gcode.run_script_from_command("G28 Z")
-
-            self.detect_threshold_z = original_threshold
-            self.trigger_method = original_trigger_method
-
     cmd_SCANNER_ESTIMATE_BACKLASH_help = "Estimate Z axis backlash"
 
-    def cmd_SCANNER_ESTIMATE_BACKLASH(self, gcmd):
+    def cmd_SCANNER_ESTIMATE_BACKLASH(self, gcmd: GCodeCommand):
         # Get to correct Z height
         overrun = gcmd.get_float("OVERRUN", 1.0)
         speed = gcmd.get_float("PROBE_SPEED", self.speed, above=0.0)
@@ -2327,7 +2010,7 @@ class Scanner:
 
     cmd_SCANNER_QUERY_help = "Take a sample from the sensor"
 
-    def cmd_SCANNER_QUERY(self, gcmd):
+    def cmd_SCANNER_QUERY(self, gcmd: GCodeCommand):
         sample = self._sample_async()
         last_value = sample["freq"]
         dist = sample["dist"]
@@ -2353,7 +2036,7 @@ class Scanner:
 
     cmd_SCANNER_STREAM_help = "Enable Scanner Streaming"
 
-    def cmd_SCANNER_STREAM(self, gcmd):
+    def cmd_SCANNER_STREAM(self, gcmd: GCodeCommand):
         if self._log_stream is not None:
             self._log_stream.stop()
             self._log_stream = None
@@ -2391,7 +2074,7 @@ class Scanner:
 
     cmd_PROBE_ACCURACY_help = "Probe Z-height accuracy at current XY position"
 
-    def cmd_PROBE_ACCURACY(self, gcmd):
+    def cmd_PROBE_ACCURACY(self, gcmd: GCodeCommand):
         speed = gcmd.get_float("PROBE_SPEED", self.probe_speed, above=0.0)
         lift_speed = self.get_lift_speed(gcmd)
         sample_count = gcmd.get_int("SAMPLES", 10, minval=1)
@@ -2453,10 +2136,10 @@ class Scanner:
         start_height = self.trigger_distance + sample_retract_dist
         liftpos = [None, None, start_height]
         cur_range_value = 0
+        positions: list[list[float]] = []
         if self.trigger_method == 0:
             self.toolhead.manual_move(liftpos, lift_speed)
             self.multi_probe_begin()
-            positions = []
             while (len(positions) < sample_count) and (cur_range_value < abort_range):
                 if len(positions) < skip_samples:
                     pos = self._probe(
@@ -2472,7 +2155,6 @@ class Scanner:
                 cur_range_value = max(cur_zs) - min(cur_zs) if cur_zs else 0
             self.multi_probe_end()
         else:
-            positions = []
             while (len(positions) < sample_count) and (cur_range_value < abort_range):
                 try:
                     if len(positions) < skip_samples:
@@ -2497,12 +2179,12 @@ class Scanner:
         zs = [p[2] for p in positions[skip_samples:]]
         if not zs:
             return ThresholdResults(
-                float("inf"),
-                float("-inf"),
-                float("inf"),
-                float("inf"),
-                float("inf"),
-                float("inf"),
+                math.inf,
+                -math.inf,
+                math.inf,
+                math.inf,
+                math.inf,
+                math.inf,
                 0,
                 0,
                 0,
@@ -2529,8 +2211,8 @@ class Scanner:
 
         deviation_sum = 0
         for i in range(len(zs)):
-            deviation_sum += pow(zs[i] - avg_value, 2.0)
-        sigma = (deviation_sum / len(zs)) ** 0.5
+            deviation_sum += pow(zs[i] - avg_value, 2)
+        sigma = math.sqrt(deviation_sum / len(zs))
 
         return ThresholdResults(
             max_value,
@@ -2547,7 +2229,7 @@ class Scanner:
 
     cmd_Z_OFFSET_APPLY_PROBE_help = "Adjust the probe's z_offset"
 
-    def cmd_Z_OFFSET_APPLY_PROBE(self, gcmd):
+    def cmd_Z_OFFSET_APPLY_PROBE(self, gcmd: GCodeCommand):
         gcode_move = self.printer.lookup_object("gcode_move")
         offset = gcode_move.get_status()["homing_origin"].z
         if offset == 0:
@@ -2591,7 +2273,6 @@ class Scanner:
                     "printer config file and restart the printer."
                 )
         else:
-            old_offset = self.model.offset
             self.model.offset += offset
             self.model.save(False)
             gcmd.respond_info(
@@ -2602,7 +2283,7 @@ class Scanner:
 
     cmd_SAVE_TOUCH_OFFSET_help = "Save offset to z_offset for TOUCH method"
 
-    def cmd_SAVE_TOUCH_OFFSET(self, gcmd):
+    def cmd_SAVE_TOUCH_OFFSET(self, gcmd: GCodeCommand):
         gcode_move = self.printer.lookup_object("gcode_move")
         offset = gcode_move.get_status()["homing_origin"].z
         configfile = self.printer.lookup_object("configfile")
@@ -2656,7 +2337,7 @@ class ScannerModel:
         offset = config.getfloat("model_offset", 0.0)
         mode = config.get("model_mode", "None")
         fw_version = config.get(ScannerModel._CONFIG_FW_VERSION, "UNKNOWN")
-        poly = Polynomial(coef, domain)
+        poly = np.polynomial.Polynomial(coef, domain)
         return ScannerModel(
             name, scanner, poly, temp, min_z, max_z, mode, offset, fw_version
         )
@@ -2665,7 +2346,7 @@ class ScannerModel:
         self,
         name: str,
         scanner: Scanner,
-        poly: Polynomial,
+        poly: np.polynomial.Polynomial,
         temp: float,
         min_z: float,
         max_z: float,
@@ -2860,7 +2541,7 @@ class ScannerTempModel:
 class ModelManager:
     def __init__(self, scanner):
         self.scanner = scanner
-        self.gcode = scanner.printer.lookup_object("gcode")
+        self.gcode: GCodeDispatch = scanner.printer.lookup_object("gcode")
 
         for sensor in [scanner.sensor, scanner.sensor_alt]:
             if sensor:  # Ensure the sensor is not None
@@ -2888,7 +2569,7 @@ class ModelManager:
 
     cmd_SCANNER_MODEL_SELECT_help = "Load named scanner model"
 
-    def cmd_SCANNER_MODEL_SELECT(self, gcmd):
+    def cmd_SCANNER_MODEL_SELECT(self, gcmd: GCodeCommand):
         name = gcmd.get("NAME")
         model = self.scanner.models.get(name, None)
         if model is None:
@@ -2898,7 +2579,7 @@ class ModelManager:
 
     cmd_SCANNER_MODEL_SAVE_help = "Save current scanner model"
 
-    def cmd_SCANNER_MODEL_SAVE(self, gcmd):
+    def cmd_SCANNER_MODEL_SAVE(self, gcmd: GCodeCommand):
         model = self.scanner.model
         if model is None:
             raise gcmd.error(
@@ -2915,7 +2596,7 @@ class ModelManager:
 
     cmd_SCANNER_MODEL_REMOVE_help = "Remove saved scanner model"
 
-    def cmd_SCANNER_MODEL_REMOVE(self, gcmd):
+    def cmd_SCANNER_MODEL_REMOVE(self, gcmd: GCodeCommand):
         name = gcmd.get("NAME")
         model = self.scanner.models.get(name, None)
         if model is None:
@@ -2934,7 +2615,7 @@ class ModelManager:
 
     cmd_SCANNER_MODEL_LIST_help = "Remove saved scanner model"
 
-    def cmd_SCANNER_MODEL_LIST(self, gcmd):
+    def cmd_SCANNER_MODEL_LIST(self, gcmd: GCodeCommand):
         if not self.scanner.models:
             gcmd.respond_info("No Scanner models loaded")
             return
@@ -3078,10 +2759,10 @@ class ScannerWrapper:
     def get_offsets(self):
         return self.scanner.get_offsets()
 
-    def get_lift_speed(self, gcmd=None):
+    def get_lift_speed(self, gcmd: Optional[GCodeCommand] = None):
         return self.scanner.get_lift_speed(gcmd)
 
-    def run_probe(self, gcmd):
+    def run_probe(self, gcmd: GCodeCommand):
         return self.scanner.run_probe(gcmd)
 
     def probe_prepare(self, hmove):
@@ -3090,13 +2771,13 @@ class ScannerWrapper:
     def probe_finish(self, hmove):
         return self.scanner.probe_finish(hmove)
 
-    def get_probe_params(self, gcmd=None):
+    def get_probe_params(self, gcmd: Optional[GCodeCommand] = None):
         return {
             "probe_speed": self.scanner.probe_speed,
             "lift_speed": self.scanner.lift_speed,
         }
 
-    def start_probe_session(self, gcmd):
+    def start_probe_session(self, gcmd: GCodeCommand):
         self.multi_probe_begin()
         self.scanner.results = []
         return self
@@ -3160,8 +2841,6 @@ class ScannerEndstopWrapper:
         for stepper in kin.get_steppers():
             if stepper.is_active_axis("z"):
                 self.add_stepper(stepper)
-                if self.scanner.adxl_add_stepper is not None:
-                    self.scanner.adxl_add_stepper(stepper)
 
     def _handle_home_rails_begin(self, homing_state, rails):
         self.is_homing = False
@@ -3232,12 +2911,6 @@ class ScannerEndstopWrapper:
     def home_start(
         self, print_time, sample_time, sample_count, rest_time, triggered=True
     ):
-        if self.scanner.trigger_method == 2:
-            self.is_homing = True
-            return self.scanner.adxl_mcu_endstop.home_start(  # pyright: ignore[reportOptionalMemberAccess]
-                print_time, sample_time, sample_count, rest_time, triggered
-            )
-
         if self.scanner.model is not None:
             self.scanner.model.validate()
         if self.scanner.model is None and self.scanner.trigger_method == 0:
@@ -3282,8 +2955,6 @@ class ScannerEndstopWrapper:
         return self._trigger_completion
 
     def home_wait(self, home_end_time):
-        if self.scanner.trigger_method == 2:
-            return self.scanner.adxl_mcu_endstop.home_wait(home_end_time)  # pyright: ignore[reportOptionalMemberAccess]
         etrsync = self._trsyncs[0]
         etrsync.set_home_end_time(home_end_time)
         if self._mcu.is_fileoutput():
@@ -3303,48 +2974,6 @@ class ScannerEndstopWrapper:
             return home_end_time
         return home_end_time
 
-    def _try_clear_touch(self):
-        chip = self.scanner.adxl345
-        tries = 8
-        while tries > 0:
-            val = chip.read_reg(REG_INT_SOURCE)  # pyright: ignore[reportOptionalMemberAccess]
-            if not (val & 0x40):
-                return True
-            tries -= 1
-        return False
-
-    def probe_prepare(self, hmove):
-        chip = self.scanner.adxl345
-        toolhead = self.scanner.printer.lookup_object("toolhead")
-        toolhead.flush_step_generation()
-        toolhead.dwell(ADXL345_REST_TIME)
-        print_time = toolhead.get_last_move_time()
-        clock = self.scanner.adxl345.mcu.print_time_to_clock(print_time)  # pyright: ignore[reportOptionalMemberAccess]
-        chip.set_reg(REG_INT_ENABLE, 0x00, minclock=clock)  # pyright: ignore[reportOptionalMemberAccess]
-        chip.read_reg(REG_INT_SOURCE)  # pyright: ignore[reportOptionalMemberAccess]
-        chip.set_reg(REG_INT_ENABLE, 0x40, minclock=clock)  # pyright: ignore[reportOptionalMemberAccess]
-        self.is_measuring = chip.read_reg(adxl345.REG_POWER_CTL) == 0x08  # pyright: ignore[reportOptionalMemberAccess]
-        if not self.is_measuring:
-            chip.set_reg(adxl345.REG_POWER_CTL, 0x08, minclock=clock)  # pyright: ignore[reportOptionalMemberAccess]
-        if not self._try_clear_touch():
-            raise self.scanner.printer.command_error(
-                "ADXL345 touch triggered before move, it may be set too sensitive."
-            )
-
-    def probe_finish(self, hmove):
-        chip = self.scanner.adxl345
-        toolhead = self.scanner.printer.lookup_object("toolhead")
-        toolhead.dwell(ADXL345_REST_TIME)
-        print_time = toolhead.get_last_move_time()
-        clock = chip.mcu.print_time_to_clock(print_time)  # pyright: ignore[reportOptionalMemberAccess]
-        chip.set_reg(REG_INT_ENABLE, 0x00, minclock=clock)  # pyright: ignore[reportOptionalMemberAccess]
-        if not self.is_measuring:
-            chip.set_reg(adxl345.REG_POWER_CTL, 0x00)  # pyright: ignore[reportOptionalMemberAccess]
-        if not self._try_clear_touch():
-            raise self.scanner.printer.command_error(
-                "ADXL345 touch triggered after move, it may be set too sensitive."
-            )
-
     def query_endstop(self, print_time):
         if self.scanner.model is None:
             return 1
@@ -3359,6 +2988,7 @@ class ScannerEndstopWrapper:
         return self.scanner.trigger_distance
 
 
+@final
 class ScannerMeshHelper:
     @classmethod
     def create(cls, scanner, config):
@@ -3370,7 +3000,12 @@ class ScannerMeshHelper:
         else:
             return None
 
-    def __init__(self, scanner, config, mesh_config):
+    def __init__(
+        self,
+        scanner: Scanner,
+        config: ConfigWrapper,
+        mesh_config: ConfigWrapper,
+    ):
         self.scanner = scanner
         self.scipy = None
         self.mesh_config = mesh_config
@@ -3433,7 +3068,7 @@ class ScannerMeshHelper:
             "klippy:connect", self._handle_connect
         )
 
-        self.gcode = self.scanner.printer.lookup_object("gcode")
+        self.gcode: GCodeDispatch = self.scanner.printer.lookup_object("gcode")
         self.prev_gcmd = self.gcode.register_command("BED_MESH_CALIBRATE", None)
         self.gcode.register_command(
             "BED_MESH_CALIBRATE",
@@ -3449,7 +3084,7 @@ class ScannerMeshHelper:
 
     cmd_BED_MESH_CALIBRATE_help = "Perform Mesh Bed Leveling"
 
-    def cmd_BED_MESH_CALIBRATE(self, gcmd):
+    def cmd_BED_MESH_CALIBRATE(self, gcmd: GCodeCommand):
         method = gcmd.get("METHOD", "scanner").lower()
         if method == "scanner":
             self.calibrate(gcmd)
@@ -3457,7 +3092,10 @@ class ScannerMeshHelper:
             self.prev_gcmd(gcmd)
 
     def _handle_connect(self):
-        self.exclude_object = self.scanner.printer.lookup_object("exclude_object", None)
+        # TODO: Proper type for exclude_object
+        self.exclude_object: Any | None = self.scanner.printer.lookup_object(
+            "exclude_object", None
+        )
 
     def _handle_mcu_identify(self):
         # Auto determine a safe overscan amount
@@ -3564,7 +3202,7 @@ class ScannerMeshHelper:
 
         return points
 
-    def calibrate(self, gcmd):
+    def calibrate(self, gcmd: GCodeCommand):
         self.min_x, self.min_y = coord_fallback(
             gcmd,
             "MESH_MIN",
@@ -3663,7 +3301,7 @@ class ScannerMeshHelper:
         matrix = self._process_clusters(clusters, gcmd)
         self._apply_mesh(matrix, gcmd)
 
-    def _shrink_to_excluded_objects(self, gcmd, margin):
+    def _shrink_to_excluded_objects(self, gcmd: GCodeCommand, margin):
         bound_min_x, bound_max_x = None, None
         bound_min_y, bound_max_y = None, None
         if self.exclude_object is None:
@@ -3740,7 +3378,7 @@ class ScannerMeshHelper:
                 return True
         return False
 
-    def _sample_mesh(self, gcmd, path, speed, runs):
+    def _sample_mesh(self, gcmd: GCodeCommand, path, speed, runs):
         cs = gcmd.get_float("CLUSTER_SIZE", self.cluster_size, minval=0.0)
         zcs = self.zero_ref_pos_cluster_size
         if not (self.zero_ref_mode and self.zero_ref_mode[0] == "pos"):
@@ -3785,8 +3423,8 @@ class ScannerMeshHelper:
             # are close enough and if so, add to the bin.
             if zcs > 0:
                 # TODO: These can be None?
-                dx = x - self.zero_ref_mode[1][0]  # pyright: ignore[reportOptionalSubscript]
-                dy = y - self.zero_ref_mode[1][1]  # pyright: ignore[reportOptionalSubscript]
+                dx = x - self.zero_ref_mode[1][0]  # pyright: ignore[reportOptionalSubscript,reportIndexIssue]
+                dy = y - self.zero_ref_mode[1][1]  # pyright: ignore[reportOptionalSubscript,reportIndexIssue]
                 dist = math.sqrt(dx * dx + dy * dy)
                 if dist <= zcs:
                     self.zero_ref_bin.append(d)
@@ -3811,7 +3449,7 @@ class ScannerMeshHelper:
 
         return clusters
 
-    def _process_clusters(self, raw_clusters, gcmd):
+    def _process_clusters(self, raw_clusters, gcmd: GCodeCommand):
         parent_conn, child_conn = multiprocessing.Pipe()
         dump_file = gcmd.get("FILENAME", None)
 
@@ -3964,14 +3602,18 @@ class ScannerMeshHelper:
                 rri_x = rri % self.res_x
                 rri_y = int(math.floor(rri / self.res_x))
                 z_offset = matrix[rri_y][rri_x]
-        elif self.zero_ref_mode and self.zero_ref_mode[0] == "pos":
+        elif (
+            self.zero_ref_mode
+            and self.zero_ref_mode[0] == "pos"
+            and self.zero_ref_val is not None
+        ):
             z_offset = self.scanner.trigger_distance - self.zero_ref_val
 
         if z_offset is not None:
             matrix = matrix - z_offset
         return matrix.tolist()
 
-    def _apply_mesh(self, matrix, gcmd):
+    def _apply_mesh(self, matrix, gcmd: GCodeCommand):
         params = self.bm.bmc.mesh_config
         params["min_x"] = self.min_x
         params["max_x"] = self.max_x
@@ -4040,7 +3682,9 @@ def convert_float(data):
     return toFloat
 
 
-def coord_fallback(gcmd, name, parse, def_x, def_y, map=lambda v, d: v):
+def coord_fallback(
+    gcmd: GCodeCommand, name: str, parse, def_x, def_y, map=lambda v, d: v
+):
     param = gcmd.get(name, None)
     if param is not None:
         try:
@@ -4068,7 +3712,7 @@ def opt_max(a, b):
     return max(a, b)
 
 
-def load_config(config):
+def load_config(config: ConfigWrapper):
     scanner = Scanner(config)
 
     config.get_printer().add_object("probe", ScannerWrapper(scanner))

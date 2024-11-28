@@ -50,7 +50,7 @@ class MCU_trsync:
         pass
     def add_stepper(self, stepper):
         pass
-    def get_steppers(self) -> list:
+    def get_steppers(self):
         pass
     def start(self, print_time, report_offset, trigger_completion, expire_timeout):
         pass
