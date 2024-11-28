@@ -162,6 +162,8 @@ class Scanner:
         self.calibration_method = config.get(
             "mode", config.get("calibration_method", "scan")
         )
+        config.deprecate("calibration_method")
+
         self.trigger_method = 0
 
         self.trigger_distance = config.getfloat("trigger_distance", 2.0)
@@ -2335,7 +2337,7 @@ class ScannerModel:
         domain = config.getfloatlist("model_domain", count=2)
         [min_z, max_z] = config.getfloatlist("model_range", count=2)
         offset = config.getfloat("model_offset", 0.0)
-        mode = config.get("model_mode", "None")
+        mode = config.get("model_mode", "unknown")
         fw_version = config.get(ScannerModel._CONFIG_FW_VERSION, "UNKNOWN")
         poly = np.polynomial.Polynomial(coef, domain)
         return ScannerModel(
@@ -2383,15 +2385,22 @@ class ScannerModel:
             )
 
     def validate(self) -> None:
+        url = DOCS_TOUCH_CALIBRATION
+        if self.scanner.calibration_method == "scan":
+            url = DOCS_SCAN_CALIBRATION
         cur_fw = self.scanner.fw_version
         if cur_fw != self.fw_version:
-            url = DOCS_TOUCH_CALIBRATION
-            if self.mode == "scan":
-                url = DOCS_SCAN_CALIBRATION
             raise self.scanner.printer.command_error(
-                f"Scanner model '{self.name}' was created with firmware version '{self.fw_version}', "
-                f"current firmware version is '{cur_fw}'. Please recalibrate the your threshold and model."
-                f" Click <a href='{url}'>HERE</a> for more information"
+                f"Scanner model '{self.name}' was created with firmware version '{self.fw_version}',"
+                + f"current firmware version is '{cur_fw}'."
+                + " Please recalibrate your threshold and model."
+                + f" Click <a href='{url}'>HERE</a> for more information"
+            )
+        if self.mode != self.scanner.calibration_method:
+            raise self.scanner.printer.command_error(
+                f"Scanner model '{self.name}' was created for '{self.mode}'."
+                + f" Please create a new model for use with '{self.scanner.calibration_method}'."
+                + f" Click <a href='{url}'>HERE</a> for more information"
             )
 
     def freq_to_dist_raw(self, freq):
