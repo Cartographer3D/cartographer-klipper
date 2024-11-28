@@ -6,6 +6,7 @@ import shutil
 import tempfile
 import fnmatch
 
+from packaging.version import Version
 from enum import StrEnum  # type: ignore
 from typing import Callable
 from typing import Optional
@@ -91,6 +92,8 @@ def display_modes(args):
         modes.append(f"BRANCH: {args.branch.upper()}")
     if args.type:
         modes.append("FLASH KATAPULT")
+    if args.latest:
+        modes.append("FLASH LATEST")
 
     # Combine modes into a single string
     combined_modes = " | ".join(modes)
@@ -559,6 +562,7 @@ class Firmware:
         flash: Optional[str] = None,
         kseries: bool = False,
         latest: bool = False,
+        device: Optional[str] = None,
     ):
         self.selected_device = None  # Initialize the selected UUID
         self.selected_firmware = None
@@ -571,9 +575,28 @@ class Firmware:
         self.flash: Optional[str] = flash
         self.kseries: bool = kseries
         self.latest: bool = latest
+        self.device: Optional[str] = device
         self.can = CAN(
             self, debug=self.debug, ftype=self.ftype
         )  # Pass Firmware instance to CAN
+
+    def handle_initialization(self):
+        # Handle specific device UUID
+        print("wtg")
+        if self.device:
+            if self.can.validate_uuid(self.device):
+                self.set_uuid(self.device)
+                self.flash = "CAN"
+                args.flash = "CAN"
+                # Handle --latest argument
+                if self.latest:
+                    self.firmware_menu(
+                        type=self.flash or "CAN"
+                    )  # Default to "CAN" if no flash type
+            self.can_menu()
+
+        # Fall back to the main menu
+        self.main_menu()
 
     def set_uuid(self, uuid: str) -> None:
         self.selected_device = uuid
@@ -706,19 +729,18 @@ class Firmware:
 
         # Determine search pattern based on bitrate or switch
         exclude_pattern = None
+        firmware_files = []  # Initialize firmware_files to avoid reference errors
         if type == "CAN" and bitrate:
             search_pattern = f"*{bitrate}*"
         elif type == "CAN":
             search_pattern = "*"  # Include all files
-            exclude_pattern = (
-                "*usb*|*K1*"  # Exclude USB-related files and files with "K1"
-            )
+            exclude_pattern = ["*usb*", "*K1*"]  # List for multiple exclusion patterns
         elif type == "USB":
             if getattr(self, "kseries", False):  # Check if kseries is True
                 search_pattern = "*K1*usb*"  # Include files with both "usb" and "K1"
             else:
                 search_pattern = "*usb*"  # Include only USB-related files
-                exclude_pattern = "*K1*"  # Exclude files with "K1"
+                exclude_pattern = ["*K1*"]  # Exclude files with "K1"
         else:
             search_pattern = "*"  # Include all files
 
@@ -743,38 +765,86 @@ class Firmware:
             if not self.ftype and type == "CAN":
                 self.dir_path = os.path.join(self.dir_path, "survey")
 
-            # Find firmware files based on the search pattern
-            firmware_files = self.find_firmware_files(
-                self.dir_path, search_pattern, exclude_pattern, self.high_temp
-            )
-            if firmware_files:
-                # Define menu items for firmware files
-                menu_items = {}
-                for index, (subdirectory, file) in enumerate(firmware_files, start=1):
-                    menu_items[index] = Menu.MenuItem(
-                        f"{subdirectory}/{file}",
-                        lambda file=file,
-                        subdirectory=subdirectory: self.select_firmware(
-                            os.path.join(subdirectory, file)
-                        ),
-                    )
-
-                # Add static options after firmware options
-                menu_items[len(menu_items) + 1] = Menu.MenuItem(
-                    "Check Again", lambda: self.firmware_menu(type)
+            # If latest is true, automatically select the highest version firmware
+            if self.latest:
+                # Find firmware files if not in --latest mode
+                firmware_files = self.find_firmware_files(
+                    self.dir_path, search_pattern, exclude_pattern, self.high_temp
                 )
-                menu_items[len(menu_items) + 1] = Menu.MenuItem("Back", self.can_menu)
-                menu_items[len(menu_items) + 1] = Menu.MenuItem(
-                    colored_text("Back to main menu", Color.CYAN), self.main_menu
-                )
-                # Add the Exit option explicitly
-                menu_items[0] = Menu.MenuItem("Exit", lambda: exit())
 
-                # Create and display the menu
-                menu = Menu("Select Firmware", menu_items)
-                menu.display()
+                if firmware_files:
+                    # Find the subdirectory with the highest version
+                    subdirectories = set(
+                        file[0] for file in firmware_files
+                    )  # Extract subdirectory names
+                    if subdirectories:
+                        latest_subdirectory = max(
+                            subdirectories,
+                            key=lambda d: Version(
+                                os.path.basename(d)
+                            ),  # Sort by semantic version
+                        )
+
+                        latest_firmware_files = [
+                            (subdirectory, file)
+                            for subdirectory, file in firmware_files
+                            if subdirectory == latest_subdirectory
+                        ]
+
+                        # Select the first firmware file from the latest subdirectory
+                        if latest_firmware_files:
+                            subdirectory, file = latest_firmware_files[
+                                0
+                            ]  # Get the first firmware file
+                            firmware_path = os.path.join(
+                                subdirectory, file
+                            )  # Construct the full path
+
+                            # Call select_firmware with the correct path
+                            self.select_firmware(firmware_path)
+                        self.main_menu()
+                    else:
+                        print("No valid subdirectories found.")
+                else:
+                    print("No firmware files found.")
             else:
-                print("No firmware files found.")
+                # Find firmware files if not in --latest mode
+                firmware_files = self.find_firmware_files(
+                    self.dir_path, search_pattern, exclude_pattern, self.high_temp
+                )
+
+                if firmware_files:
+                    # Define menu items for firmware files
+                    menu_items = {}
+                    for index, (subdirectory, file) in enumerate(
+                        firmware_files, start=1
+                    ):
+                        menu_items[index] = Menu.MenuItem(
+                            f"{subdirectory}/{file}",
+                            lambda file=file,
+                            subdirectory=subdirectory: self.select_firmware(
+                                os.path.join(subdirectory, file)
+                            ),
+                        )
+
+                    # Add static options after firmware options
+                    menu_items[len(menu_items) + 1] = Menu.MenuItem(
+                        "Check Again", lambda: self.firmware_menu(type)
+                    )
+                    menu_items[len(menu_items) + 1] = Menu.MenuItem(
+                        "Back", self.can_menu
+                    )
+                    menu_items[len(menu_items) + 1] = Menu.MenuItem(
+                        colored_text("Back to main menu", Color.CYAN), self.main_menu
+                    )
+                    # Add the Exit option explicitly
+                    menu_items[0] = Menu.MenuItem("Exit", lambda: exit())
+
+                    # Create and display the menu
+                    menu = Menu("Select Firmware", menu_items)
+                    menu.display()
+                else:
+                    print("No firmware files found.")
 
     # Confirm the user wants to flash the correct device & file
     def confirm(self, type):
@@ -967,6 +1037,15 @@ if __name__ == "__main__":
         action="store_true",
     )
 
+    # Add the -d argument
+    parser.add_argument(
+        "-D",
+        "--device",
+        help="Specify a device",
+        required=False,
+        default=None,  # Default value if -d is not provided
+    )
+
     parser.add_argument(
         "-f",
         "--flash",
@@ -994,12 +1073,14 @@ if __name__ == "__main__":
         flash=args.flash,
         kseries=args.kseries,
         latest=args.latest,
+        device=args.device,
     )
-    if args.flash == "CAN":
-        fw.can_menu()
-    elif args.flash == "USB":
-        fw.usb_menu()
-    elif args.flash == "DFU":
-        fw.dfu_menu()
+    if not args.latest:
+        if args.flash == "CAN":
+            fw.can_menu()
+        elif args.flash == "USB":
+            fw.usb_menu()
+        elif args.flash == "DFU":
+            fw.dfu_menu()
     else:
-        fw.main_menu()
+        fw.handle_initialization()
