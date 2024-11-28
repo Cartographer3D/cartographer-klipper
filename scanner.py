@@ -25,14 +25,14 @@ import traceback
 from typing import Any, Optional, final
 
 import chelper
-from gcode import GCodeCommand, GCodeDispatch
 import msgproto
 import numpy as np
 import pins
 from clocksync import SecondarySync
 from configfile import ConfigWrapper
-from mcu import MCU, MCU_trsync
+from gcode import GCodeCommand, GCodeDispatch
 from klippy import Printer
+from mcu import MCU, MCU_trsync
 
 from . import bed_mesh, manual_probe, probe, thermistor
 
