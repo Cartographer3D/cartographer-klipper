@@ -8,17 +8,30 @@ permissions:
 
 jobs:
   checks:
+    name: ${{ matrix.name }} Checks
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Standard
+            requirements: ./ci/standard-requirements.txt
+            python-version: 3.9
+          - name: K1
+            requirements: ./ci/k1-requirements.txt
+            python-version: 3.8
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Set Up Python
         uses: actions/setup-python@v5
         with:
-          python-version: 3.12
+          python-version: ${{ matrix.python-version }}
           cache: "pip"
-      - run: pip install -r requirements.txt
+      - run: pip install cython wheel
+      - run: pip install -r ${{ matrix.requirements }}
       - name: Linting
         uses: astral-sh/ruff-action@v1
         continue-on-error: true # let's remove this once ruff has been implemented in scanner.py
       - name: Type check
-        run: pip install basedpyright && basedpyright
+        run: |
+          pip install basedpyright && basedpyright
