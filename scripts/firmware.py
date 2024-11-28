@@ -553,23 +553,27 @@ class Firmware:
         branch: str = "master",
         debug: bool = False,
         ftype: bool = False,
-        high_temp=False,
+        high_temp: bool = False,
         flash: Optional[str] = None,
+        kseries: bool = False,
+        latest: bool = False,
     ):
         self.selected_device = None  # Initialize the selected UUID
         self.selected_firmware = None
         self.dir_path = None
         self.unzip = None
-        self.debug = debug
-        self.branch = branch
-        self.ftype = ftype
-        self.high_temp = high_temp
+        self.debug: bool = debug
+        self.branch: str = branch
+        self.ftype: bool = ftype
+        self.high_temp: bool = high_temp
         self.flash: Optional[str] = flash
+        self.kseries: bool = kseries
+        self.latest: bool = latest
         self.can = CAN(
             self, debug=self.debug, ftype=self.ftype
         )  # Pass Firmware instance to CAN
 
-    def set_uuid(self, uuid: str):
+    def set_uuid(self, uuid: str) -> None:
         self.selected_device = uuid
 
     def get_uuid(self) -> Optional[str]:
@@ -704,9 +708,15 @@ class Firmware:
             search_pattern = f"*{bitrate}*"
         elif type == "CAN":
             search_pattern = "*"  # Include all files
-            exclude_pattern = "*usb*"  # Exclude USB-related files
+            exclude_pattern = (
+                "*usb*|*K1*"  # Exclude USB-related files and files with "K1"
+            )
         elif type == "USB":
-            search_pattern = "*usb*"  # Include only USB-related files
+            if getattr(self, "kseries", False):  # Check if kseries is True
+                search_pattern = "*K1*usb*"  # Include files with both "usb" and "K1"
+            else:
+                search_pattern = "*usb*"  # Include only USB-related files
+                exclude_pattern = "*K1*"  # Exclude files with "K1"
         else:
             search_pattern = "*"  # Include all files
 
@@ -940,6 +950,21 @@ if __name__ == "__main__":
         help="Search for high-temperature firmware (HT folders)",
         action="store_true",
     )
+
+    parser.add_argument(
+        "-l",
+        "--latest",
+        help="skip searching for firmware and flash latest",
+        action="store_true",
+    )
+
+    parser.add_argument(
+        "-k",
+        "--k-series",
+        help="enable firmware for creality k-series printers",
+        action="store_true",
+    )
+
     parser.add_argument(
         "-f",
         "--flash",
@@ -961,6 +986,8 @@ if __name__ == "__main__":
         ftype=args.type,
         high_temp=args.high_temp,
         flash=args.flash,
+        kseries=args.k_series,
+        latest=args.latest,
     )
     if args.flash == "CAN":
         fw.can_menu()
