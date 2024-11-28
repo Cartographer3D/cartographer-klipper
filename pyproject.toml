@@ -10,4 +10,4 @@ failOnWarnings = false
 
 [tool.ruff]
 target-version = "py38"
-include = ["scanner.py","scripts/**.py"]
+include = ["scanner.py", "scripts/**.py"]
