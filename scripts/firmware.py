@@ -1,5 +1,7 @@
 from enum import StrEnum  # type: ignore
+from typing import Callable
 import os
+
 
 CONFIG_DIR: str = os.path.expanduser("~/printer_data/config")
 KLIPPER_DIR: str = os.path.expanduser("~/klipper")
@@ -42,24 +44,14 @@ class Color(StrEnum):
     MAGENTA = "\033[95m"
     CYAN = "\033[96m"
 
-    def __str__(self) -> str:
-        return super().__str__()
-
 
 class Menu:
     class MenuItem:
-        def __init__(self, description: str, action: callable):
-            """
-            Initialize a menu item with a description and action.
-
-            Args:
-                description (str): The description of the menu item.
-                action (callable): The function to execute for this menu item.
-            """
+        def __init__(self, description: str, action: Callable[[], None]):
             self.description = description
             self.action = action
 
-    def __init__(self, title: str, menu_items: dict[int, MenuItem]):
+    def __init__(self, title: str, menu_items: "dict[int, MenuItem]"):
         self.title = title
         self.menu_items = menu_items
 
