@@ -82,7 +82,7 @@ def display_modes(args):
     if args.flash:
         modes.append(f"{args.flash.upper()} MODE")
     if args.kseries:
-        modes.append("- K Series")
+        modes.append("K Series")
     if args.high_temp:
         modes.append("HIGH TEMP")
     if args.debug:
@@ -962,7 +962,7 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "-k",
-        "--k-series",
+        "--kseries",
         help="enable firmware for creality k-series printers",
         action="store_true",
     )
@@ -980,6 +980,10 @@ if __name__ == "__main__":
     # Parse the arguments
     args = parser.parse_args()
 
+    # Post-processing arguments
+    if args.kseries:
+        args.flash = "USB"  # Override the flash type to USB
+
     # Assign the argument to a variable
     branch = args.branch
     fw = Firmware(
@@ -988,7 +992,7 @@ if __name__ == "__main__":
         ftype=args.type,
         high_temp=args.high_temp,
         flash=args.flash,
-        kseries=args.k_series,
+        kseries=args.kseries,
         latest=args.latest,
     )
     if args.flash == "CAN":
