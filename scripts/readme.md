@@ -29,7 +29,7 @@ Run the script with various command-line arguments to perform tasks.
 
 | Argument        | Description                                                                     | Example Usage                       |
 |-----------------|---------------------------------------------------------------------------------|-------------------------------------|
-| `-b`, `--branch` | Specify the branch to retrieve firmware from (default: `main`).                | `python3 firmware.py -b dev`       |
+| `-b`, `--branch` | Specify the branch to retrieve firmware from (default: `master`).                | `python3 firmware.py -b dev`       |
 | `-d`, `--debug`  | Enable debug mode for detailed output.                                         | `python3 firmware.py -d`           |
 | `-t`, `--type`   | Enable Katapult flash mode.                                                    | `python3 firmware.py -t`           |
 | `-H`, `--high-temp` | Search for high-temperature firmware (`HT` directories).                   | `python3 firmware.py -H`           |
