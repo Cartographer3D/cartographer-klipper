@@ -1528,7 +1528,6 @@ class Scanner:
         model_name = gcmd.get("MODEL_NAME", "default")
 
         toolhead = self.toolhead
-        curtime = self.reactor.monotonic()
         toolhead.wait_moves()
 
         if manual_mode:
@@ -1560,7 +1559,7 @@ class Scanner:
         try:
             self._start_streaming()
             self._sample_printtime_sync(50)
-            with self.streaming_session(cb) as ss:
+            with self.streaming_session(cb):
                 self._sample_printtime_sync(50)
                 toolhead.dwell(0.250)
                 curpos[2] = cal_min_z
@@ -2508,7 +2507,7 @@ class ScannerTempModel:
         return a * x + b
 
     def compensate(self, freq, temp_source, temp_target, tctl=None):
-        if self.a_a == None or self.a_b == None or self.b_a == None or self.b_b == None:
+        if self.a_a is None or self.a_b is None or self.b_a is None or self.b_b is None:
             return freq
         A = (
             4 * (temp_source * self.a_a) ** 2
@@ -2649,7 +2648,7 @@ class AlphaBetaFilter:
         self.tl = None
 
     def update(self, time, measurement):
-        if self.xl == None:
+        if self.xl is None:
             self.xl = measurement
         if self.tl is not None:
             dt = time - self.tl
@@ -2986,7 +2985,6 @@ class ScannerEndstopWrapper:
     def query_endstop(self, print_time):
         if self.scanner.model is None:
             return 1
-        clock = self._mcu.print_time_to_clock(print_time)
         sample = self.scanner._sample_async()
         if self.scanner.trigger_freq <= sample["freq"]:
             return 1
@@ -3334,8 +3332,6 @@ class ScannerMeshHelper:
         # Calculate original step size and apply the new bounds
         orig_span_x = self.max_x - self.min_x
         orig_span_y = self.max_y - self.min_y
-        orig_step_x = orig_span_x / (self.res_x - 1)
-        orig_step_y = orig_span_y / (self.res_y - 1)
 
         if bound_min_x >= self.min_x:
             self.min_x = bound_min_x
@@ -3444,7 +3440,7 @@ class ScannerMeshHelper:
                 clusters[k] = []
             clusters[k].append(d)
 
-        with self.scanner.streaming_session(cb) as ss:
+        with self.scanner.streaming_session(cb):
             self._fly_path(path, speed, runs)
 
         gcmd.respond_info(
@@ -3467,9 +3463,10 @@ class ScannerMeshHelper:
                 child_conn.send(
                     (False, self._do_process_clusters(raw_clusters, dump_file))
                 )
-            except:
+            except Exception:
                 child_conn.send((True, traceback.format_exc()))
-            child_conn.close()
+            finally:
+                child_conn.close()
 
         child = multiprocessing.Process(target=do)
         child.daemon = True
@@ -3495,7 +3492,6 @@ class ScannerMeshHelper:
             with open(dump_file, "w") as f:
                 f.write("x,y,xp,xy,dist\n")
                 for yi in range(self.res_y):
-                    line = []
                     for xi in range(self.res_x):
                         cluster = raw_clusters.get((xi, yi), [])
                         xp = xi * self.step_x + self.min_x
@@ -3699,7 +3695,7 @@ def coord_fallback(
         try:
             x, y = [parse(p.strip()) for p in param.split(",", 1)]
             return map(x, def_x), map(y, def_y)
-        except:
+        except ValueError:
             raise gcmd.error("Unable to parse parameter '%s'" % (name,))
     else:
         return def_x, def_y
