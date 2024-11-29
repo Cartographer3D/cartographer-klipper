@@ -5,6 +5,7 @@ import gcode
 from configfile import ConfigWrapper, PrinterConfig, sentinel
 from mcu import MCU
 from reactor import Reactor
+from toolhead import ToolHead
 
 from scanner import Scanner
 
@@ -41,6 +42,9 @@ class Printer:
         pass
     @overload
     def lookup_object(self, name: Literal["scanner"]) -> Scanner:
+        pass
+    @overload
+    def lookup_object(self, name: Literal["toolhead"]) -> ToolHead:
         pass
     @overload
     def lookup_object(self, name: str, default: T | type[sentinel] = sentinel) -> T:
