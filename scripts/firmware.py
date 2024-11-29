@@ -1014,30 +1014,30 @@ class Firmware:
         header()
 
 
+# Define a custom namespace class
+class FirmwareNamespace(argparse.Namespace):
+    branch: str = "main"
+    debug: bool = False
+    type: bool = False
+    high_temp: bool = False
+    latest: bool = False
+    kseries: bool = False
+    device: str = None
+    flash: str = None
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Firmware flashing script with -b to select branch"
     )
-
-    # Add the -b argument
     parser.add_argument(
-        "-b",
-        "--branch",
-        help="Specify the branch name",
-        required=False,
-        default="main",  # Default value if -b is not provided
+        "-b", "--branch", help="Specify the branch name", default="main"
     )
     parser.add_argument(
-        "-d",
-        "--debug",
-        help="Enable debug output",
-        action="store_true",
+        "-d", "--debug", help="Enable debug output", action="store_true"
     )
     parser.add_argument(
-        "-t",
-        "--type",
-        help="Enable katapult flash",
-        action="store_true",
+        "-t", "--type", help="Enable katapult flash", action="store_true"
     )
     parser.add_argument(
         "-H",
@@ -1045,43 +1045,28 @@ if __name__ == "__main__":
         help="Search for high-temperature firmware (HT folders)",
         action="store_true",
     )
-
     parser.add_argument(
         "-l",
         "--latest",
-        help="skip searching for firmware and flash latest",
+        help="Skip searching for firmware and flash latest",
         action="store_true",
     )
-
     parser.add_argument(
         "-k",
         "--kseries",
-        help="enable firmware for creality k-series printers",
+        help="Enable firmware for Creality K-Series printers",
         action="store_true",
     )
-
-    # Add the -d argument
-    parser.add_argument(
-        "-D",
-        "--device",
-        help="Specify a device",
-        required=False,
-        default=None,  # Default value if -d is not provided
-    )
-
+    parser.add_argument("-D", "--device", help="Specify a device", default=None)
     parser.add_argument(
         "-f",
         "--flash",
-        help="Specify the flashing mode (CAN, USB or DFU)",
-        required=False,
-        default=None,  # Default value if -f is not provided
-        choices=["CAN", "USB", "DFU"],  # Restrict to these options
-        type=lambda s: s.upper(),  # Convert input to uppercase
+        help="Specify the flashing mode (CAN, USB, or DFU)",
+        choices=["CAN", "USB", "DFU"],
+        type=lambda s: s.upper(),
     )
 
-    # Parse the arguments
-    args = parser.parse_args()
-
+    args = parser.parse_args(namespace=FirmwareNamespace())
     # Post-processing arguments
     if args.kseries:
         args.flash = "USB"  # Override the flash type to USB
