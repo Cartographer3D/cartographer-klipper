@@ -86,19 +86,17 @@ def colored_text(text: str, color: Color) -> str:
 
 
 def error_msg(message: str) -> None:
-    if message is not None:
+    if not message:
         print(colored_text("Error:", Color.RED), message)
-    return
 
 
 def success_msg(message: str) -> None:
-    if message is not None:
+    if not message:
         print(colored_text("Success:", Color.GREEN), message)
-    return
 
 
 def page(title: str) -> None:
-    if title is not None:
+    if not title:
         print("=" * 40)
         print(colored_text(title.center(40), Color.CYAN))
         print("=" * 40)
@@ -106,7 +104,7 @@ def page(title: str) -> None:
 
 
 def step_title(title: str) -> None:
-    if title is not None:
+    if not title:
         print(colored_text("Step: ", Color.YELLOW), title, "\n")
     return
 
@@ -774,14 +772,8 @@ class Firmware:
                 root, base_dir
             )  # Relative path of the subdirectory
 
-            if high_temp:
-                # If high_temp is True, process only "HT" directories
-                if "HT" not in subdirectory:
-                    continue
-            else:
-                # If high_temp is False, skip "HT" directories
-                if "HT" in subdirectory:
-                    continue
+            if high_temp != ("HT" in subdirectory):
+                continue
 
             for file in files:
                 if file.endswith(".bin"):  # Only process .bin files
@@ -863,22 +855,21 @@ class Firmware:
         # Get the bitrate from CAN interface
         bitrate = self.can.get_bitrate()
 
-        # Determine search pattern based on bitrate or switch
+        # Determine search pattern and exclusion pattern
         exclude_pattern = None
         firmware_files = []  # Initialize firmware_files to avoid reference errors
-        if type == "CAN" and bitrate:
-            search_pattern = f"*{bitrate}*"
-        elif type == "CAN":
-            search_pattern = "*"  # Include all files
-            exclude_pattern = ["*usb*", "*K1*"]  # List for multiple exclusion patterns
+
+        if type == "CAN":
+            search_pattern = f"*{bitrate}*" if bitrate else "*"
+            exclude_pattern = None if bitrate else ["*usb*", "*K1*"]
         elif type == "USB":
             if getattr(self, "kseries", False):  # Check if kseries is True
-                search_pattern = "*K1*usb*"  # Include files with both "usb" and "K1"
+                search_pattern = "*K1*usb*"
             else:
-                search_pattern = "*usb*"  # Include only USB-related files
-                exclude_pattern = ["*K1*"]  # Exclude files with "K1"
+                search_pattern = "*usb*"
+                exclude_pattern = ["*K1*"]
         else:
-            search_pattern = "*"  # Include all files
+            search_pattern = "*"  # Default pattern for other types
 
         header()
         page(f"{type} Firmware Menu")
@@ -891,16 +882,17 @@ class Firmware:
         self.dir_path = self.unzip.temp_dir_exists()  # Call the method
 
         if self.dir_path:
-            # Append the additional subpath
-            self.dir_path = os.path.join(self.dir_path, "firmware/v2-v3/")
+            # Start with the base path
+            base_path = os.path.join(self.dir_path, "firmware/v2-v3/")
 
             if self.ftype:
-                self.dir_path = os.path.join(self.dir_path, "katapult-deployer")
+                base_path = os.path.join(base_path, "katapult-deployer")
                 search_pattern = "*katapult*"  # Include all files
+            elif type == "CAN":
+                base_path = os.path.join(base_path, "survey")
 
-            if not self.ftype and type == "CAN":
-                self.dir_path = os.path.join(self.dir_path, "survey")
-
+            # Update self.dir_path only once
+            self.dir_path = base_path
             firmware_files = self.find_firmware_files(
                 self.dir_path, search_pattern, exclude_pattern, self.high_temp
             )
