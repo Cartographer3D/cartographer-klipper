@@ -1,6 +1,6 @@
 [tool.pyright]
 pythonVersion = "3.8"
-include = ["scanner.py", "scripts/**.py"]
+include = ["scanner.py"]
 reportMissingModuleSource = false     # klippy imports are always missing sources
 reportPrivateLocalImportUsage = false
 # TODO: Slowly remove these
@@ -10,4 +10,4 @@ failOnWarnings = false
 
 [tool.ruff]
 target-version = "py38"
-include = ["scanner.py", "scripts/**.py"]
+include = ["scanner.py"]

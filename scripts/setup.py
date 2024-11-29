@@ -456,7 +456,6 @@ y_offset: 15
 backlash_comp: 0.5
 sensor: cartographer
 sensor_alt: carto
-mode: {probe_type} 
 mesh_runs: 2
 
 [temperature_sensor Cartographer_MCU]
@@ -513,10 +512,18 @@ probe_points:
             last_include_index = i
 
     if last_include_index != -1:
-        # Insert the new [include CARTOGRAPHER/*] line after the last [include ...]
+        # Insert the new [include CARTOGRAPHER/*.cfg] line after the last [include ...]
         include_line = "[include CARTOGRAPHER/*.cfg]\n"
+        scanner_section = "[scanner]\n"
+        mode_line = f"mode: {probe_type}\n"
+
         if include_line not in lines:
+            # Insert the [include CARTOGRAPHER/*.cfg] line
             lines.insert(last_include_index + 1, include_line)
+
+            # Insert the [scanner] section and mode line immediately after the include line
+            lines.insert(last_include_index + 2, scanner_section)
+            lines.insert(last_include_index + 3, mode_line)
 
             # Write back the updated lines to printer.cfg
             with open(config_file_path, "w") as config_file:
@@ -525,13 +532,24 @@ probe_points:
             debug_print(
                 "[include CARTOGRAPHER/*.cfg] added to printer.cfg successfully."
             )
+            debug_print(
+                f"[scanner] section with mode: {probe_type} added below the [include CARTOGRAPHER/*.cfg] line."
+            )
         else:
             debug_print("[include CARTOGRAPHER/*.cfg] already exists in printer.cfg.")
     else:
         # If no [include ...] found, add it at the end of printer.cfg
         include_line = "[include CARTOGRAPHER/*.cfg]\n"
+        scanner_section = "[scanner]\n"
+        mode_line = f"mode: {probe_type}\n"
+
         if include_line not in lines:
+            # Add the include line if it doesn't exist
             lines.append(include_line)
+
+            # Add the scanner section and mode line
+            lines.append(scanner_section)
+            lines.append(mode_line)
 
             # Write back the updated lines to printer.cfg
             with open(config_file_path, "w") as config_file:
@@ -539,6 +557,9 @@ probe_points:
 
             debug_print(
                 "[include CARTOGRAPHER/*.cfg] added to the end of printer.cfg successfully."
+            )
+            debug_print(
+                f"[scanner] section with mode: {probe_type} added below the [include CARTOGRAPHER/*.cfg] line."
             )
 
 
@@ -857,7 +878,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     debug = args.debug
     probe_mode = args.mode
-    uninstall_mode = args.u
+    uninstall_mode = args.uninstall
     try:
         if uninstall_mode:
             uninstall()
