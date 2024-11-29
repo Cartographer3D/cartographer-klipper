@@ -11,6 +11,7 @@
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
 import copy
+from dataclasses import dataclass
 import importlib
 import logging
 import math
@@ -52,31 +53,18 @@ THRESHOLD_STEP_MULTIPLIER = 10
 THRESHOLD_ACCEPTANCE_FACTOR = 0.66
 
 
-@final
+@dataclass
 class ThresholdResults:
-    def __init__(
-        self,
-        max_value: float,
-        min_value: float,
-        range_value: float,
-        avg_value: float,
-        median: float,
-        sigma: float,
-        in_range: int,
-        early: int,
-        late: int,
-        nb_samples: int,
-    ):
-        self.max_value = max_value
-        self.min_value = min_value
-        self.range_value = range_value
-        self.avg_value = avg_value
-        self.median = median
-        self.sigma = sigma
-        self.in_range = in_range
-        self.early = early
-        self.late = late
-        self.nb_samples = nb_samples
+    max_value: float
+    min_value: float
+    range_value: float
+    avg_value: float
+    median: float
+    sigma: float
+    in_range: int
+    early: int
+    late: int
+    nb_samples: int
 
 
 @final
@@ -2180,16 +2168,16 @@ class Scanner:
         zs = [p[2] for p in positions[skip_samples:]]
         if not zs:
             return ThresholdResults(
-                math.inf,
-                -math.inf,
-                math.inf,
-                math.inf,
-                math.inf,
-                math.inf,
-                0,
-                0,
-                0,
-                0,
+                max_value=math.inf,
+                min_value=-math.inf,
+                range_value=math.inf,
+                avg_value=math.inf,
+                median=math.inf,
+                sigma=math.inf,
+                in_range=0,
+                early=0,
+                late=0,
+                nb_samples=0,
             )
 
         max_value = max(zs)
@@ -2216,16 +2204,16 @@ class Scanner:
         sigma = math.sqrt(deviation_sum / len(zs))
 
         return ThresholdResults(
-            max_value,
-            min_value,
-            range_value,
-            avg_value,
-            median_,
-            sigma,
-            in_range,
-            early,
-            late,
-            len(zs),
+            max_value=max_value,
+            min_value=min_value,
+            range_value=range_value,
+            avg_value=avg_value,
+            median=median_,
+            sigma=sigma,
+            in_range=in_range,
+            early=early,
+            late=late,
+            nb_samples=len(zs),
         )
 
     cmd_Z_OFFSET_APPLY_PROBE_help = "Adjust the probe's z_offset"
