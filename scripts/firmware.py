@@ -85,14 +85,20 @@ def colored_text(text: str, color: Color) -> str:
     return f"{color.value}{text}{Color.RESET.value}"
 
 
-def error_msg(message: str) -> None:
+def error_msg(message: str, redirect: str = None) -> None:
     if not message:
         print(colored_text("Error:", Color.RED), message)
+        input(colored_text("\nPress Enter to return to the continue...", Color.YELLOW))
+        if redirect is None:
+            Firmware.main_menu()  # Default to main menu
+        else:
+            redirect()
 
 
 def success_msg(message: str) -> None:
     if not message:
         print(colored_text("Success:", Color.GREEN), message)
+        input(colored_text("\nPress Enter to return to the continue...", Color.YELLOW))
 
 
 def page(title: str) -> None:
@@ -110,22 +116,21 @@ def step_title(title: str) -> None:
 
 
 def display_modes(args):
-    modes = []
+    # Map conditions to mode strings
+    mode_conditions = [
+        (args.flash, lambda: f"{args.flash.upper()} MODE"),
+        (args.kseries, lambda: "K Series"),
+        (args.high_temp, lambda: "HIGH TEMP"),
+        (args.debug, lambda: "DEBUGGING"),
+        (args.branch, lambda: f"BRANCH: {args.branch.upper()}"),
+        (args.type, lambda: "FLASH KATAPULT"),
+        (args.latest, lambda: "FLASH LATEST"),
+    ]
 
-    if args.flash:
-        modes.append(f"{args.flash.upper()} MODE")
-    if args.kseries:
-        modes.append("K Series")
-    if args.high_temp:
-        modes.append("HIGH TEMP")
-    if args.debug:
-        modes.append("DEBUGGING")
-    if args.branch:
-        modes.append(f"BRANCH: {args.branch.upper()}")
-    if args.type:
-        modes.append("FLASH KATAPULT")
-    if args.latest:
-        modes.append("FLASH LATEST")
+    # Build modes list based on conditions
+    modes = [
+        generate_mode() for condition, generate_mode in mode_conditions if condition
+    ]
 
     # Combine modes into a single string
     combined_modes = " | ".join(modes)
