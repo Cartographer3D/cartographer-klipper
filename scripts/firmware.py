@@ -6,8 +6,7 @@ import shutil
 import tempfile
 import fnmatch
 
-from packaging.version import Version
-from enum import StrEnum  # type: ignore
+from enum import Enum
 from typing import Callable
 from typing import Optional
 
