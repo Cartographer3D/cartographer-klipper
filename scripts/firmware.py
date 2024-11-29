@@ -140,6 +140,30 @@ def show_mode(mode: str):
     print(colored_text(mode, Color.RED))
 
 
+class Validator:
+    """A utility class for common validation checks."""
+
+    def __init__(self, firmware):
+        self.firmware = firmware  # Reference to the firmware object for navigation
+
+    def check_selected_firmware(self):
+        if self.firmware.selected_firmware is None:
+            self._error_and_return("You have not selected a firmware file.")
+
+    def check_selected_device(self):
+        if self.firmware.selected_device is None:
+            self._error_and_return("You have not selected a device to flash.")
+
+    def check_temp_directory(self):
+        if self.firmware.dir_path is None:
+            self._error_and_return("Error getting temporary directory path.")
+
+    def _error_and_return(self, message):
+        error_msg(message)
+        input(colored_text("\nPress Enter to return to the main menu...", Color.YELLOW))
+        self.firmware.main_menu()
+
+
 class RetrieveFirmware:
     def __init__(self, firmware, branch: str = "master", debug: bool = False):
         self.firmware = firmware
@@ -562,6 +586,35 @@ class CAN:
     def retrieve_uuid(self) -> Optional[str]:
         return self.firmware.get_uuid()
 
+    def flash_can(self, firmware_file, device):
+        try:
+            # Prepare the command to execute the flash script
+            cmd = os.path.expanduser("~/katapult/scripts/flash_can.py")
+            command = [
+                "python3",
+                cmd,
+                "-i",
+                "can0",  # CAN interface
+                "-f",
+                firmware_file,  # Firmware file path
+                "-u",
+                device,  # Selected device UUID
+            ]
+
+            # Execute the command
+            result = subprocess.run(command, text=True, capture_output=True, check=True)
+
+            # Output the results
+            self.firmware.flash_success(result.stdout.strip())
+        except subprocess.CalledProcessError as e:
+            # Handle errors during the command execution
+            self.firmware.flash_fail(f"Error flashing firmware: {e}")
+            if e.stderr:
+                print(e.stderr.strip())
+        except Exception as e:
+            # Handle any unexpected errors
+            self.firmware.flash_fail(f"Unexpected error: {e}")
+
 
 class USB:
     # find correct usb device for flashing
@@ -604,6 +657,7 @@ class Firmware:
         self.can = CAN(
             self, debug=self.debug, ftype=self.ftype
         )  # Pass Firmware instance to CAN
+        self.validator = Validator(self)  # Initialize the Validator
 
     def handle_initialization(self):
         # Handle specific device UUID
@@ -741,6 +795,68 @@ class Firmware:
 
         return sorted(firmware_files)  # Sort the results
 
+    def select_latest(self, firmware_files):
+        if not firmware_files:
+            print("No firmware files found.")
+            return
+
+        # Extract unique subdirectory names
+        subdirectories = set(file[0] for file in firmware_files)
+        if not subdirectories:
+            print("No valid subdirectories found.")
+            return
+
+        # Find the subdirectory with the highest semantic version
+        latest_subdirectory = max(
+            subdirectories,
+            key=lambda d: Version(os.path.basename(d)),  # Sort by semantic version
+        )
+
+        # Filter firmware files in the latest subdirectory
+        latest_firmware_files = [
+            (subdirectory, file)
+            for subdirectory, file in firmware_files
+            if subdirectory == latest_subdirectory
+        ]
+
+        # Select the first firmware file in the latest subdirectory
+        if latest_firmware_files:
+            subdirectory, file = latest_firmware_files[0]
+            firmware_path = os.path.join(subdirectory, file)  # Construct the full path
+            self.select_firmware(firmware_path)
+            self.main_menu()
+        else:
+            print("No firmware files found in the latest subdirectory.")
+
+    def display_firmware_menu(self, firmware_files, type):
+        if firmware_files:
+            # Define menu items for firmware files
+            menu_items = {
+                index: Menu.MenuItem(
+                    f"{subdirectory}/{file}",
+                    lambda file=file, subdirectory=subdirectory: self.select_firmware(
+                        os.path.join(subdirectory, file)
+                    ),
+                )
+                for index, (subdirectory, file) in enumerate(firmware_files, start=1)
+            }
+
+            # Add static options after firmware options
+            menu_items[len(menu_items) + 1] = Menu.MenuItem(
+                "Check Again", lambda: self.firmware_menu(type)
+            )
+            menu_items[len(menu_items) + 1] = Menu.MenuItem("Back", self.can_menu)
+            menu_items[len(menu_items) + 1] = Menu.MenuItem(
+                colored_text("Back to main menu", Color.CYAN), self.main_menu
+            )
+            menu_items[0] = Menu.MenuItem("Exit", lambda: exit())  # Add Exit explicitly
+
+            # Create and display the menu
+            menu = Menu("Select Firmware", menu_items)
+            menu.display()
+        else:
+            print("No firmware files found.")
+
     def select_firmware(self, firmware: str):
         self.selected_firmware = firmware  # Save the selected UUID globally
         self.can_menu()
@@ -788,99 +904,21 @@ class Firmware:
             if not self.ftype and type == "CAN":
                 self.dir_path = os.path.join(self.dir_path, "survey")
 
-            # If latest is true, automatically select the highest version firmware
+            firmware_files = self.find_firmware_files(
+                self.dir_path, search_pattern, exclude_pattern, self.high_temp
+            )
             if self.latest:
-                # Find firmware files if not in --latest mode
-                firmware_files = self.find_firmware_files(
-                    self.dir_path, search_pattern, exclude_pattern, self.high_temp
-                )
-
-                if firmware_files:
-                    # Find the subdirectory with the highest version
-                    subdirectories = set(
-                        file[0] for file in firmware_files
-                    )  # Extract subdirectory names
-                    if subdirectories:
-                        latest_subdirectory = max(
-                            subdirectories,
-                            key=lambda d: Version(
-                                os.path.basename(d)
-                            ),  # Sort by semantic version
-                        )
-
-                        latest_firmware_files = [
-                            (subdirectory, file)
-                            for subdirectory, file in firmware_files
-                            if subdirectory == latest_subdirectory
-                        ]
-
-                        # Select the first firmware file from the latest subdirectory
-                        if latest_firmware_files:
-                            subdirectory, file = latest_firmware_files[
-                                0
-                            ]  # Get the first firmware file
-                            firmware_path = os.path.join(
-                                subdirectory, file
-                            )  # Construct the full path
-
-                            # Call select_firmware with the correct path
-                            self.select_firmware(firmware_path)
-                        self.main_menu()
-                    else:
-                        print("No valid subdirectories found.")
-                else:
-                    print("No firmware files found.")
+                self.select_latest(firmware_files)
             else:
-                # Find firmware files if not in --latest mode
-                firmware_files = self.find_firmware_files(
-                    self.dir_path, search_pattern, exclude_pattern, self.high_temp
-                )
-
-                if firmware_files:
-                    # Define menu items for firmware files
-                    menu_items = {}
-                    for index, (subdirectory, file) in enumerate(
-                        firmware_files, start=1
-                    ):
-                        menu_items[index] = Menu.MenuItem(
-                            f"{subdirectory}/{file}",
-                            lambda file=file,
-                            subdirectory=subdirectory: self.select_firmware(
-                                os.path.join(subdirectory, file)
-                            ),
-                        )
-
-                    # Add static options after firmware options
-                    menu_items[len(menu_items) + 1] = Menu.MenuItem(
-                        "Check Again", lambda: self.firmware_menu(type)
-                    )
-                    menu_items[len(menu_items) + 1] = Menu.MenuItem(
-                        "Back", self.can_menu
-                    )
-                    menu_items[len(menu_items) + 1] = Menu.MenuItem(
-                        colored_text("Back to main menu", Color.CYAN), self.main_menu
-                    )
-                    # Add the Exit option explicitly
-                    menu_items[0] = Menu.MenuItem("Exit", lambda: exit())
-
-                    # Create and display the menu
-                    menu = Menu("Select Firmware", menu_items)
-                    menu.display()
-                else:
-                    print("No firmware files found.")
+                self.display_firmware_menu(firmware_files, type)
 
     # Confirm the user wants to flash the correct device & file
     def confirm(self, type):
         header()
         page(f"Confirm {type} Flash")
 
-        if self.selected_firmware is None:
-            error_msg("You have not selected a firmware file.")
-            return self.main_menu()  # Redirect back to MAIN menu
-
-        if self.selected_device is None:
-            error_msg("You have not selected a device to flash.")
-            return self.main_menu()  # Redirect back to MAIN menu
+        self.validator.check_selected_firmware()
+        self.validator.check_selected_device()
 
         # Display selected firmware and device
 
@@ -916,32 +954,9 @@ class Firmware:
     def firmware_flash(self, type: str):
         header()
         page(f"Flashing via {type.upper()}..")
-        if self.selected_firmware is None:
-            error_msg("You have not selected a firmware file.")
-            input(
-                colored_text(
-                    "\nPress Enter to return to the main menu...", Color.YELLOW
-                )
-            )
-            return self.main_menu()  # Redirect back to MAIN menu
-
-        if self.selected_device is None:
-            error_msg("You have not selected a device to flash.")
-            input(
-                colored_text(
-                    "\nPress Enter to return to the main menu...", Color.YELLOW
-                )
-            )
-            return self.main_menu()  # Redirect back to MAIN menu
-
-        if self.dir_path is None:
-            error_msg("Error getting temporary directory path.")
-            input(
-                colored_text(
-                    "\nPress Enter to return to the main menu...", Color.YELLOW
-                )
-            )
-            return self.main_menu()  # Redirect back to MAIN menu
+        self.validator.check_selected_firmware()
+        self.validator.check_selected_device()
+        self.validator.check_temp_directory()
 
         firmware_file = os.path.join(self.dir_path, self.selected_firmware)
         # Ensure the firmware file exists
@@ -955,36 +970,7 @@ class Firmware:
             return self.main_menu()  # Redirect back to MAIN menu
 
         if type == "CAN":
-            self.flash_can(firmware_file)
-
-    def flash_can(self, firmware_file):
-        try:
-            # Prepare the command to execute the flash script
-            cmd = os.path.expanduser("~/katapult/scripts/flash_can.py")
-            command = [
-                "python3",
-                cmd,
-                "-i",
-                "can0",  # CAN interface
-                "-f",
-                firmware_file,  # Firmware file path
-                "-u",
-                self.selected_device,  # Selected device UUID
-            ]
-
-            # Execute the command
-            result = subprocess.run(command, text=True, capture_output=True, check=True)
-
-            # Output the results
-            self.flash_success(result.stdout.strip())
-        except subprocess.CalledProcessError as e:
-            # Handle errors during the command execution
-            self.flash_fail(f"Error flashing firmware: {e}")
-            if e.stderr:
-                print(e.stderr.strip())
-        except Exception as e:
-            # Handle any unexpected errors
-            self.flash_fail(f"Unexpected error: {e}")
+            self.can.flash_can(firmware_file, self.selected_device)
 
     # If flash was a success
     def flash_success(self, result):
