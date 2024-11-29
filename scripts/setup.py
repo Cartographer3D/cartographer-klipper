@@ -837,15 +837,20 @@ if __name__ == "__main__":
         description="Install probe configuration in printer.cfg"
     )
     parser.add_argument(
-        "--debug", action="store_true", help="Enable debug mode for detailed output"
+        "-d",
+        "--debug",
+        action="store_true",
+        help="Enable debug mode for detailed output",
     )
     parser.add_argument(
+        "-m",
         "--mode",
         choices=["touch", "scan"],
         help="Specify the probe mode: 'touch' or 'scan'",
     )
     parser.add_argument(
-        "--u",
+        "-u",
+        "--uninstall",
         action="store_true",
         help="Run uninstall function to remove probe configurations",
     )
