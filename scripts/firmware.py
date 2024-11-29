@@ -780,7 +780,7 @@ class CAN:
         header()
         page("Querying CAN devices..")
 
-        detected_uuids = []
+        detected_uuids: list[str] = []
 
         if not self.katapult_check():
             error_msg(
@@ -837,13 +837,11 @@ class CAN:
                 error_msg(
                     f"Error querying CAN devices: {e}", self.firmware.can_uuid_menu
                 )
-                if e.stderr:
-                    print(e.stderr.strip())
             except Exception as e:
                 error_msg(f"Unexpected error: {e}", self.firmware.can_uuid_menu)
             finally:
                 # Define menu items, starting with UUID options
-                menu_items = {}
+                menu_items: dict[int, Menu.MenuItem] = {}
                 for index, uuid in enumerate(detected_uuids, start=1):
                     menu_items[index] = Menu.MenuItem(
                         f"Select {uuid}", lambda uuid=uuid: self.select_uuid(uuid)
@@ -877,8 +875,11 @@ class CAN:
 
     def flash_can(self, firmware_file: str, device: Optional[str]):
         try:
+            if device is None:
+                raise ValueError("Device UUID must not be None.")
+
             # Prepare the command to execute the flash script
-            cmd = os.path.expanduser("~/katapult/scripts/flash_can.py")
+            cmd: str = os.path.expanduser("~/katapult/scripts/flash_can.py")
             command = [
                 "python3",
                 cmd,
@@ -898,8 +899,6 @@ class CAN:
         except subprocess.CalledProcessError as e:
             # Handle errors during the command execution
             self.firmware.flash_fail(f"Error flashing firmware: {e}")
-            if e.stderr:
-                print(e.stderr.strip())
 
 
 class USB:
@@ -936,20 +935,22 @@ class Validator:
         if self.firmware.dir_path is None:
             self._error_and_return("Error getting temporary directory path.")
 
-    def _error_and_return(self, message):
+    def _error_and_return(self, message: str):
         error_msg(message)
-        input(colored_text("\nPress Enter to return to the main menu...", Color.YELLOW))
+        _ = input(
+            colored_text("\nPress Enter to return to the main menu...", Color.YELLOW)
+        )
         self.firmware.main_menu()
 
 
 class RetrieveFirmware:
     def __init__(self, firmware: Firmware, branch: str = "master", debug: bool = False):
         self.firmware: Firmware = firmware
-        self.branch = branch
-        self.debug = debug
-        self.tarball_url = f"https://api.github.com/repos/Cartographer3D/cartographer-klipper/tarball/{self.branch}"
-        self.temp_dir = tempfile.mkdtemp(prefix="cartographer-klipper_")
-        self.extracted_dir = None
+        self.branch: str = branch
+        self.debug: bool = debug
+        self.tarball_url: str = f"https://api.github.com/repos/Cartographer3D/cartographer-klipper/tarball/{self.branch}"
+        self.temp_dir: str = tempfile.mkdtemp(prefix="cartographer-klipper_")
+        self.extracted_dir: Optional[str] = None
 
     def temp_dir_exists(self) -> Optional[str]:
         if self.debug:
@@ -992,7 +993,7 @@ class RetrieveFirmware:
                     "--output",
                     tarball_path,
                 ]
-                subprocess.run(
+                _ = subprocess.run(
                     curl_command,
                     stdout=devnull if not self.debug else None,
                     stderr=devnull,
@@ -1003,7 +1004,7 @@ class RetrieveFirmware:
             # Extract the tarball into the temporary directory
             with open(os.devnull, "w") as devnull:
                 tar_command = ["tar", "-xz", "-C", self.temp_dir, "-f", tarball_path]
-                subprocess.run(
+                _ = subprocess.run(
                     tar_command,
                     stdout=devnull if not self.debug else None,
                     stderr=devnull,
@@ -1044,35 +1045,35 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Firmware flashing script with -b to select branch"
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "-b", "--branch", help="Specify the branch name", default="main"
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "-d", "--debug", help="Enable debug output", action="store_true"
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "-t", "--type", help="Enable katapult flash", action="store_true"
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "-H",
         "--high-temp",
         help="Search for high-temperature firmware (HT folders)",
         action="store_true",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "-l",
         "--latest",
         help="Skip searching for firmware and flash latest",
         action="store_true",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "-k",
         "--kseries",
         help="Enable firmware for Creality K-Series printers",
         action="store_true",
     )
-    parser.add_argument("-D", "--device", help="Specify a device", default=None)
-    parser.add_argument(
+    _ = parser.add_argument("-D", "--device", help="Specify a device", default=None)
+    _ = parser.add_argument(
         "-f",
         "--flash",
         help="Specify the flashing mode (CAN, USB, or DFU)",
