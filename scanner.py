@@ -557,7 +557,7 @@ class Scanner:
         try:
             self.detect_threshold_z = test_threshold
             # Set the initial position for the toolhead
-            self.toolhead.set_position(initial_position, [2])
+            self.toolhead.set_position(initial_position, homing_axes=[2])
 
             retries = 0
 
@@ -940,7 +940,7 @@ class Scanner:
         try:
             self.detect_threshold_z = test_threshold
             # Set the initial position for the toolhead
-            self.toolhead.set_position(initial_position, [2])
+            self.toolhead.set_position(initial_position, homing_axes=[2])
 
             retries = 0
             new_retry = False
@@ -1493,9 +1493,9 @@ class Scanner:
 
     def _calibrate(
         self,
-        gcmd,
+        gcmd: GCodeCommand,
         kin_pos,
-        cal_nozzle_z=None,
+        cal_nozzle_z: Optional[float] = None,
         forced_z=None,
         touch=False,
         manual_mode=False,
@@ -1518,16 +1518,16 @@ class Scanner:
         toolhead = self.toolhead
         toolhead.wait_moves()
 
+        cal_min_z = cal_floor
+        cal_max_z = cal_ceil
         if manual_mode:
             nozzle_z = gcmd.get_float("NOZZLE_Z", self.cal_config["nozzle_z"])
             cal_min_z = kin_pos[2] - nozzle_z + cal_floor
             cal_max_z = kin_pos[2] - nozzle_z + cal_ceil
-        else:
+        elif cal_nozzle_z is not None:
             curpos = toolhead.get_position()
             curpos[2] = cal_nozzle_z
             toolhead.set_position(curpos)
-            cal_min_z = cal_floor
-            cal_max_z = cal_ceil
 
         # Move to probe coordinates and compensate for backlash
         curpos = toolhead.get_position()
