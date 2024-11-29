@@ -611,9 +611,6 @@ class CAN:
             self.firmware.flash_fail(f"Error flashing firmware: {e}")
             if e.stderr:
                 print(e.stderr.strip())
-        except Exception as e:
-            # Handle any unexpected errors
-            self.firmware.flash_fail(f"Unexpected error: {e}")
 
 
 class USB:
