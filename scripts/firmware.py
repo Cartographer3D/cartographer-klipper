@@ -6,7 +6,7 @@ import shutil
 import tempfile
 import fnmatch
 
-from enum import Enum
+from enum import Enum  # type: ignore
 from typing import Callable
 from typing import Optional
 
@@ -17,6 +17,41 @@ KLIPPER_DIR: str = os.path.expanduser("~/klipper")
 KATAPULT_DIR: str = os.path.expanduser("~/katapult")
 
 FLASHER_VERSION: str = "0.0.1"
+
+
+class Color(Enum):
+    RESET = "\033[0m"
+    RED = "\033[91m"
+    GREEN = "\033[92m"
+    YELLOW = "\033[93m"
+    MAGENTA = "\033[95m"
+    CYAN = "\033[96m"
+
+
+class Version:
+    def __init__(self, version: str):
+        self.parts = tuple(int(part) for part in version.split("."))
+
+    def __lt__(self, other):
+        return self.parts < other.parts
+
+    def __le__(self, other):
+        return self.parts <= other.parts
+
+    def __eq__(self, other):
+        return self.parts == other.parts
+
+    def __ne__(self, other):
+        return self.parts != other.parts
+
+    def __gt__(self, other):
+        return self.parts > other.parts
+
+    def __ge__(self, other):
+        return self.parts >= other.parts
+
+    def __repr__(self):
+        return ".".join(map(str, self.parts))
 
 
 def clear_console():
@@ -46,8 +81,8 @@ def header():
     print("=" * 60)
 
 
-def colored_text(text: str, color: str) -> str:
-    return f"{color}{text}{Color.RESET}"
+def colored_text(text: str, color: Color) -> str:
+    return f"{color.value}{text}{Color.RESET.value}"
 
 
 def error_msg(message: str) -> None:
@@ -103,15 +138,6 @@ def show_mode(mode: str):
     # Center the mode string
     mode = mode.center(60)
     print(colored_text(mode, Color.RED))
-
-
-class Color(StrEnum):
-    RESET = "\033[0m"
-    RED = "\033[91m"
-    GREEN = "\033[92m"
-    YELLOW = "\033[93m"
-    MAGENTA = "\033[95m"
-    CYAN = "\033[96m"
 
 
 class RetrieveFirmware:
@@ -581,12 +607,10 @@ class Firmware:
 
     def handle_initialization(self):
         # Handle specific device UUID
-        print("wtg")
         if self.device:
             if self.can.validate_uuid(self.device):
                 self.set_uuid(self.device)
                 self.flash = "CAN"
-                args.flash = "CAN"
                 # Handle --latest argument
                 if self.latest:
                     self.firmware_menu(
@@ -1081,5 +1105,7 @@ if __name__ == "__main__":
             fw.usb_menu()
         elif args.flash == "DFU":
             fw.dfu_menu()
+        else:
+            fw.main_menu()
     else:
         fw.handle_initialization()
