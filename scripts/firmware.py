@@ -955,35 +955,36 @@ class Firmware:
             return self.main_menu()  # Redirect back to MAIN menu
 
         if type == "CAN":
-            try:
-                # Prepare the command to execute the flash script
-                cmd = os.path.expanduser("~/katapult/scripts/flash_can.py")
-                command = [
-                    "python3",
-                    cmd,
-                    "-i",
-                    "can0",  # CAN interface
-                    "-f",
-                    firmware_file,  # Firmware file path
-                    "-u",
-                    self.selected_device,  # Selected device UUID
-                ]
+            self.flash_can(firmware_file)
 
-                # Execute the command
-                result = subprocess.run(
-                    command, text=True, capture_output=True, check=True
-                )
+    def flash_can(self, firmware_file):
+        try:
+            # Prepare the command to execute the flash script
+            cmd = os.path.expanduser("~/katapult/scripts/flash_can.py")
+            command = [
+                "python3",
+                cmd,
+                "-i",
+                "can0",  # CAN interface
+                "-f",
+                firmware_file,  # Firmware file path
+                "-u",
+                self.selected_device,  # Selected device UUID
+            ]
 
-                # Output the results
-                self.flash_success(result.stdout.strip())
-            except subprocess.CalledProcessError as e:
-                # Handle errors during the command execution
-                self.flash_fail(f"Error flashing firmware: {e}")
-                if e.stderr:
-                    print(e.stderr.strip())
-            except Exception as e:
-                # Handle any unexpected errors
-                self.flash_fail(f"Unexpected error: {e}")
+            # Execute the command
+            result = subprocess.run(command, text=True, capture_output=True, check=True)
+
+            # Output the results
+            self.flash_success(result.stdout.strip())
+        except subprocess.CalledProcessError as e:
+            # Handle errors during the command execution
+            self.flash_fail(f"Error flashing firmware: {e}")
+            if e.stderr:
+                print(e.stderr.strip())
+        except Exception as e:
+            # Handle any unexpected errors
+            self.flash_fail(f"Unexpected error: {e}")
 
     # If flash was a success
     def flash_success(self, result):
