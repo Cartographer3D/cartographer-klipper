@@ -7,6 +7,7 @@ import tempfile
 import fnmatch
 
 from enum import Enum  # type: ignore
+from time import sleep
 from typing import Optional, Tuple, Callable, NamedTuple, Dict, List, Union
 
 HOME_PATH = os.path.expanduser("~")
@@ -78,24 +79,14 @@ def colored_text(text: str, color: Color) -> str:
     return f"{color.value}{text}{Color.RESET.value}"
 
 
-def error_msg(message: str, redirect: Optional[Callable[[], None]] = None) -> None:
+def error_msg(message: str) -> None:
     print(colored_text("Error:", Color.RED), message)
     _ = input(colored_text("\nPress Enter to continue...", Color.YELLOW))
-    if redirect is None:
-        fw.main_menu()  # Default to main menu
-    else:
-        if callable(redirect):  # Check if redirect is a callable
-            redirect()
 
 
-def success_msg(message: str, redirect: Optional[Callable[[], None]] = None) -> None:
+def success_msg(message: str) -> None:
     print(colored_text("Success:", Color.GREEN), message)
     _ = input(colored_text("\nPress Enter to continue...", Color.YELLOW))
-    if redirect is None:
-        fw.main_menu()  # Default to main menu
-    else:
-        if callable(redirect):  # Check if redirect is a callable
-            redirect()
 
 
 def page(title: str) -> None:
@@ -189,7 +180,8 @@ class Menu:
 
 
 class Firmware:
-    can: "CAN"
+    can: "Can"
+    usb: "Usb"
 
     def __init__(
         self,
@@ -214,39 +206,55 @@ class Firmware:
         self.kseries: bool = kseries
         self.latest: bool = latest
         self.device: Optional[str] = device
-        self.can = CAN(
+        self.can = Can(self, debug=self.debug, ftype=self.ftype)
+        self.usb = Usb(
             self, debug=self.debug, ftype=self.ftype
         )  # Pass Firmware instance to CAN
         self.validator: Validator = Validator(self)  # Initialize the Validator
 
     def handle_initialization(self):
-        # Handle specific device UUID
-        if self.device:
-            if self.can.validate_uuid(self.device):
-                self.set_uuid(self.device)
-                self.flash = "CAN"
+        """
+        Handle device initialization based on the flash type and device UUID.
+        """
+        handlers: Dict[str, Callable[[], None]] = {
+            "CAN": self.can.menu,
+            "USB": self.usb.menu,
+        }
+
+        if self.device and self.flash in handlers:
+            # Validate the device
+            if self.validator.validate_device(self.device, self.flash):
+                self.set_device(self.device)
+
                 # Handle --latest argument
                 if self.latest:
-                    self.firmware_menu(
-                        type=self.flash or "CAN"
-                    )  # Default to "CAN" if no flash type
-            self.can_menu()
+                    self.firmware_menu(type=self.flash)
 
-        # Fall back to the main menu
+                # Call the appropriate menu directly from the handlers dictionary
+                handlers[self.flash]()
+        else:
+            self.main_menu()
+
+        # Fall back to the main menu if no valid condition is met
         self.main_menu()
 
-    def set_uuid(self, uuid: str) -> None:
+    def set_device(self, uuid: str) -> None:
         self.selected_device = uuid
 
-    def get_uuid(self) -> Optional[str]:
+    def get_device(self) -> Optional[str]:
         return self.selected_device  # None if not set, str if set
+
+    def get_firmware(self) -> Optional[str]:
+        return self.selected_firmware
 
     # Create main menu
     def main_menu(self):
         header()
+        self.selected_device = None
+        self.selected_firmware = None
         menu_items = {
-            1: Menu.MenuItem("Katapult - CAN", self.can_menu),
-            2: Menu.MenuItem("Katapult - USB (Coming Soon)", self.usb_menu),
+            1: Menu.MenuItem("Katapult - CAN", self.can.menu),
+            2: Menu.MenuItem("Katapult - USB", self.usb.menu),
             3: Menu.MenuItem("DFU (Coming Soon)", self.dfu_menu),
             0: Menu.MenuItem("Exit", lambda: exit()),  # Add exit option explicitly
         }
@@ -254,71 +262,6 @@ class Firmware:
         # Create and display the menu
         menu = Menu("Main Menu", menu_items)
         menu.display()
-
-    def can_menu(self):
-        header()
-
-        # Display selected UUID and firmware if available
-        if self.get_uuid() is not None:
-            print(colored_text("Device Selected:", Color.MAGENTA), self.get_uuid())
-
-        if self.selected_firmware is not None:
-            print(
-                colored_text("Firmware Selected:", Color.MAGENTA),
-                self.selected_firmware,
-            )
-
-        # Base menu items
-        menu_items = {
-            1: Menu.MenuItem("Find Cartographer Device", self.can_uuid_menu),
-            2: Menu.MenuItem(
-                "Find CAN Firmware", lambda: self.firmware_menu(type="CAN")
-            ),
-        }
-
-        # Dynamically add "Flash Selected Firmware" if conditions are met
-        if self.selected_firmware is not None and self.selected_device is not None:
-            menu_items[len(menu_items) + 1] = Menu.MenuItem(
-                "Flash Selected Firmware", lambda: self.confirm(type="CAN")
-            )
-
-        # Add "Back to main menu" after "Flash Selected Firmware"
-        menu_items[len(menu_items) + 1] = Menu.MenuItem(
-            colored_text("Back to main menu", Color.CYAN), self.main_menu
-        )
-
-        # Add exit option explicitly at the end
-        menu_items[0] = Menu.MenuItem("Exit", lambda: exit())
-
-        # Create and display the menu
-        menu = Menu("What would you like to do?", menu_items)
-        menu.display()
-
-    def can_uuid_menu(self):
-        header()
-
-        menu_items = {
-            1: Menu.MenuItem("Check klippy.log", self.can.search_klippy),
-            2: Menu.MenuItem("Enter UUID", self.can.enter_uuid),
-            3: Menu.MenuItem("Query CAN Devices", self.can.query_can),
-            4: Menu.MenuItem(
-                "Back",
-                self.can_menu,
-            ),
-            5: Menu.MenuItem(
-                colored_text("Back to main menu", Color.CYAN), self.main_menu
-            ),
-            0: Menu.MenuItem("Exit", lambda: exit()),  # Add exit option explicitly
-        }
-
-        # Create and display the menu
-        menu = Menu("How would you like to find your CAN device?", menu_items)
-        menu.display()
-
-    def usb_menu(self):
-        header()
-        step_title("Select a USB device")
-        error_msg("Error", self.dfu_menu)
 
     def dfu_menu(self):
         header()
@@ -331,18 +274,6 @@ class Firmware:
         exclude_pattern: Optional[Union[str, List[str]]] = None,
         high_temp: bool = False,
     ) -> List[Tuple[str, str]]:
-        """
-        Find firmware files in the given base directory.
-
-        Args:
-            base_dir (str): The base directory to search.
-            search_pattern (str): Pattern to include files (default is '*').
-            exclude_pattern (Optional[Union[str, List[str]]]): Pattern(s) to exclude files.
-            high_temp (bool): Whether to include only high-temperature ('HT') directories.
-
-        Returns:
-            List[tuple[str, str]]: A sorted list of tuples containing subdirectory and file names.
-        """
         if not os.path.isdir(base_dir):
             print(f"Base directory does not exist: {base_dir}")
             return []
@@ -376,7 +307,7 @@ class Firmware:
 
         return sorted(firmware_files)  # Sort the results
 
-    def select_latest(self, firmware_files: List[Tuple[str, str]]):
+    def select_latest(self, firmware_files: List[Tuple[str, str]], type: str):
         if not firmware_files:
             print("No firmware files found.")
             return
@@ -402,7 +333,7 @@ class Firmware:
         if latest_firmware_files:
             subdirectory, file = latest_firmware_files[0]
             firmware_path = os.path.join(subdirectory, file)  # Construct the full path
-            self.select_firmware(firmware_path)
+            self.select_firmware(firmware_path, type)
             self.main_menu()
         else:
             print("No firmware files found in the latest subdirectory.")
@@ -414,7 +345,7 @@ class Firmware:
                 index: Menu.MenuItem(
                     f"{subdirectory}/{file}",
                     lambda file=file, subdirectory=subdirectory: self.select_firmware(
-                        os.path.join(subdirectory, file)
+                        os.path.join(subdirectory, file), type
                     ),
                 )
                 for index, (subdirectory, file) in enumerate(firmware_files, start=1)
@@ -424,7 +355,7 @@ class Firmware:
             menu_items[len(menu_items) + 1] = Menu.MenuItem(
                 "Check Again", lambda: self.firmware_menu(type)
             )
-            menu_items[len(menu_items) + 1] = Menu.MenuItem("Back", self.can_menu)
+            menu_items[len(menu_items) + 1] = Menu.MenuItem("Back", self.can.menu)
             menu_items[len(menu_items) + 1] = Menu.MenuItem(
                 colored_text("Back to main menu", Color.CYAN), self.main_menu
             )
@@ -436,9 +367,19 @@ class Firmware:
         else:
             print("No firmware files found.")
 
-    def select_firmware(self, firmware: str):
+    def select_firmware(self, firmware: str, type: str):
         self.selected_firmware = firmware  # Save the selected UUID globally
-        self.can_menu()
+        menu_handlers: Dict[str, Callable[[], None]] = {
+            "CAN": self.can.menu,
+            "USB": self.usb.menu,
+        }
+
+        # Retrieve the appropriate handler and call it if valid
+        handler = menu_handlers.get(type)
+        if handler:
+            handler()  # Call the appropriate menu method
+        else:
+            error_msg("You have not selected a valid firmware file.")
 
     # Show a list of available firmware
     def firmware_menu(self, type: str):
@@ -453,12 +394,12 @@ class Firmware:
 
         if type == "CAN":
             search_pattern = f"*{bitrate}*" if bitrate else "*"
-            exclude_pattern = None if bitrate else ["*usb*", "*K1*"]
+            exclude_pattern = None if bitrate else ["*USB*", "*K1*"]
         elif type == "USB":
             if getattr(self, "kseries", False):  # Check if kseries is True
-                search_pattern = "*K1*usb*"
+                search_pattern = "*K1*USB*"
             else:
-                search_pattern = "*usb*"
+                search_pattern = "*USB*"
                 exclude_pattern = ["*K1*"]
         else:
             search_pattern = "*"  # Default pattern for other types
@@ -478,11 +419,14 @@ class Firmware:
             # Start with the base path
             base_path = os.path.join(self.dir_path, "firmware/v2-v3/")
 
-            if self.ftype:
-                base_path = os.path.join(base_path, "katapult-deployer")
-                search_pattern = "*katapult*"  # Include all files
-            elif type == "CAN":
-                base_path = os.path.join(base_path, "survey")
+            if type != "DFU":
+                if self.ftype:
+                    base_path = os.path.join(base_path, "katapult-deployer")
+                    search_pattern = "*katapult*"  # Include all files
+                else:
+                    base_path = os.path.join(base_path, "survey")
+            else:
+                base_path = os.path.join(base_path, "combined-firmware")
 
             # Update self.dir_path only once
             self.dir_path = base_path
@@ -490,7 +434,7 @@ class Firmware:
                 self.dir_path, search_pattern, exclude_pattern, self.high_temp
             )
             if self.latest:
-                self.select_latest(firmware_files)
+                self.select_latest(firmware_files, type)
             else:
                 self.display_firmware_menu(firmware_files, type)
 
@@ -511,17 +455,33 @@ class Firmware:
         print(colored_text("Firmware to Flash:", Color.MAGENTA), self.selected_firmware)
 
         # Dynamically get the appropriate menu method based on `type`
-        menu_method_name = (
-            f"{type.lower()}_menu"  # Convert type to lowercase and append "_menu"
-        )
+
+        # Map type to the appropriate object
+
+        # Type mapping to dynamically resolve the target object
+
+        type_mapping: Dict[str, Union[object, None]] = {
+            "can": self.can,
+            "usb": self.usb,
+        }
+
+        # Get the target object based on the `type`
+        target_object: Optional[object] = type_mapping.get(type.lower(), self)
+
+        # Ensure target_object exists
+        if not target_object:
+            error_msg(f"Invalid type '{type}' provided; no corresponding object found.")
+            return
+        # Dynamically get the appropriate menu method from the target object
+        menu_method_name: str = "menu"  # Construct the menu method name
         menu_method: Optional[Callable[[], None]] = getattr(
-            self, menu_method_name, None
+            target_object, menu_method_name, None
         )
 
+        # Validate and call the menu method
         if menu_method is None or not callable(menu_method):
             error_msg(f"Menu for type '{type}' not found.")
             return
-
         # Ask for user confirmation
         print("\nAre these details correct?")
         menu_items = {
@@ -545,12 +505,20 @@ class Firmware:
         self.validator.check_temp_directory()
 
         firmware_file = os.path.join(str(self.dir_path), str(self.selected_firmware))
+
+        if not self.selected_device:
+            error_msg("No device selected. Please select a device first.")
+            return
         # Ensure the firmware file exists
         if not os.path.exists(firmware_file):
             error_msg(f"Firmware file not found: {firmware_file}")
 
         if type == "CAN":
-            self.can.flash_can(firmware_file, self.selected_device)
+            self.can.flash_device(firmware_file, self.selected_device)
+        elif type == "USB":
+            self.usb.flash_device(firmware_file, self.selected_device)
+        else:
+            error_msg("You didnt select a valid flashing method")
 
     # If flash was a success
     def flash_success(self, result: str):
@@ -578,11 +546,15 @@ class Firmware:
         header()
 
 
-class CAN:
+class Can:
     def __init__(self, firmware: Firmware, debug: bool = False, ftype: bool = False):
         self.firmware: Firmware = firmware
+        self.validator: Validator = Validator(firmware)
+        self.katapult_installer: Optional[KatapultInstaller] = None
         self.debug: bool = debug
         self.ftype: bool = ftype
+        self.selected_device: Optional[str] = None
+        self.selected_firmware: Optional[str] = None
 
     def get_bitrate(self, interface: str = "can0"):
         try:
@@ -596,38 +568,71 @@ class CAN:
             else:
                 return None
         except Exception as e:
-            error_msg(f"Error retrieving bitrate: {e}", self.firmware.can_menu)
+            error_msg(f"Error retrieving bitrate: {e}")
             return None
 
-    def install_katapult(self):
-        try:
-            if os.path.exists(KATAPULT_DIR):
-                error_msg(
-                    f"Katapult is already installed at {KATAPULT_DIR}.",
-                    self.firmware.can_uuid_menu,
-                )
-            command = [
-                "git",
-                "clone",
-                "https://github.com/Arksine/katapult.git",
-                KATAPULT_DIR,
-            ]
+    def menu(self) -> None:
+        header()
+        device = self.firmware.get_device()
+        firmware = self.firmware.get_firmware()
+        # Display selected UUID and firmware if available
+        if device is not None:
+            self.selected_device = device
+            print(colored_text("Device Selected:", Color.MAGENTA), self.selected_device)
 
-            print("Cloning the Katapult repository...")
-            _ = subprocess.run(command, check=True, text=True)
-
-            success_msg(f"Katapult has been successfully installed in {KATAPULT_DIR}.")
-
-        except subprocess.CalledProcessError as e:
-            error_msg(
-                f"Error cloning Katapult repository: {e}", self.firmware.can_uuid_menu
+        if firmware is not None:
+            self.selected_firmware = firmware
+            print(
+                colored_text("Firmware Selected:", Color.MAGENTA),
+                self.selected_firmware,
             )
 
-        except Exception as e:
-            error_msg(f"Unexpected error: {e}", self.firmware.can_uuid_menu)
-        finally:
-            _ = input("\nPress any key to return to the CAN menu...")
-            self.firmware.can_uuid_menu()
+        # Base menu items
+        menu_items = {
+            1: Menu.MenuItem("Find Cartographer Device", self.device_menu),
+            2: Menu.MenuItem(
+                "Find CAN Firmware", lambda: self.firmware.firmware_menu(type="CAN")
+            ),
+        }
+
+        # Dynamically add "Flash Selected Firmware" if conditions are met
+        if self.selected_firmware is not None and self.selected_device is not None:
+            menu_items[len(menu_items) + 1] = Menu.MenuItem(
+                "Flash Selected Firmware", lambda: self.firmware.confirm(type="CAN")
+            )
+
+        # Add "Back to main menu" after "Flash Selected Firmware"
+        menu_items[len(menu_items) + 1] = Menu.MenuItem(
+            colored_text("Back to main menu", Color.CYAN), self.firmware.main_menu
+        )
+
+        # Add exit option explicitly at the end
+        menu_items[0] = Menu.MenuItem("Exit", lambda: exit())
+
+        # Create and display the menu
+        menu = Menu("What would you like to do?", menu_items)
+        menu.display()
+
+    def device_menu(self):
+        header()
+
+        menu_items = {
+            1: Menu.MenuItem("Check klippy.log", self.search_klippy),
+            2: Menu.MenuItem("Enter UUID", self.enter_uuid),
+            3: Menu.MenuItem("Query CAN Devices", self.query_devices),
+            4: Menu.MenuItem(
+                "Back",
+                self.menu,
+            ),
+            5: Menu.MenuItem(
+                colored_text("Back to main menu", Color.CYAN), self.firmware.main_menu
+            ),
+            0: Menu.MenuItem("Exit", lambda: exit()),  # Add exit option explicitly
+        }
+
+        # Create and display the menu
+        menu = Menu("How would you like to find your CAN device?", menu_items)
+        menu.display()
 
     def katapult_check(self) -> bool:
         if not os.path.exists(KATAPULT_DIR):
@@ -648,11 +653,11 @@ class CAN:
 
         except subprocess.CalledProcessError as e:
             # Handle the error gracefully if the command fails
-            error_msg(f"Error checking CAN network: {e}", self.firmware.can_uuid_menu)
+            error_msg(f"Error checking CAN network: {e}")
             return False
         except Exception as e:
             # Handle unexpected errors
-            error_msg(f"Unexpected error: {e}", self.firmware.can_uuid_menu)
+            error_msg(f"Unexpected error: {e}")
             return False
 
     # find can uuid from klippy.log
@@ -664,14 +669,12 @@ class CAN:
             if not self.katapult_check():
                 error_msg(
                     "The Katapult directory doesn't exist or it is not installed.",
-                    self.firmware.can_uuid_menu,
                 )
                 return
 
             if not self.check_can_network():
                 error_msg(
                     "CAN network 'can0' is not active. Please ensure the CAN interface is configured.",
-                    self.firmware.can_uuid_menu,
                 )
                 return
 
@@ -708,25 +711,23 @@ class CAN:
                 if uuid in mcu_scanner_uuids:
                     menu_items[idx] = Menu.MenuItem(
                         f"Select {uuid} (MCU Scanner)",
-                        lambda uuid=uuid: self.select_uuid(uuid),
+                        lambda uuid=uuid: self.select_device(uuid),
                     )
                 elif uuid in scanner_uuids:
                     menu_items[idx] = Menu.MenuItem(
                         f"Select {uuid} (Potential match)",
-                        lambda uuid=uuid: self.select_uuid(uuid),
+                        lambda uuid=uuid: self.select_device(uuid),
                     )
                 else:
                     menu_items[idx] = Menu.MenuItem(
-                        f"Select {uuid}", lambda uuid=uuid: self.select_uuid(uuid)
+                        f"Select {uuid}", lambda uuid=uuid: self.select_device(uuid)
                     )
 
             # Add static options after UUID options
             menu_items[len(menu_items) + 1] = Menu.MenuItem(
                 "Check Again", self.search_klippy
             )
-            menu_items[len(menu_items) + 1] = Menu.MenuItem(
-                "Back", self.firmware.can_uuid_menu
-            )
+            menu_items[len(menu_items) + 1] = Menu.MenuItem("Back", self.device_menu)
             menu_items[len(menu_items) + 1] = Menu.MenuItem(
                 colored_text("Back to main menu", Color.CYAN),
                 self.firmware.main_menu,
@@ -741,18 +742,11 @@ class CAN:
         except FileNotFoundError:
             error_msg(
                 f"KLIPPY log file not found at {KLIPPY_LOG}.",
-                self.firmware.can_uuid_menu,
             )
         except Exception as e:
             error_msg(
                 f"Unexpected error while processing KLIPPY log: {e}",
-                self.firmware.can_uuid_menu,
             )
-
-    def validate_uuid(self, uuid: str) -> bool:
-        # Regex for a 12-character alphanumeric UUID (lowercase only)
-        uuid_regex = r"^[a-f0-9]{12}$"
-        return bool(re.match(uuid_regex, uuid))
 
     def enter_uuid(self):
         header()
@@ -763,33 +757,33 @@ class CAN:
             ).strip()
 
             if user_input.lower() == "back":
-                self.firmware.can_menu()  # Return to the CAN menu
+                self.menu()  # Return to the CAN menu
                 break
 
             # Validate the UUID format (basic validation)
-            if self.validate_uuid(user_input):
-                self.select_uuid(user_input)  # Save the UUID and return to CAN menu
+            if self.validator.validate_device(user_input, "CAN"):
+                self.select_device(user_input)  # Save the UUID and return to CAN menu
                 break
             else:
                 error_msg(
-                    "Invalid UUID format. Please try again., self.firmware.can_uuid_menu",
-                    self.firmware.can_uuid_menu,
+                    "Invalid UUID format. Please try again., self.device_menu",
                 )
 
-    def query_can(self):
+    def query_devices(self):
         header()
         page("Querying CAN devices..")
-
         detected_uuids: list[str] = []
 
         if not self.katapult_check():
             error_msg(
                 "The Katapult directory doesn't exist or it is not installed.",
-                self.firmware.can_uuid_menu,
             )
+            if self.katapult_installer is None:
+                self.katapult_installer = KatapultInstaller(self.device_menu)
+
             # Define menu items
             menu_items = {
-                1: Menu.MenuItem("Yes", self.install_katapult),
+                1: Menu.MenuItem("Yes", self.katapult_installer.install),
                 2: Menu.MenuItem(
                     colored_text("No, Back to main menu", Color.CYAN),
                     self.firmware.main_menu,
@@ -829,30 +823,28 @@ class CAN:
                                 detected_uuids.append(uuid)
                         print("=" * 40)
                     else:
-                        error_msg("No CAN devices found.", self.firmware.can_uuid_menu)
+                        error_msg("No CAN devices found.")
                 else:
-                    error_msg("Unexpected output format.", self.firmware.can_uuid_menu)
+                    error_msg("Unexpected output format.")
 
             except subprocess.CalledProcessError as e:
-                error_msg(
-                    f"Error querying CAN devices: {e}", self.firmware.can_uuid_menu
-                )
+                error_msg(f"Error querying CAN devices: {e}")
             except Exception as e:
-                error_msg(f"Unexpected error: {e}", self.firmware.can_uuid_menu)
+                error_msg(f"Unexpected error: {e}")
             finally:
                 # Define menu items, starting with UUID options
                 menu_items: dict[int, Menu.MenuItem] = {}
                 for index, uuid in enumerate(detected_uuids, start=1):
                     menu_items[index] = Menu.MenuItem(
-                        f"Select {uuid}", lambda uuid=uuid: self.select_uuid(uuid)
+                        f"Select {uuid}", lambda uuid=uuid: self.select_device(uuid)
                     )
 
                 # Add static options after UUID options
                 menu_items[len(menu_items) + 1] = Menu.MenuItem(
-                    "Check Again", self.query_can
+                    "Check Again", self.query_devices
                 )
                 menu_items[len(menu_items) + 1] = Menu.MenuItem(
-                    "Back", self.firmware.can_uuid_menu
+                    "Back", self.device_menu
                 )
                 menu_items[len(menu_items) + 1] = Menu.MenuItem(
                     colored_text("Back to main menu", Color.CYAN),
@@ -865,19 +857,15 @@ class CAN:
                 menu = Menu("Options", menu_items)
                 menu.display()
 
-    def select_uuid(self, uuid: str):
-        selected_device = uuid  # Save the selected UUID globally
-        self.firmware.set_uuid(selected_device)
-        self.firmware.can_menu()
+    def select_device(self, device: str):
+        self.selected_device = device  # Save the selected device
+        self.firmware.set_device(self.selected_device)
+        self.menu()
 
-    def retrieve_uuid(self) -> Optional[str]:
-        return self.firmware.get_uuid()
-
-    def flash_can(self, firmware_file: str, device: Optional[str]):
+    def flash_device(self, firmware_file: str, device: str):
         try:
-            if device is None:
-                raise ValueError("Device UUID must not be None.")
-
+            self.validator.check_selected_device()
+            self.validator.check_selected_firmware()
             # Prepare the command to execute the flash script
             cmd: str = os.path.expanduser("~/katapult/scripts/flash_can.py")
             command = [
@@ -891,21 +879,276 @@ class CAN:
                 device,  # Selected device UUID
             ]
 
-            # Execute the command
-            result = subprocess.run(command, text=True, capture_output=True, check=True)
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
 
-            # Output the results
-            self.firmware.flash_success(result.stdout.strip())
+            # Print stdout as it happens
+            if process.stdout is not None:
+                for line in process.stdout:
+                    print(line.strip())
+
+            # Wait for the process to complete
+            _ = process.wait()
+
+            # Check if the process completed successfully
+            if process.returncode == 0:
+                _ = input("Press enter to continue..")
+                self.firmware.flash_success("Firmware flashed successfully.")
+            else:
+                stderr_output = (
+                    process.stderr.read().strip()
+                    if process.stderr is not None
+                    else "No error details available."
+                )
+                _ = input("Press enter to continue..")
+                self.firmware.flash_fail(f"Error flashing firmware: {stderr_output}")
+
         except subprocess.CalledProcessError as e:
-            # Handle errors during the command execution
-            self.firmware.flash_fail(f"Error flashing firmware: {e}")
+            stderr_output = (
+                e.stderr.strip() if e.stderr else "No error details available."
+            )
+            _ = input("Press enter to continue..")
+            self.firmware.flash_fail(f"Error flashing firmware: {stderr_output}")
+        except Exception as e:
+            _ = input("Press enter to continue..")
+            self.firmware.flash_fail(f"Unexpected error: {str(e)}")
 
 
-class USB:
-    # find correct usb device for flashing
-    def get_usb_device_id(self):
+class Usb:
+    def __init__(self, firmware: Firmware, debug: bool = False, ftype: bool = False):
+        self.firmware: Firmware = firmware
+        self.validator: Validator = Validator(firmware)
+        self.katapult_installer: Optional[KatapultInstaller] = None
+        self.debug: bool = debug
+        self.ftype: bool = ftype
+        self.selected_device: Optional[str] = None
+        self.selected_firmware: Optional[str] = None
+
+    def menu(self) -> None:
         header()
-        step_title("Finding USB Device")
+        device = self.firmware.get_device()
+        firmware = self.firmware.get_firmware()
+        # Display selected UUID and firmware if available
+        if device is not None:
+            self.selected_device = device
+            print(colored_text("Device Selected:", Color.MAGENTA), self.selected_device)
+
+        if firmware is not None:
+            self.selected_firmware = firmware
+            print(
+                colored_text("Firmware Selected:", Color.MAGENTA),
+                self.selected_firmware,
+            )
+
+        # Base menu items
+        menu_items = {
+            1: Menu.MenuItem("Find Cartographer Device", self.query_devices),
+            2: Menu.MenuItem(
+                "Find USB Firmware", lambda: self.firmware.firmware_menu(type="USB")
+            ),
+        }
+
+        # Dynamically add "Flash Selected Firmware" if conditions are met
+        if self.selected_firmware is not None and self.selected_device is not None:
+            menu_items[len(menu_items) + 1] = Menu.MenuItem(
+                "Flash Selected Firmware", lambda: self.firmware.confirm(type="USB")
+            )
+
+        # Add "Back to main menu" after "Flash Selected Firmware"
+        menu_items[len(menu_items) + 1] = Menu.MenuItem(
+            colored_text("Back to main menu", Color.CYAN), self.firmware.main_menu
+        )
+
+        # Add exit option explicitly at the end
+        menu_items[0] = Menu.MenuItem("Exit", lambda: exit())
+
+        # Create and display the menu
+        menu = Menu("What would you like to do?", menu_items)
+        menu.display()
+
+    def katapult_check(self) -> bool:
+        if not os.path.exists(KATAPULT_DIR):
+            return False
+        return True
+
+    def query_devices(self):
+        header()
+        page("Querying USB devices..")
+
+        if not self.katapult_check():
+            error_msg(
+                "The Katapult directory doesn't exist or it is not installed.",
+            )
+            if self.katapult_installer is None:
+                self.katapult_installer = KatapultInstaller(self.menu)
+
+            # Define menu items
+            menu_items = {
+                1: Menu.MenuItem("Yes", self.katapult_installer.install),
+                2: Menu.MenuItem(
+                    colored_text("No, Back to main menu", Color.CYAN),
+                    self.firmware.main_menu,
+                ),
+                0: Menu.MenuItem("Exit", lambda: exit()),  # Add exit option explicitly
+            }
+
+            # Create and display the menu
+            menu = Menu("Would you like to install Katapult?", menu_items)
+            menu.display()
+        else:
+            try:
+                # List all devices in /dev/serial/by-id/
+                base_path = "/dev/serial/by-id/"
+                if not os.path.exists(base_path):
+                    error_msg(f"Path '{base_path}' does not exist.")
+                    return
+
+                detected_devices: List[str] = []
+                for device in os.listdir(base_path):
+                    if "Cartographer" in device or "katapult" in device:
+                        detected_devices.append(device)
+
+                if not detected_devices:
+                    error_msg(
+                        "No devices containing 'Cartographer' or 'katapult' found."
+                    )
+                    return
+
+                # Display the detected devices
+                print("Available Cartographe/Katapult Devices:")
+                print("=" * 40)
+                for device in detected_devices:
+                    print(device)
+                print("=" * 40)
+
+            except Exception as e:
+                error_msg(f"Unexpected error while querying devices: {e}")
+                return
+
+            # Define menu items, starting with detected devices
+            menu_items: dict[int, Menu.MenuItem] = {}
+            for index, device in enumerate(detected_devices, start=1):
+                menu_items[index] = Menu.MenuItem(
+                    f"Select {device}", lambda device=device: self.select_device(device)
+                )
+
+            # Add static options after the device options
+            menu_items[len(menu_items) + 1] = Menu.MenuItem(
+                "Check Again", self.query_devices
+            )
+            menu_items[len(menu_items) + 1] = Menu.MenuItem("Back", self.menu)
+            menu_items[len(menu_items) + 1] = Menu.MenuItem(
+                colored_text("Back to main menu", Color.CYAN), self.firmware.main_menu
+            )
+            # Add the Exit option explicitly
+            menu_items[0] = Menu.MenuItem("Exit", lambda: exit())
+
+            # Create and display the menu
+            menu = Menu("Options", menu_items)
+            menu.display()
+
+    def select_device(self, device: str):
+        self.selected_device = device  # Save the selected UUID globally
+        self.firmware.set_device(self.selected_device)
+        self.menu()
+
+    def flash_device(self, firmware_file: str, device: str):
+        try:
+            # Validate selected device and firmware
+            self.validator.check_selected_device()
+            self.validator.check_selected_firmware()
+
+            # Check if the device is already a Katapult device
+            if "katapult" in device.lower():
+                katapult_device = f"/dev/serial/by-id/{device}"
+            else:
+                # Validate that the device is a valid Cartographer device
+                if not self.validator.validate_device(device, "USB"):
+                    error_msg("Your device is not a valid Cartographer device.")
+                    return
+
+                # Prepend device path for Cartographer
+                device = f"/dev/serial/by-id/{device}"
+
+                # Enter bootloader for the device
+                bootloader_cmd = [
+                    os.path.expanduser("~/klippy-env/bin/python"),
+                    "-c",
+                    f"import flash_usb as u; u.enter_bootloader('{device}')",
+                ]
+                _ = subprocess.run(
+                    bootloader_cmd,
+                    text=True,
+                    check=True,
+                    cwd=os.path.expanduser("~/klipper/scripts"),
+                )
+                sleep(5)
+
+                # Perform ls to find Katapult device
+                base_path = "/dev/serial/by-id/"
+                katapult_device = None
+                if os.path.exists(base_path):
+                    for item in os.listdir(base_path):
+                        if "katapult" in item.lower():
+                            katapult_device = f"{base_path}{item}"
+                            break
+
+                if not katapult_device:
+                    error_msg("No Katapult device found after entering bootloader.")
+                    return
+
+            # Prepare the flash command
+            cmd: str = os.path.expanduser("~/katapult/scripts/flash_can.py")
+            command = [
+                "python3",
+                cmd,
+                "-f",
+                firmware_file,  # Firmware file path
+                "-d",
+                katapult_device,  # Selected device UUID
+            ]
+
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+            # Print stdout as it happens
+            if process.stdout is not None:
+                for line in process.stdout:
+                    print(line.strip())
+
+            # Wait for the process to complete
+            _ = process.wait()
+
+            # Check if the process completed successfully
+            if process.returncode == 0:
+                _ = input("Press enter to continue..")
+                self.firmware.flash_success("Firmware flashed successfully.")
+            else:
+                stderr_output = (
+                    process.stderr.read().strip()
+                    if process.stderr is not None
+                    else "No error details available."
+                )
+                _ = input("Press enter to continue..")
+                self.firmware.flash_fail(f"Error flashing firmware: {stderr_output}")
+
+        except subprocess.CalledProcessError as e:
+            stderr_output = (
+                e.stderr.strip() if e.stderr else "No error details available."
+            )
+            _ = input("Press enter to continue..")
+            self.firmware.flash_fail(f"Error flashing firmware: {stderr_output}")
+        except Exception as e:
+            _ = input("Press enter to continue..")
+            self.firmware.flash_fail(f"Unexpected error: {str(e)}")
 
 
 class DFU:
@@ -922,6 +1165,15 @@ class Validator:
         self.firmware: Firmware = (
             firmware  # Reference to the firmware object for navigation
         )
+
+    def validate_device(self, device: str, type: str) -> bool:
+        if type == "CAN":
+            device_regex = r"^[a-f0-9]{12}$"
+        elif type == "USB":
+            device_regex = r".*Cartographer.*"
+        else:
+            device_regex = r"^[a-f0-9]{12}$"
+        return bool(re.match(device_regex, device))
 
     def check_selected_firmware(self):
         if self.firmware.selected_firmware is None:
@@ -1041,6 +1293,50 @@ class RetrieveFirmware:
             error_msg(f"Failed to retrieve firmware: {e}")
 
 
+class KatapultInstaller:
+    def __init__(self, device_menu: Callable[[], None]) -> None:
+        """
+        Initialize the installer with a reference to the device menu callback.
+
+        :param device_menu: A callable to return to the device menu.
+        """
+        self.device_menu: Callable[[], None] = device_menu
+
+    def install(self) -> None:
+        """
+        Installs Katapult by cloning the repository to the specified directory.
+        """
+        try:
+            # Check if Katapult is already installed
+            if os.path.exists(KATAPULT_DIR):
+                error_msg(
+                    f"Katapult is already installed at {KATAPULT_DIR}.",
+                )
+                return
+
+            # Command to clone the repository
+            command = [
+                "git",
+                "clone",
+                "https://github.com/Arksine/katapult.git",
+                KATAPULT_DIR,
+            ]
+
+            print("Cloning the Katapult repository...")
+            _ = subprocess.run(command, check=True, text=True)
+
+            success_msg(f"Katapult has been successfully installed in {KATAPULT_DIR}.")
+
+        except subprocess.CalledProcessError as e:
+            error_msg(f"Error cloning Katapult repository: {e}")
+
+        except Exception as e:
+            error_msg(f"Unexpected error: {e}")
+
+        finally:
+            self.device_menu()
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Firmware flashing script with -b to select branch"
@@ -1049,7 +1345,7 @@ if __name__ == "__main__":
         "-b", "--branch", help="Specify the branch name", default="main"
     )
     _ = parser.add_argument(
-        "-d", "--debug", help="Enable debug output", action="store_true"
+        "-D", "--debug", help="Enable debug output", action="store_true"
     )
     _ = parser.add_argument(
         "-t", "--type", help="Enable katapult flash", action="store_true"
@@ -1072,7 +1368,7 @@ if __name__ == "__main__":
         help="Enable firmware for Creality K-Series printers",
         action="store_true",
     )
-    _ = parser.add_argument("-D", "--device", help="Specify a device", default=None)
+    _ = parser.add_argument("-d", "--device", help="Specify a device", default=None)
     _ = parser.add_argument(
         "-f",
         "--flash",
@@ -1100,9 +1396,9 @@ if __name__ == "__main__":
     )
     if not args.latest:
         if args.flash == "CAN":
-            fw.can_menu()
+            fw.can.menu()
         elif args.flash == "USB":
-            fw.usb_menu()
+            fw.usb.menu()
         elif args.flash == "DFU":
             fw.dfu_menu()
         else:
