@@ -4,12 +4,13 @@ from typing import Callable, Literal, TypeVar, overload
 import configfile
 import gcode
 from bed_mesh import BedMesh
-from webhooks import WebHooks
 from configfile import ConfigWrapper, PrinterConfig, sentinel
+from homing import PrinterHoming
 from mcu import MCU
 from pins import PrinterPins
 from reactor import Reactor
 from toolhead import ToolHead
+from webhooks import WebHooks
 
 from scanner import Scanner
 
@@ -62,6 +63,9 @@ class Printer:
         pass
     @overload
     def lookup_object(self, name: Literal["webhooks"]) -> WebHooks:
+        pass
+    @overload
+    def lookup_object(self, name: Literal["homing"]) -> PrinterHoming:
         pass
     @overload
     def lookup_object(self, name: str, default: T | type[sentinel] = sentinel) -> T:

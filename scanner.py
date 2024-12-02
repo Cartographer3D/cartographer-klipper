@@ -1165,7 +1165,7 @@ class Scanner:
                 self.toolhead.manual_move(move, self.z_hop_speed)
                 self.toolhead.wait_moves()
 
-    def _move(self, coord, speed):
+    def _move(self, coord: "list[float | None]", speed: float):
         self.printer.lookup_object("toolhead").manual_move(coord, speed)
 
     def _handle_connect(self):
