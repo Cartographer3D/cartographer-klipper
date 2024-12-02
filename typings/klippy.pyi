@@ -1,10 +1,12 @@
-from typing import Callable, Literal, TypeVar, final, overload
+# https://github.com/Klipper3d/klipper/blob/master/klippy/klippy.py
+from typing import Callable, Literal, TypeVar, overload
 
-from bed_mesh import BedMesh, ZMesh
+from bed_mesh import BedMesh
 import configfile
 import gcode
 from configfile import ConfigWrapper, PrinterConfig, sentinel
 from mcu import MCU
+from pins import PrinterPins
 from reactor import Reactor
 from toolhead import ToolHead
 
@@ -12,10 +14,9 @@ from scanner import Scanner
 
 T = TypeVar("T")
 
-@final
 class Printer:
-    config_error = configfile.error
-    command_error = gcode.CommandError
+    config_error: type[configfile.error]
+    command_error: type[gcode.CommandError]
     def add_object(self, name: str, obj: object) -> None:
         pass
     @overload
@@ -54,6 +55,9 @@ class Printer:
         pass
     @overload
     def lookup_object(self, name: Literal["toolhead"]) -> ToolHead:
+        pass
+    @overload
+    def lookup_object(self, name: Literal["pins"]) -> PrinterPins:
         pass
     @overload
     def lookup_object(self, name: str, default: T | type[sentinel] = sentinel) -> T:

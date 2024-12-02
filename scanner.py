@@ -1202,15 +1202,14 @@ class Scanner:
 
     def _handle_mcu_identify(self):
         try:
-            constants = self._mcu.get_constants()
             if self._mcu._mcu_freq < 20000000:
                 self.sensor_freq = self._mcu._mcu_freq
             elif self._mcu._mcu_freq < 100000000:
                 self.sensor_freq = self._mcu._mcu_freq / 2
             else:
                 self.sensor_freq = self._mcu._mcu_freq / 6
-            self.inv_adc_max = 1.0 / constants.get("ADC_MAX")
-            self.temp_smooth_count = constants.get(
+            self.inv_adc_max = 1.0 / self._mcu.get_constant_float("ADC_MAX")
+            self.temp_smooth_count = self._mcu.get_constant_float(
                 self.sensor.upper() + "_ADC_SMOOTH_COUNT"
             )
             self.thermistor = thermistor.Thermistor(10000.0, 0.0)
@@ -1702,7 +1701,7 @@ class Scanner:
             self.scanner_stream_cmd.send([0])
         self._stream_flush()
 
-    def _stream_timeout(self, eventtime):
+    def _stream_timeout(self, _: float):
         if not self._stream_en:
             return self.reactor.NEVER
         msg = "Scanner sensor not receiving data"
@@ -2963,7 +2962,7 @@ class ScannerEndstopWrapper:
         etrsync.set_home_end_time(home_end_time)
         if self._mcu.is_fileoutput():
             self._trigger_completion.complete(True)
-        self._trigger_completion.wait()
+        _ = self._trigger_completion.wait()
         self.scanner.scanner_stop_home.send()
         ffi_main, ffi_lib = chelper.get_ffi()
         ffi_lib.trdispatch_stop(self._trdispatch)

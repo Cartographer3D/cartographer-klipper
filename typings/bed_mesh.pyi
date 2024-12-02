@@ -1,4 +1,4 @@
-# Types for https://github.com/Klipper3d/klipper/blob/master/klippy/extras/bed_mesh.py
+# https://github.com/Klipper3d/klipper/blob/master/klippy/extras/bed_mesh.py
 from typing import Literal, TypedDict
 
 class BedMeshError(Exception):

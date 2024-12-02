@@ -1,3 +1,5 @@
+# https://github.com/Klipper3d/klipper/blob/master/klippy/extras/thermistor.py
+
 class Thermistor:
     def __init__(self, pullup: float, inline_resistor: float) -> None:
         pass
