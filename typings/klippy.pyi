@@ -1,5 +1,6 @@
 from typing import Callable, Literal, TypeVar, final, overload
 
+from bed_mesh import BedMesh, ZMesh
 import configfile
 import gcode
 from configfile import ConfigWrapper, PrinterConfig, sentinel
@@ -17,6 +18,14 @@ class Printer:
     command_error = gcode.CommandError
     def add_object(self, name: str, obj: object) -> None:
         pass
+    @overload
+    def load_object(
+        self,
+        config: ConfigWrapper,
+        section: Literal["bed_mesh"],
+    ) -> BedMesh:
+        pass
+    @overload
     def load_object(
         self,
         config: ConfigWrapper,
