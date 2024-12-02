@@ -12,6 +12,7 @@ from pins import PrinterPins
 from reactor import Reactor
 from toolhead import ToolHead
 from webhooks import WebHooks
+from axis_twist_compensation import AxisTwistCompensation
 
 from scanner import Scanner
 
@@ -74,6 +75,11 @@ class Printer:
         pass
     @overload
     def lookup_object(self, name: Literal["homing"]) -> PrinterHoming:
+        pass
+    @overload
+    def lookup_object(
+        self, name: Literal["axis_twist_compensation"], default: None
+    ) -> AxisTwistCompensation | None:
         pass
     @overload
     def lookup_object(self, name: str, default: T | type[sentinel] = sentinel) -> T:

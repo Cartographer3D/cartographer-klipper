@@ -23,7 +23,7 @@ import threading
 import time
 import traceback
 from dataclasses import dataclass
-from typing import Any, Optional, final
+from typing import Any, Callable, Optional, final
 
 import chelper
 import msgproto
@@ -239,7 +239,7 @@ class Scanner:
         )
         self.trapq = None
         self._last_trapq_move = None
-        self.mod_axis_twist_comp = None
+        self.mod_axis_twist_comp: Optional[Callable[[list[float]], float]] = None
         self.raw_axis_twist_comp = None
 
         mainsync = self.printer.lookup_object("mcu")._clocksync
@@ -926,7 +926,7 @@ class Scanner:
 
             self.trigger_method = 0
 
-    def start_threshold_scan(self, gcmd: GCodeCommand, touch_settings, verbose):
+    def start_threshold_scan(self, gcmd: GCodeCommand, touch_settings, verbose: bool):
         kinematics = self.toolhead.get_kinematics()
         initial_position = touch_settings.initial_position
         homing_position = touch_settings.homing_position
@@ -1061,7 +1061,7 @@ class Scanner:
                 kinematics.note_z_not_homed()
             raise
 
-    def touch_probe(self, speed, skip=0, verbose=True):
+    def touch_probe(self, speed: float, skip: int = 0, verbose: bool = True):
         skipped_msg = ""
         toolhead = self.printer.lookup_object("toolhead")
         curtime = self.printer.get_reactor().monotonic()
@@ -1086,7 +1086,7 @@ class Scanner:
             )
         return epos[:3]
 
-    def _calc_median(self, positions):
+    def _calc_median(self, positions: "list[list[float]]"):
         z_sorted = sorted(positions, key=(lambda p: p[2]))
         middle = len(positions) // 2
         if (len(positions) & 1) == 1:
@@ -1095,11 +1095,11 @@ class Scanner:
         # even number of samples
         return self._calc_mean(z_sorted[middle - 1 : middle + 1])
 
-    def _calc_mean(self, positions):
+    def _calc_mean(self, positions: "list[list[float]]"):
         count = float(len(positions))
         return [sum([pos[i] for pos in positions]) / count for i in range(3)]
 
-    def log_debug_info(self, verbose, gcmd: GCodeCommand, *args):
+    def log_debug_info(self, verbose: bool, gcmd: GCodeCommand, *args: object):
         if verbose:
             for message in args:
                 gcmd.respond_info(str(message))
@@ -1144,7 +1144,7 @@ class Scanner:
                 )
                 self.gcode.run_script_from_command(cmd)
 
-    def set_accel(self, value):
+    def set_accel(self, value: float):
         self.gcode.run_script_from_command("SET_VELOCITY_LIMIT ACCEL=%.3f" % (value,))
 
     def _zhop(self):
@@ -1171,27 +1171,18 @@ class Scanner:
 
     def _handle_connect(self):
         self.phoming = self.printer.lookup_object("homing")
-        self.mod_axis_twist_comp = self.printer.lookup_object(
-            "axis_twist_compensation", None
-        )
-        if self.mod_axis_twist_comp is not None:
-            if not hasattr(self.mod_axis_twist_comp, "get_z_compensation_value"):
-                self.raw_axis_twist_comp = self.mod_axis_twist_comp
+        axis_twist_comp = self.printer.lookup_object("axis_twist_compensation", None)
+        if axis_twist_comp is not None:
+            if hasattr(axis_twist_comp, "get_z_compensation_value"):
+                self.mod_axis_twist_comp = axis_twist_comp.get_z_compensation_value
+            else:
 
-                def get_z_compensation_value(self, pos):
+                def get_z_compensation_value(pos):
                     temp = list(pos)
-                    self.raw_axis_twist_comp._update_z_compensation_value(temp)
+                    axis_twist_comp._update_z_compensation_value(temp)
                     return temp[2] - pos[2]
 
-                axis_twist_comp = type(
-                    "class",
-                    (object,),
-                    {
-                        "get_z_compensation_value": get_z_compensation_value,
-                        "raw_axis_twist_comp": self.raw_axis_twist_comp,
-                    },
-                )
-                self.mod_axis_twist_comp = axis_twist_comp()
+                self.mod_axis_twist_comp = get_z_compensation_value
         # Ensure streaming mode is stopped
         self.scanner_stream_cmd.send([0])
 
@@ -1680,8 +1671,8 @@ class Scanner:
 
         if pos is None:
             return
-        if sample["dist"] is not None and self.mod_axis_twist_comp:
-            sample["dist"] -= self.mod_axis_twist_comp.get_z_compensation_value(pos)
+        if sample["dist"] is not None and self.mod_axis_twist_comp is not None:
+            sample["dist"] -= self.mod_axis_twist_comp(pos)
         sample["pos"] = pos
         sample["vel"] = vel
 
@@ -1810,7 +1801,9 @@ class Scanner:
         self._stream_buffer.append(params.copy())
         self._stream_flush_schedule()
 
-    def _get_trapq_position(self, print_time):
+    def _get_trapq_position(
+        self, print_time: float
+    ) -> "tuple[list[float] | None, float | None]":
         ffi_main, ffi_lib = chelper.get_ffi()
         data = ffi_main.new("struct pull_move[1]")
         count = ffi_lib.trapq_extract_old(self.trapq, data, 1, 0.0, print_time)
@@ -1819,11 +1812,11 @@ class Scanner:
         move = data[0]
         move_time = max(0.0, min(move.move_t, print_time - move.print_time))
         dist = (move.start_v + 0.5 * move.accel * move_time) * move_time
-        pos = (
+        pos = [
             move.start_x + move.x_r * dist,
             move.start_y + move.y_r * dist,
             move.start_z + move.z_r * dist,
-        )
+        ]
         velocity = move.start_v + move.accel * move_time
         return pos, velocity
 
