@@ -3,6 +3,7 @@ from typing import Sequence, TypedDict
 
 import gcode
 from kinematics.extruder import Extruder
+from kinematics.none import NoneKinematics
 
 class _KinematicsStatus(TypedDict):
     homed_axes: str
@@ -25,7 +26,7 @@ type _Pos = list[float]
 
 class ToolHead:
     Coord: type[gcode.Coord]
-    def get_kinematics(self):
+    def get_kinematics(self) -> NoneKinematics:
         pass
     def get_extruder(self) -> Extruder:
         pass

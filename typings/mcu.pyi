@@ -6,6 +6,7 @@ from clocksync import ClockSync, SecondarySync
 from configfile import ConfigWrapper
 from klippy import Printer
 from reactor import ReactorCompletion
+from stepper import MCU_stepper
 
 T = TypeVar("T")
 
@@ -88,9 +89,9 @@ class MCU_trsync:
         pass
     def get_mcu(self) -> MCU:
         pass
-    def add_stepper(self, stepper) -> None:
+    def add_stepper(self, stepper: MCU_stepper) -> None:
         pass
-    def get_steppers(self):
+    def get_steppers(self) -> list[MCU_stepper]:
         pass
     def start(
         self,

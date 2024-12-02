@@ -34,6 +34,7 @@ from configfile import ConfigWrapper
 from gcode import GCodeCommand, GCodeDispatch
 from klippy import Printer
 from mcu import MCU, MCU_trsync
+from stepper import MCU_stepper
 from webhooks import WebRequest
 
 from . import bed_mesh, manual_probe, probe, temperature_sensor, thermistor
@@ -2889,7 +2890,7 @@ class ScannerEndstopWrapper:
     def get_mcu(self):
         return self._mcu
 
-    def add_stepper(self, stepper):
+    def add_stepper(self, stepper: MCU_stepper):
         trsyncs = {trsync.get_mcu(): trsync for trsync in self._trsyncs}
         stepper_mcu = stepper.get_mcu()
         trsync = trsyncs.get(stepper_mcu)
