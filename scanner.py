@@ -2536,10 +2536,11 @@ class ScannerTempModel:
         return param_a * (temp_target + param_b / 2 / param_a) ** 2 + ax + self.fmin
 
 
+@final
 class ModelManager:
-    def __init__(self, scanner):
+    def __init__(self, scanner: Scanner):
         self.scanner = scanner
-        self.gcode: GCodeDispatch = scanner.printer.lookup_object("gcode")
+        self.gcode = scanner.printer.lookup_object("gcode")
 
         for sensor in [scanner.sensor, scanner.sensor_alt]:
             if sensor:  # Ensure the sensor is not None
@@ -2588,7 +2589,7 @@ class ModelManager:
         if name != oldname:
             model = copy.copy(model)
         model.name = name
-        model.save(self.scanner)
+        model.save()
         if name != oldname:
             self.scanner.models[name] = model
 
@@ -2598,15 +2599,15 @@ class ModelManager:
         name = gcmd.get("NAME")
         model = self.scanner.models.get(name, None)
         if model is None:
-            raise gcmd.error("Unknown model '%s'" % (name,))
+            raise gcmd.error(f"Unknown model '{name}'")
         configfile = self.scanner.printer.lookup_object("configfile")
         section = "scanner model " + model.name
         configfile.remove_section(section)
-        self.scanner.models.pop(name)
+        _ = self.scanner.models.pop(name)
         gcmd.respond_info(
-            "Model '%s' was removed for the current session.\n"
-            "Run SAVE_CONFIG to update the printer configuration"
-            "and restart Klipper." % (name,)
+            f"Model '{name}' was removed for the current session.\n"
+            + "Run SAVE_CONFIG to update the printer configuration"
+            + "and restart Klipper."
         )
         if self.scanner.model == model:
             self.scanner.model = None
@@ -3067,7 +3068,7 @@ class ScannerMeshHelper:
             "klippy:connect", self._handle_connect
         )
 
-        self.gcode: GCodeDispatch = self.scanner.printer.lookup_object("gcode")
+        self.gcode = self.scanner.printer.lookup_object("gcode")
         self.prev_gcmd = self.gcode.register_command("BED_MESH_CALIBRATE", None)
         self.gcode.register_command(
             "BED_MESH_CALIBRATE",
