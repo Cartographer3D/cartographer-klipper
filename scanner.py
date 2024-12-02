@@ -3092,10 +3092,7 @@ class ScannerMeshHelper:
             self.prev_gcmd(gcmd)
 
     def _handle_connect(self):
-        # TODO: Proper type for exclude_object
-        self.exclude_object: Any | None = self.scanner.printer.lookup_object(
-            "exclude_object", None
-        )
+        self.exclude_object = self.scanner.printer.lookup_object("exclude_object", None)
 
     def _handle_mcu_identify(self):
         # Auto determine a safe overscan amount
@@ -3256,13 +3253,7 @@ class ScannerMeshHelper:
 
         # If the user requested adaptive meshing, try to shrink the values we just configured
         if gcmd.get_int("ADAPTIVE", 0):
-            if self.exclude_object is not None:
-                margin = gcmd.get_float("ADAPTIVE_MARGIN", self.adaptive_margin)
-                self._shrink_to_excluded_objects(gcmd, margin)
-            else:
-                gcmd.respond_info(
-                    "Requested adaptive mesh, but [exclude_object] is not enabled. Ignoring."
-                )
+            self._shrink_to_excluded_objects(gcmd)
 
         self.step_x = (self.max_x - self.min_x) / (self.res_x - 1)
         self.step_y = (self.max_y - self.min_y) / (self.res_y - 1)
@@ -3301,15 +3292,18 @@ class ScannerMeshHelper:
         matrix = self._process_clusters(clusters, gcmd)
         self._apply_mesh(matrix, gcmd)
 
-    def _shrink_to_excluded_objects(self, gcmd: GCodeCommand, margin):
+    def _shrink_to_excluded_objects(self, gcmd: GCodeCommand):
+        if self.exclude_object is None:
+            gcmd.respond_info(
+                "Requested adaptive mesh, but [exclude_object] is not enabled. Ignoring."
+            )
+            return
+
+        objects = self.exclude_object.get_status().get("objects", [])
+        margin = gcmd.get_float("ADAPTIVE_MARGIN", self.adaptive_margin)
+
         bound_min_x, bound_max_x = None, None
         bound_min_y, bound_max_y = None, None
-        if self.exclude_object is None:
-            # TODO: Show the error
-            return
-        objects = self.exclude_object.get_status().get("objects", {})
-        if len(objects) == 0:
-            return
 
         for obj in objects:
             for point in obj["polygon"]:
@@ -3317,6 +3311,17 @@ class ScannerMeshHelper:
                 bound_max_x = opt_max(bound_max_x, point[0])
                 bound_min_y = opt_min(bound_min_y, point[1])
                 bound_max_y = opt_max(bound_max_y, point[1])
+        if (
+            bound_min_x is None
+            or bound_max_x is None
+            or bound_min_y is None
+            or bound_max_y is None
+        ):
+            gcmd.respond_info(
+                "Requested adaptive mesh, but no oobjects defined. Ignoring."
+            )
+            return
+
         bound_min_x -= margin
         bound_max_x += margin
         bound_min_y -= margin

@@ -4,6 +4,7 @@ from typing import Callable, Literal, TypeVar, overload
 import configfile
 from bed_mesh import BedMesh
 from configfile import ConfigWrapper, PrinterConfig, sentinel
+from exclude_object import ExcludeObject
 from gcode import CommandError, GCodeDispatch
 from gcode_move import GCodeMove
 from heaters import PrinterHeaters
@@ -63,6 +64,11 @@ class Printer:
         pass
     @overload
     def lookup_object(self, name: Literal["configfile"]) -> PrinterConfig:
+        pass
+    @overload
+    def lookup_object(
+        self, name: Literal["exclude_object"], default: None
+    ) -> ExcludeObject | None:
         pass
     @overload
     def lookup_object(self, name: Literal["gcode"]) -> GCodeDispatch:
