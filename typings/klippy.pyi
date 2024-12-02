@@ -1,9 +1,10 @@
 # https://github.com/Klipper3d/klipper/blob/master/klippy/klippy.py
 from typing import Callable, Literal, TypeVar, overload
 
-from bed_mesh import BedMesh
 import configfile
 import gcode
+from bed_mesh import BedMesh
+from webhooks import WebHooks
 from configfile import ConfigWrapper, PrinterConfig, sentinel
 from mcu import MCU
 from pins import PrinterPins
@@ -58,6 +59,9 @@ class Printer:
         pass
     @overload
     def lookup_object(self, name: Literal["pins"]) -> PrinterPins:
+        pass
+    @overload
+    def lookup_object(self, name: Literal["webhooks"]) -> WebHooks:
         pass
     @overload
     def lookup_object(self, name: str, default: T | type[sentinel] = sentinel) -> T:

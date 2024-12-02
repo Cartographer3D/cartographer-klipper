@@ -34,6 +34,7 @@ from configfile import ConfigWrapper
 from gcode import GCodeCommand, GCodeDispatch
 from klippy import Printer
 from mcu import MCU, MCU_trsync
+from webhooks import WebRequest
 
 from . import bed_mesh, manual_probe, probe, temperature_sensor, thermistor
 
@@ -1894,7 +1895,7 @@ class Scanner:
 
     # Webhook handlers
 
-    def _handle_req_status(self, web_request):
+    def _handle_req_status(self, web_request: WebRequest):
         temp = None
         sample = self._sample_async()
         out = {
@@ -1906,7 +1907,7 @@ class Scanner:
             out["temp"] = temp
         web_request.send(out)
 
-    def _handle_req_dump(self, web_request):
+    def _handle_req_dump(self, web_request: WebRequest):
         self._api_dump_helper.add_client(web_request)
 
     # GCode command handlers
@@ -2741,7 +2742,7 @@ class APIDumpHelper:
             cconn.send(tmp)
         self.buffer = []
 
-    def add_client(self, web_request):
+    def add_client(self, web_request: WebRequest):
         cconn = web_request.get_client_connection()
         template = web_request.get_dict("response_template", {})
         self.clients[cconn] = template
