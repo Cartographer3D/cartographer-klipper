@@ -2,9 +2,10 @@
 from typing import Callable, Literal, TypeVar, overload
 
 import configfile
-import gcode
 from bed_mesh import BedMesh
 from configfile import ConfigWrapper, PrinterConfig, sentinel
+from gcode import CommandError, GCodeDispatch
+from gcode_move import GCodeMove
 from heaters import PrinterHeaters
 from homing import PrinterHoming
 from mcu import MCU
@@ -20,7 +21,7 @@ T = TypeVar("T")
 
 class Printer:
     config_error: type[configfile.error]
-    command_error: type[gcode.CommandError]
+    command_error: type[CommandError]
     def add_object(self, name: str, obj: object) -> None:
         pass
     @overload
@@ -56,10 +57,27 @@ class Printer:
         pass
 
     @overload
+    def lookup_object(
+        self, name: Literal["axis_twist_compensation"], default: None
+    ) -> AxisTwistCompensation | None:
+        pass
+    @overload
     def lookup_object(self, name: Literal["configfile"]) -> PrinterConfig:
         pass
     @overload
+    def lookup_object(self, name: Literal["gcode"]) -> GCodeDispatch:
+        pass
+    @overload
+    def lookup_object(self, name: Literal["gcode_move"]) -> GCodeMove:
+        pass
+    @overload
+    def lookup_object(self, name: Literal["homing"]) -> PrinterHoming:
+        pass
+    @overload
     def lookup_object(self, name: Literal["mcu"]) -> MCU:
+        pass
+    @overload
+    def lookup_object(self, name: Literal["pins"]) -> PrinterPins:
         pass
     @overload
     def lookup_object(self, name: Literal["scanner"]) -> Scanner:
@@ -68,18 +86,7 @@ class Printer:
     def lookup_object(self, name: Literal["toolhead"]) -> ToolHead:
         pass
     @overload
-    def lookup_object(self, name: Literal["pins"]) -> PrinterPins:
-        pass
-    @overload
     def lookup_object(self, name: Literal["webhooks"]) -> WebHooks:
-        pass
-    @overload
-    def lookup_object(self, name: Literal["homing"]) -> PrinterHoming:
-        pass
-    @overload
-    def lookup_object(
-        self, name: Literal["axis_twist_compensation"], default: None
-    ) -> AxisTwistCompensation | None:
         pass
     @overload
     def lookup_object(self, name: str, default: T | type[sentinel] = sentinel) -> T:
