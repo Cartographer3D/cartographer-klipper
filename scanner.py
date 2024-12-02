@@ -34,6 +34,7 @@ from configfile import ConfigWrapper
 from gcode import GCodeCommand, GCodeDispatch
 from klippy import Printer
 from mcu import MCU, MCU_trsync
+from temperature_sensor import PrinterSensorGeneric
 
 from . import bed_mesh, manual_probe, probe, thermistor
 
@@ -87,8 +88,10 @@ class Scanner:
 
         temp_sensor_override = config.get("temp_sensor_override", None)
         if temp_sensor_override is not None:
-            self.thermistor_override = config.printer.load_object(
-                config, "temperature_sensor " + temp_sensor_override
+            self.thermistor_override: Optional[PrinterSensorGeneric] = (
+                config.printer.load_object(
+                    config, "temperature_sensor " + temp_sensor_override
+                )
             )
         else:
             self.thermistor_override = None
@@ -2437,8 +2440,9 @@ class ScannerModel:
         return freq
 
 
+@final
 class ScannerTempModelBuilder:
-    _DEFAULTS = {
+    _DEFAULTS: "dict[str, Optional[float]]" = {
         "a_a": None,
         "a_b": None,
         "b_a": None,
@@ -2447,11 +2451,11 @@ class ScannerTempModelBuilder:
         "fmin_temp": None,
     }
 
-    @classmethod
-    def load(cls, config):
+    @staticmethod
+    def load(config: ConfigWrapper):
         return ScannerTempModelBuilder(config)
 
-    def __init__(self, config):
+    def __init__(self, config: ConfigWrapper):
         self.parameters = ScannerTempModelBuilder._DEFAULTS.copy()
         for key in self.parameters.keys():
             param = config.getfloat("tc_" + key, None)
@@ -2464,7 +2468,7 @@ class ScannerTempModelBuilder:
         logging.info("scanner: built tempco model %s", self.parameters)
         return ScannerTempModel(**self.parameters)
 
-    def build_with_base(self, scanner):
+    def build_with_base(self, scanner: Scanner):
         base_data = scanner.scanner_base_read_cmd.send([6, 0])
         (f_count, adc_count) = struct.unpack("<IH", base_data["bytes"])
         if f_count < 0xFFFFFFFF and adc_count < 0xFFFF:
@@ -2990,8 +2994,10 @@ class ScannerEndstopWrapper:
 
 @final
 class ScannerMeshHelper:
-    @classmethod
-    def create(cls, scanner, config):
+    @staticmethod
+    def create(
+        scanner: Scanner, config: ConfigWrapper
+    ) -> Optional["ScannerMeshHelper"]:
         if config.has_section("bed_mesh"):
             mesh_config = config.getsection("bed_mesh")
             if mesh_config.get("mesh_radius", None) is not None:
@@ -3671,7 +3677,7 @@ def arc_points(cx, cy, r, start_angle, span):
     return points
 
 
-def convert_float(data):
+def convert_float(data) -> float:
     toFloat = float(data)
     if np.isinf(toFloat) or np.isnan(toFloat):
         raise ValueError(
