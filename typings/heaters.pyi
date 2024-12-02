@@ -10,3 +10,6 @@ class Heater:
     pass
     def get_status(self, eventtime: float) -> _Status:
         pass
+
+class PrinterHeaters:
+    available_sensors: list[str]

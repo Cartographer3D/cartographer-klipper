@@ -5,6 +5,7 @@ import configfile
 import gcode
 from bed_mesh import BedMesh
 from configfile import ConfigWrapper, PrinterConfig, sentinel
+from heaters import PrinterHeaters
 from homing import PrinterHoming
 from mcu import MCU
 from pins import PrinterPins
@@ -27,6 +28,13 @@ class Printer:
         config: ConfigWrapper,
         section: Literal["bed_mesh"],
     ) -> BedMesh:
+        pass
+    @overload
+    def load_object(
+        self,
+        config: ConfigWrapper,
+        section: Literal["heaters"],
+    ) -> PrinterHeaters:
         pass
     @overload
     def load_object(
