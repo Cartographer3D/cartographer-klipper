@@ -2752,8 +2752,9 @@ class APIDumpHelper:
         web_request.send({"header": self.fields})
 
 
+@final
 class ScannerWrapper:
-    def __init__(self, scanner):
+    def __init__(self, scanner: Scanner):
         self.scanner = scanner
 
     def multi_probe_begin(self):
@@ -2772,10 +2773,10 @@ class ScannerWrapper:
         return self.scanner.run_probe(gcmd)
 
     def probe_prepare(self, hmove):
-        return self.scanner.probe_prepare(hmove)
+        pass
 
     def probe_finish(self, hmove):
-        return self.scanner.probe_finish(hmove)
+        pass
 
     def get_probe_params(self, gcmd: Optional[GCodeCommand] = None):
         return {
@@ -2798,14 +2799,15 @@ class ScannerWrapper:
         return res
 
 
+@final
 class ScannerTempWrapper:
-    def __init__(self, scanner):
+    def __init__(self, scanner: Scanner):
         self.scanner = scanner
 
-    def get_temp(self, eventtime):
+    def get_temp(self, eventtime: float):
         return self.scanner.last_temp, 0
 
-    def get_status(self, eventtime):
+    def get_status(self, eventtime: float):
         return {
             "temperature": round(self.scanner.last_temp, 2),
             "measured_min_temp": round(self.scanner.measured_min, 2),
