@@ -23,7 +23,7 @@ import threading
 import time
 import traceback
 from dataclasses import dataclass
-from typing import Any, Callable, Optional, final
+from typing import Callable, Optional, final
 
 import chelper
 import msgproto
@@ -31,7 +31,7 @@ import numpy as np
 import pins
 from clocksync import SecondarySync
 from configfile import ConfigWrapper
-from gcode import GCodeCommand, GCodeDispatch
+from gcode import GCodeCommand
 from klippy import Printer
 from mcu import MCU, MCU_trsync
 from stepper import MCU_stepper
@@ -540,7 +540,7 @@ class Scanner:
             self.extruder_target = 0
 
     # Event handlers
-    def start_touch(self, gcmd: GCodeCommand, touch_settings, verbose):
+    def start_touch(self, gcmd: GCodeCommand, touch_settings, verbose: bool):
         kinematics = self.toolhead.get_kinematics()
         initial_position = touch_settings.initial_position
         homing_position = touch_settings.homing_position
@@ -1321,7 +1321,7 @@ class Scanner:
         finally:
             self._stop_streaming()
 
-    def _move_to_probing_height(self, speed):
+    def _move_to_probing_height(self, speed: float):
         target = self.trigger_distance
         top = target + self.backlash_comp
         cur_z = self.toolhead.get_position()[2]
@@ -1330,7 +1330,7 @@ class Scanner:
         self.toolhead.manual_move([None, None, target], speed)
         self.toolhead.wait_moves()
 
-    def _probing_move_to_probing_height(self, speed):
+    def _probing_move_to_probing_height(self, speed: float):
         curtime = self.reactor.monotonic()
         status = self.toolhead.get_kinematics().get_status(curtime)
         pos = self.toolhead.get_position()
@@ -1344,7 +1344,14 @@ class Scanner:
                 reason += probe.HINT_TIMEOUT
             raise self.printer.command_error(reason)
 
-    def _probe(self, speed, skip=0, num_samples=10, allow_faulty=False, verbose=True):
+    def _probe(
+        self,
+        speed: float,
+        skip: int = 0,
+        num_samples: int = 10,
+        allow_faulty: bool = False,
+        verbose: bool = True,
+    ) -> "list[float]":
         skipped_msg = ""
         if self.trigger_method != 0:
             return self.touch_probe(speed, skip)
@@ -1938,10 +1945,10 @@ class Scanner:
         pos = self.run_probe(gcmd)
         gcmd.respond_info("Result is z=%.6f" % (pos[2],))
 
-    def _save_threshold(self, threshold, speed):
+    def _save_threshold(self, threshold: int, speed: float):
         configfile = self.printer.lookup_object("configfile")
         configfile.set("scanner", "scanner_touch_threshold", "%d" % int(threshold))
-        configfile.set("scanner", "scanner_touch_speed", "%d" % int(speed))
+        configfile.set("scanner", "scanner_touch_speed", "%d" % float(speed))
 
     cmd_SCANNER_ESTIMATE_BACKLASH_help = "Estimate Z axis backlash"
 
@@ -1951,7 +1958,7 @@ class Scanner:
         speed = gcmd.get_float("PROBE_SPEED", self.speed, above=0.0)
         cur_z = self.toolhead.get_position()[2]
         self.toolhead.manual_move([None, None, cur_z + overrun], speed)
-        self.run_probe(gcmd)
+        _ = self.run_probe(gcmd)
 
         lift_speed = self.get_lift_speed(gcmd)
         target = gcmd.get_float("Z", self.trigger_distance)
