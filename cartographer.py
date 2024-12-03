@@ -145,7 +145,7 @@ class CartographerProbe:
         self.gcode.register_command("CARTOGRAPHER_ESTIMATE_BACKLASH",
                                     self.cmd_CARTOGRAPHER_ESTIMATE_BACKLASH,
                                     desc=self.cmd_CARTOGRAPHER_ESTIMATE_BACKLASH_help)
-        self.gcode.register_command("probe", self.cmd_PROBE,
+        self.gcode.register_command("PROBE", self.cmd_PROBE,
                                     desc=self.cmd_PROBE_help)
         self.gcode.register_command("PROBE_ACCURACY", self.cmd_PROBE_ACCURACY,
                                     desc=self.cmd_PROBE_ACCURACY_help)
