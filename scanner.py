@@ -1948,7 +1948,7 @@ class Scanner:
     def _save_threshold(self, threshold: int, speed: float):
         configfile = self.printer.lookup_object("configfile")
         configfile.set("scanner", "scanner_touch_threshold", "%d" % int(threshold))
-        configfile.set("scanner", "scanner_touch_speed", "%d" % float(speed))
+        configfile.set("scanner", "scanner_touch_speed", "%d" % int(speed))
 
     cmd_SCANNER_ESTIMATE_BACKLASH_help = "Estimate Z axis backlash"
 
