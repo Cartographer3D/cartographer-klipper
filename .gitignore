@@ -139,3 +139,4 @@ cython_debug/
 idm.pyZone.Identifier
 .vscode/settings.json
 /.vscode
+cartographer-klipper.code-workspace
