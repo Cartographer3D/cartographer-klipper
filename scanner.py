@@ -24,16 +24,16 @@ import time
 import traceback
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import Callable, Optional, TypedDict, final
+from typing import Callable, Optional, TypedDict, TypeVar, final
 
 import chelper
+from klippy import Printer
 import msgproto
 import numpy as np
 import pins
 from clocksync import SecondarySync
 from configfile import ConfigWrapper
 from gcode import GCodeCommand
-from klippy import Printer
 from mcu import MCU, MCU_trsync
 from stepper import MCU_stepper
 from webhooks import WebRequest
@@ -67,6 +67,11 @@ class TriggerMethod(IntEnum):
     TOUCH = 1
 
 
+@final
+class sentinel:
+    pass
+
+
 @dataclass
 class ThresholdResults:
     max_value: float
@@ -83,6 +88,208 @@ class ThresholdResults:
 
 def format_macro(macro: str) -> str:
     return f'<a class="command">{macro}</a>'
+
+
+T = TypeVar("T")
+
+
+class SettingsContainer:
+    _gcmd: Optional[GCodeCommand] = None
+    _config: ConfigWrapper
+
+    def __init__(self, config: ConfigWrapper) -> None:
+        self._config = config
+
+    def get_config(self) -> ConfigWrapper:
+        return self._config
+
+    def get_gcode_command(self) -> Optional[GCodeCommand]:
+        return self._gcmd
+
+    def with_gcode_command(self, gcmd: GCodeCommand):
+        clone = copy.copy(self)
+        clone._gcmd = gcmd
+        return clone
+
+
+S = TypeVar("S", bound=SettingsContainer)
+
+
+def setting_decorator(
+    get_config_value: Callable[[ConfigWrapper], T],
+    get_gcmd_value: Callable[[GCodeCommand, T], T],
+):
+    def decorator(_: Callable[[S], None]):
+        value = sentinel
+
+        def wrapper(container: S) -> T:
+            nonlocal value
+            gcmd = container.get_gcode_command()
+            if value is sentinel:
+                value = get_config_value(container.get_config())
+            if gcmd is None:
+                return value
+            return get_gcmd_value(gcmd, value)
+
+        return wrapper
+
+    return decorator
+
+
+def int_setting(
+    *,
+    config_name: str,
+    arg_name: str,
+    default: int,
+    minval: Optional[int] = None,
+    maxval: Optional[int] = None,
+):
+    return setting_decorator(
+        lambda config: config.getint(config_name, default, minval, maxval),
+        lambda gcmd, value: gcmd.get_int(arg_name, value, minval, maxval),
+    )
+
+
+def float_setting(
+    *,
+    config_name: str,
+    arg_name: str,
+    default: float,
+    minval: Optional[float] = None,
+    maxval: Optional[float] = None,
+    above: Optional[float] = None,
+    below: Optional[float] = None,
+):
+    return setting_decorator(
+        lambda config: config.getfloat(
+            config_name, default, minval, maxval, above, below
+        ),
+        lambda gcmd, value: gcmd.get_float(
+            arg_name, value, minval, maxval, above, below
+        ),
+    )
+
+
+@final
+class ScannerSettings(SettingsContainer):
+    @property
+    @float_setting(
+        config_name="scanner_touch_speed",
+        arg_name="SPEED",
+        default=3,
+        above=0,
+    )
+    def speed(self):
+        pass
+
+    @property
+    @float_setting(
+        config_name="scanner_touch_accel",
+        arg_name="ACCEL",
+        default=100,
+        above=0,
+        minval=100,
+    )
+    def accel(self):
+        pass
+
+    @property
+    @float_setting(
+        config_name="scanner_touch_retract_dist",
+        arg_name="RETRACT",
+        default=2,
+        minval=1,
+    )
+    def retract_dist(self):
+        pass
+
+    @property
+    @float_setting(
+        config_name="scanner_touch_retract_speed",
+        arg_name="RETRACT_SPEED",
+        default=10,
+        minval=1,
+    )
+    def retract_speed(self):
+        pass
+
+    @property
+    @int_setting(
+        config_name="scanner_touch_sample_count",
+        arg_name="SAMPLES",
+        default=3,
+        minval=1,
+    )
+    def sample_count(self):
+        pass
+
+    @property
+    @float_setting(
+        config_name="scanner_touch_tolerance",
+        arg_name="TOLERANCE",
+        default=0.01,
+        above=0.0,
+    )
+    def tolerance(self):
+        pass
+
+    @property
+    @int_setting(
+        config_name="scanner_touch_max_retries",
+        arg_name="RETRIES",
+        default=10,
+        minval=0,
+    )
+    def max_retries(self):
+        pass
+
+    @property
+    @float_setting(
+        config_name="scanner_touch_move_speed",
+        arg_name="MOVE_SPEED",
+        default=50,
+        minval=1,
+    )
+    def move_speed(self):
+        pass
+
+    @property
+    @float_setting(
+        config_name="scanner_touch_z_offset",
+        arg_name="Z_OFFSET",
+        default=0.05,
+        above=0,
+    )
+    def z_offset(self):
+        pass
+
+    @property
+    @int_setting(
+        config_name="scanner_touch_threshold",
+        arg_name="THRESHOLD",
+        default=2500,
+    )
+    def threshold(self):
+        pass
+
+    @property
+    @float_setting(
+        config_name="scanner_touch_max_temp",
+        arg_name="MAX_TEMP",
+        default=150,
+    )
+    def max_temp(self):
+        pass
+
+    @property
+    @float_setting(
+        config_name="scanner_touch_fuzzy_touch",
+        arg_name="FUZZY_TOUCH",
+        default=0,
+        maxval=10,
+    )
+    def fuzzy_touch(self):
+        pass
 
 
 @final
@@ -119,7 +326,8 @@ class BedLeveling:
 @final
 class Scanner:
     def __init__(self, config: ConfigWrapper):
-        self.printer: Printer = config.get_printer()
+        self.settings = ScannerSettings(config)
+        self.printer = config.get_printer()
         self.reactor = self.printer.get_reactor()
         self.bed_level = BedLeveling(self.printer)
         self.name = config.get_name()
