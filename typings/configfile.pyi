@@ -1,17 +1,16 @@
+# https://github.com/Klipper3d/klipper/blob/master/klippy/configfile.py
 import configparser
-from typing import final, overload
+from typing import overload
 
 from klippy import Printer
 
 error = configparser.Error
 
-@final
 class sentinel:
     pass
 
-@final
 class ConfigWrapper:
-    error = configparser.Error
+    error: type[configparser.Error]
     printer: Printer
     def get_printer(self) -> Printer:
         pass
@@ -168,7 +167,6 @@ class ConfigWrapper:
     ) -> list[float] | None:
         pass
 
-@final
 class PrinterConfig:
     def get_printer(self) -> Printer:
         pass

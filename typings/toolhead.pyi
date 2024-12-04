@@ -1,8 +1,9 @@
-# Types for https://github.com/Klipper3d/klipper/blob/master/klippy/toolhead.py
-from typing import Sequence, TypedDict, final
+# https://github.com/Klipper3d/klipper/blob/master/klippy/toolhead.py
+from typing import Sequence, TypedDict
 
 import gcode
 from kinematics.extruder import Extruder
+from kinematics.none import NoneKinematics
 
 class _KinematicsStatus(TypedDict):
     homed_axes: str
@@ -14,7 +15,7 @@ class _Status(_KinematicsStatus):
     stalls: int
     estimated_print_time: float
     extruder: str
-    position: ToolHead.Coord
+    position: gcode.Coord
     max_velocity: float
     max_accel: float
     minimum_cruise_ratio: float
@@ -23,10 +24,9 @@ class _Status(_KinematicsStatus):
 
 type _Pos = list[float]
 
-@final
 class ToolHead:
-    Coord = gcode.Coord
-    def get_kinematics(self):
+    Coord: type[gcode.Coord]
+    def get_kinematics(self) -> NoneKinematics:
         pass
     def get_extruder(self) -> Extruder:
         pass

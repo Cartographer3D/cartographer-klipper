@@ -1,5 +1,5 @@
 from typing import final
-from heater import Heater
+from heaters import Heater
 
 @final
 class Extruder:

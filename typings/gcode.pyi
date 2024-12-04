@@ -1,13 +1,11 @@
-# Types for https://github.com/Klipper3d/klipper/blob/master/klippy/gcode.py
-from typing import Callable, NamedTuple, final, overload
+# https://github.com/Klipper3d/klipper/blob/master/klippy/gcode.py
+from typing import Callable, NamedTuple, overload
 
-@final
 class CommandError(Exception):
     pass
 
-@final
 class GCodeCommand:
-    error = CommandError
+    error: type[CommandError]
     class sentinel:
         pass
 
@@ -81,9 +79,8 @@ class Coord(NamedTuple):
     z: float
     e: float
 
-@final
 class GCodeDispatch:
-    error = CommandError
+    error: type[CommandError]
     Coord: type[Coord]
 
     def respond_raw(self, msg: str) -> None:
