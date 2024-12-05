@@ -24,7 +24,7 @@ import time
 import traceback
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import Callable, Optional, TypedDict, TypeVar, final
+from typing import Callable, Generic, Optional, TypedDict, TypeVar, final
 
 import chelper
 from klippy import Printer
@@ -99,6 +99,11 @@ class SettingsContainer:
 
     def __init__(self, config: ConfigWrapper) -> None:
         self._config = config
+        self._invoke_getters()
+
+    def _invoke_getters(self):
+        for attr_name in dir(self):
+            getattr(self, attr_name)
 
     def get_config(self) -> ConfigWrapper:
         return self._config
@@ -115,23 +120,52 @@ class SettingsContainer:
 S = TypeVar("S", bound=SettingsContainer)
 
 
+@final
+class Setting(Generic[T, S]):
+    _value = sentinel
+
+    def __init__(
+        self,
+        config_name: str,
+        get_config_value: Callable[[ConfigWrapper], T],
+        get_gcmd_value: Callable[[GCodeCommand, T], T],
+        *,
+        deprecate: bool,
+    ) -> None:
+        super().__init__()
+        self._get_config_value = get_config_value
+        self._get_gcmd_value = get_gcmd_value
+        self._config_name = config_name
+        self._deprecate = deprecate
+
+    def __get__(self, instance: S, _) -> T:
+        if self._value is sentinel:
+            self._value = self._get_config_value(instance.get_config())
+            if self._deprecate:
+                instance.get_config().deprecate(self._config_name)
+        gcmd = instance.get_gcode_command()
+        if gcmd is None:
+            return self._value
+        return self._get_gcmd_value(gcmd, self._value)
+
+    def __set__(self, instance: S, value: T):
+        self.value = value
+        config = instance.get_config()
+        configfile = config.get_printer().lookup_object("configfile")
+        configfile.set(config.get_name(), self._config_name, value)
+
+
 def setting_decorator(
+    config_name: str,
     get_config_value: Callable[[ConfigWrapper], T],
     get_gcmd_value: Callable[[GCodeCommand, T], T],
+    *,
+    deprecate: bool,
 ):
     def decorator(_: Callable[[S], None]):
-        value = sentinel
-
-        def wrapper(container: S) -> T:
-            nonlocal value
-            gcmd = container.get_gcode_command()
-            if value is sentinel:
-                value = get_config_value(container.get_config())
-            if gcmd is None:
-                return value
-            return get_gcmd_value(gcmd, value)
-
-        return wrapper
+        return Setting[T, S](
+            config_name, get_config_value, get_gcmd_value, deprecate=deprecate
+        )
 
     return decorator
 
@@ -143,10 +177,13 @@ def int_setting(
     default: int,
     minval: Optional[int] = None,
     maxval: Optional[int] = None,
+    deprecate: bool = False,
 ):
     return setting_decorator(
+        config_name,
         lambda config: config.getint(config_name, default, minval, maxval),
         lambda gcmd, value: gcmd.get_int(arg_name, value, minval, maxval),
+        deprecate=deprecate,
     )
 
 
@@ -159,20 +196,22 @@ def float_setting(
     maxval: Optional[float] = None,
     above: Optional[float] = None,
     below: Optional[float] = None,
+    deprecate: bool = False,
 ):
     return setting_decorator(
+        config_name,
         lambda config: config.getfloat(
             config_name, default, minval, maxval, above, below
         ),
         lambda gcmd, value: gcmd.get_float(
             arg_name, value, minval, maxval, above, below
         ),
+        deprecate=deprecate,
     )
 
 
 @final
-class ScannerSettings(SettingsContainer):
-    @property
+class ScannerTouchSettings(SettingsContainer):
     @float_setting(
         config_name="scanner_touch_speed",
         arg_name="SPEED",
@@ -182,7 +221,6 @@ class ScannerSettings(SettingsContainer):
     def speed(self):
         pass
 
-    @property
     @float_setting(
         config_name="scanner_touch_accel",
         arg_name="ACCEL",
@@ -193,7 +231,6 @@ class ScannerSettings(SettingsContainer):
     def accel(self):
         pass
 
-    @property
     @float_setting(
         config_name="scanner_touch_retract_dist",
         arg_name="RETRACT",
@@ -203,7 +240,6 @@ class ScannerSettings(SettingsContainer):
     def retract_dist(self):
         pass
 
-    @property
     @float_setting(
         config_name="scanner_touch_retract_speed",
         arg_name="RETRACT_SPEED",
@@ -213,7 +249,6 @@ class ScannerSettings(SettingsContainer):
     def retract_speed(self):
         pass
 
-    @property
     @int_setting(
         config_name="scanner_touch_sample_count",
         arg_name="SAMPLES",
@@ -223,7 +258,6 @@ class ScannerSettings(SettingsContainer):
     def sample_count(self):
         pass
 
-    @property
     @float_setting(
         config_name="scanner_touch_tolerance",
         arg_name="TOLERANCE",
@@ -233,7 +267,6 @@ class ScannerSettings(SettingsContainer):
     def tolerance(self):
         pass
 
-    @property
     @int_setting(
         config_name="scanner_touch_max_retries",
         arg_name="RETRIES",
@@ -243,7 +276,6 @@ class ScannerSettings(SettingsContainer):
     def max_retries(self):
         pass
 
-    @property
     @float_setting(
         config_name="scanner_touch_move_speed",
         arg_name="MOVE_SPEED",
@@ -253,7 +285,6 @@ class ScannerSettings(SettingsContainer):
     def move_speed(self):
         pass
 
-    @property
     @float_setting(
         config_name="scanner_touch_z_offset",
         arg_name="Z_OFFSET",
@@ -263,7 +294,6 @@ class ScannerSettings(SettingsContainer):
     def z_offset(self):
         pass
 
-    @property
     @int_setting(
         config_name="scanner_touch_threshold",
         arg_name="THRESHOLD",
@@ -272,7 +302,6 @@ class ScannerSettings(SettingsContainer):
     def threshold(self):
         pass
 
-    @property
     @float_setting(
         config_name="scanner_touch_max_temp",
         arg_name="MAX_TEMP",
@@ -281,7 +310,6 @@ class ScannerSettings(SettingsContainer):
     def max_temp(self):
         pass
 
-    @property
     @float_setting(
         config_name="scanner_touch_fuzzy_touch",
         arg_name="FUZZY_TOUCH",
@@ -326,7 +354,7 @@ class BedLeveling:
 @final
 class Scanner:
     def __init__(self, config: ConfigWrapper):
-        self.settings = ScannerSettings(config)
+        self.touch_settings = ScannerTouchSettings(config)
         self.printer = config.get_printer()
         self.reactor = self.printer.get_reactor()
         self.bed_level = BedLeveling(self.printer)
