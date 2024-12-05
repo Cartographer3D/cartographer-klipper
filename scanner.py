@@ -11,6 +11,7 @@
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
 import copy
+from enum import IntEnum
 import importlib
 import logging
 import math
@@ -53,6 +54,11 @@ THRESHOLD_INCREMENT_MULTIPLIER = 5
 THRESHOLD_STEP_MULTIPLIER = 10
 # Require a qualified threshold to pass at 0.66 of the QUALIFY_SAMPLES
 THRESHOLD_ACCEPTANCE_FACTOR = 0.66
+
+
+class TriggerMethod(IntEnum):
+    SCAN = 0
+    TOUCH = 1
 
 
 @dataclass
@@ -155,7 +161,7 @@ class Scanner:
         )
         config.deprecate("calibration_method")
 
-        self.trigger_method = 0
+        self.trigger_method = TriggerMethod.SCAN
 
         self.trigger_distance = config.getfloat("trigger_distance", 2.0)
         self.trigger_dive_threshold = config.getfloat("trigger_dive_threshold", 1.5)
@@ -426,9 +432,9 @@ class Scanner:
 
         # Switch between Touch and Scan Probing
         if self.calibration_method == "touch":
-            self.trigger_method = 1
+            self.trigger_method = TriggerMethod.TOUCH
         else:
-            self.trigger_method = 0
+            self.trigger_method = TriggerMethod.SCAN
             self.calibration_method = "scan"
             if calibrate == 1 or gcmd.get("METHOD", "None").lower() == "manual":
                 self._start_calibration(gcmd)
@@ -444,7 +450,7 @@ class Scanner:
         kinematics = self.toolhead.get_kinematics()
         kin_status = kinematics.get_status(curtime)
         if "x" not in kin_status["homed_axes"] or "y" not in kin_status["homed_axes"]:
-            self.trigger_method = 0
+            self.trigger_method = TriggerMethod.SCAN
             raise gcmd.error("Must home X and Y axes first")
 
         self.previous_probe_success = 0
@@ -527,7 +533,7 @@ class Scanner:
                     )
 
             else:
-                self.trigger_method = 0
+                self.trigger_method = TriggerMethod.SCAN
                 gcmd.respond_info("Touch procedure failed.")
             self._zhop()
             self.set_temp(gcmd)
@@ -591,7 +597,7 @@ class Scanner:
                     )
                 except self.printer.command_error as e:
                     if self.printer.is_shutdown():
-                        self.trigger_method = 0
+                        self.trigger_method = TriggerMethod.SCAN
                         raise self.printer.command_error(
                             "Touch procedure interrupted due to printer shutdown"
                         ) from e
@@ -617,7 +623,7 @@ class Scanner:
                 deviation = round(deviation, 4)
                 if deviation > tolerance:
                     if retries >= max_retries:
-                        self.trigger_method = 0
+                        self.trigger_method = TriggerMethod.SCAN
                         self._zhop()
                         raise gcmd.error(
                             f"Exceeded maximum attempts [{retries}/{int(max_retries)}]"
@@ -663,7 +669,7 @@ class Scanner:
             self.toolhead.set_position(initial_position)
             self.toolhead.wait_moves()
             self.toolhead.flush_step_generation()
-            self.trigger_method = 0
+            self.trigger_method = TriggerMethod.SCAN
             self.previous_probe_success = 1
 
             # Return relevant data
@@ -676,7 +682,7 @@ class Scanner:
                 "success": self.previous_probe_success,
             }
         except self.printer.command_error:
-            self.trigger_method = 0
+            self.trigger_method = TriggerMethod.SCAN
             if hasattr(kinematics, "note_z_not_homed"):
                 kinematics.note_z_not_homed()
             raise
@@ -688,9 +694,9 @@ class Scanner:
 
         # Ensure trigger_method is set for touch calibration
         if self.calibration_method == "touch":
-            self.trigger_method = 1
+            self.trigger_method = TriggerMethod.TOUCH
         else:
-            self.trigger_method = 0
+            self.trigger_method = TriggerMethod.SCAN
             return
 
         # Retrieve common and specific threshold scan variables
@@ -751,7 +757,7 @@ class Scanner:
         kinematics = self.toolhead.get_kinematics()
         kin_status = kinematics.get_status(curtime)
         if "x" not in kin_status["homed_axes"] or "y" not in kin_status["homed_axes"]:
-            self.trigger_method = 0
+            self.trigger_method = TriggerMethod.SCAN
             raise gcmd.error("Must home X and Y axes first")
 
         # Set initial scan values
@@ -918,7 +924,7 @@ class Scanner:
                 )
             gcmd.respond_info("You can now SAVE_CONFIG to save your threshold.")
 
-            self.trigger_method = 0
+            self.trigger_method = TriggerMethod.SCAN
 
     def start_threshold_scan(self, gcmd: GCodeCommand, touch_settings, verbose: bool):
         kinematics = self.toolhead.get_kinematics()
@@ -977,7 +983,7 @@ class Scanner:
                     )
                 except self.printer.command_error as e:
                     if self.printer.is_shutdown():
-                        self.trigger_method = 0
+                        self.trigger_method = TriggerMethod.SCAN
                         raise self.printer.command_error(
                             "Touch procedure interrupted due to printer shutdown"
                         ) from e
@@ -1050,7 +1056,7 @@ class Scanner:
                 "consistent_results": False,  # Default to False
             }
         except self.printer.command_error:
-            self.trigger_method = 0
+            self.trigger_method = TriggerMethod.SCAN
             if hasattr(kinematics, "note_z_not_homed"):
                 kinematics.note_z_not_homed()
             raise
@@ -1347,7 +1353,7 @@ class Scanner:
         verbose: bool = True,
     ) -> "list[float]":
         skipped_msg = ""
-        if self.trigger_method != 0:
+        if self.trigger_method != TriggerMethod.SCAN:
             return self.touch_probe(speed, skip)
         target = self.trigger_distance
         tdt = self.trigger_dive_threshold
@@ -1396,10 +1402,10 @@ class Scanner:
             "TOUCH_LOCATION_Y", float(self.touch_location[1])
         )
         if self.calibration_method == "touch":
-            self.trigger_method = 1
+            self.trigger_method = TriggerMethod.TOUCH
         allow_faulty = gcmd.get_int("ALLOW_FAULTY_COORDINATE", 0) != 0
         if (
-            self.trigger_method != 0
+            self.trigger_method != TriggerMethod.SCAN
             and gcmd.get("METHOD", "manual").lower() != "manual"
         ):
             self._move([touch_location_x, touch_location_y, None], 40)
@@ -1426,7 +1432,7 @@ class Scanner:
             self._calibrate(
                 gcmd, kin_pos, nozzle_z, forced_z=False, touch=False, manual_mode=False
             )
-            self.trigger_method = 0
+            self.trigger_method = TriggerMethod.SCAN
 
         elif gcmd.get("SKIP_MANUAL_PROBE", None) is not None:
             kin = self.toolhead.get_kinematics()
@@ -1493,7 +1499,7 @@ class Scanner:
         manual_mode=False,
     ):
         if kin_pos is None:
-            self.trigger_method = 0
+            self.trigger_method = TriggerMethod.SCAN
             self._zhop()
             if forced_z:
                 kin = self.toolhead.get_kinematics()
@@ -1553,7 +1559,7 @@ class Scanner:
                 self._sample_printtime_sync(50)
         except Exception as e:
             print(f"Error encounted while calibrating: {e}")
-            self.trigger_method = 0
+            self.trigger_method = TriggerMethod.SCAN
             self._zhop()
         finally:
             self._stop_streaming()
@@ -1598,7 +1604,7 @@ class Scanner:
             "Scanner calibrated at %.3f,%.3f from %.3f to %.3f, speed %.2f mm/s, temp %.2fC"
             % (pos[0], pos[1], cal_min_z, cal_max_z, cal_speed, temp_median)
         )
-        self.trigger_method = 0
+        self.trigger_method = TriggerMethod.SCAN
         self._zhop()
 
     # Internal
@@ -1909,7 +1915,7 @@ class Scanner:
         method = gcmd.get("MODE", "NONE").lower()
         if method == "scan":
             self.calibration_method = "scan"
-            self.trigger_method = 0
+            self.trigger_method = TriggerMethod.SCAN
             configfile = self.printer.lookup_object("configfile")
             configfile.set("scanner", "mode", "scan")
             gcmd.respond_info(
@@ -1917,7 +1923,7 @@ class Scanner:
             )
         elif method == "touch":
             self.calibration_method = "touch"
-            self.trigger_method = 1
+            self.trigger_method = TriggerMethod.TOUCH
             configfile = self.printer.lookup_object("configfile")
             configfile.set("scanner", "mode", "touch")
             gcmd.respond_info(
@@ -2125,7 +2131,7 @@ class Scanner:
         liftpos = [None, None, start_height]
         cur_range_value = 0
         positions: list[list[float]] = []
-        if self.trigger_method == 0:
+        if self.trigger_method == TriggerMethod.SCAN:
             self.toolhead.manual_move(liftpos, lift_speed)
             self.multi_probe_begin()
             while (len(positions) < sample_count) and (cur_range_value < abort_range):
@@ -2837,7 +2843,10 @@ class ScannerEndstopWrapper:
         self.is_homing = False
 
     def _handle_home_rails_end(self, homing_state, rails):
-        if self.scanner.model is None and self.scanner.trigger_method == 0:
+        if (
+            self.scanner.model is None
+            and self.scanner.trigger_method == TriggerMethod.SCAN
+        ):
             return
 
         if not self.is_homing:
@@ -2848,7 +2857,7 @@ class ScannerEndstopWrapper:
 
         # After homing Z we perform a measurement and adjust the toolhead
         # kinematic position.
-        if self.scanner.trigger_method != 0:
+        if self.scanner.trigger_method != TriggerMethod.SCAN:
             homing_state.set_homed_position([None, None, 0])
             return
         (dist, samples) = self.scanner._sample(self.scanner.z_settling_time, 10)
@@ -2862,7 +2871,7 @@ class ScannerEndstopWrapper:
     def _handle_homing_move_begin(self, hmove):
         if self.scanner.mcu_probe in hmove.get_mcu_endstops():
             etrsync = self._trsyncs[0]
-            if self.scanner.trigger_method == 1:
+            if self.scanner.trigger_method == TriggerMethod.TOUCH:
                 self.scanner.scanner_home_cmd.send(
                     [
                         etrsync.get_oid(),
@@ -2904,11 +2913,14 @@ class ScannerEndstopWrapper:
     ):
         if self.scanner.model is not None:
             self.scanner.model.validate()
-        if self.scanner.model is None and self.scanner.trigger_method == 0:
+        if (
+            self.scanner.model is None
+            and self.scanner.trigger_method == TriggerMethod.SCAN
+        ):
             raise self.scanner.printer.command_error("No Scanner model loaded")
 
         self.is_homing = True
-        if self.scanner.trigger_method == 0:
+        if self.scanner.trigger_method == TriggerMethod.SCAN:
             self.scanner._apply_threshold()
             self.scanner._sample_async()
         clock = self._mcu.print_time_to_clock(print_time)
@@ -2931,7 +2943,7 @@ class ScannerEndstopWrapper:
         ffi_main, ffi_lib = chelper.get_ffi()
         ffi_lib.trdispatch_start(self._trdispatch, etrsync.REASON_HOST_REQUEST)
 
-        if self.scanner.trigger_method != 0:
+        if self.scanner.trigger_method != TriggerMethod.SCAN:
             return self._trigger_completion
 
         self.scanner.scanner_home_cmd.send(
