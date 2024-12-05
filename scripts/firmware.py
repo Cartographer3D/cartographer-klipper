@@ -5,6 +5,8 @@ import argparse
 import shutil
 import tempfile
 import fnmatch
+import platform
+import time
 
 from enum import Enum  # type: ignore
 from time import sleep
@@ -18,6 +20,10 @@ KATAPULT_DIR: str = os.path.expanduser("~/katapult")
 
 FLASHER_VERSION: str = "0.0.1"
 
+PAGE_WIDTH: int = 90  # Default global width
+
+is_advanced: bool = False
+
 
 class Color(Enum):
     RESET = "\033[0m"
@@ -30,11 +36,11 @@ class Color(Enum):
 
 # Define a custom namespace class
 class FirmwareNamespace(argparse.Namespace):
-    branch: str = "main"
+    branch: str = "master"
     debug: bool = False
     type: bool = False
     high_temp: bool = False
-    latest: bool = False
+    all: bool = False
     kseries: bool = False
     device: Optional[str] = None
     flash: Optional[str] = None
@@ -46,6 +52,16 @@ class Version(NamedTuple):
     @classmethod
     def from_string(cls, version: str) -> "Version":
         return cls(tuple(int(part) for part in version.split(".")))
+
+
+def make_terminal_bigger(width: int = 90, height: int = 40):
+    system = platform.system()
+    if system == "Windows":
+        _ = os.system(f"mode con: cols={width} lines={height}")
+    elif system in ["Linux", "Darwin"]:  # Darwin is macOS
+        _ = os.system(f"printf '\\e[8;{height};{width}t'")
+    else:
+        print("Unsupported OS for resizing the terminal.")
 
 
 def clear_console():
@@ -60,19 +76,35 @@ def clear_console():
 # Header for menus etc
 def header():
     clear_console()
-    # Print the top border
-    print("=" * 60)
-    # Center the title line
+    # Define the logo or ASCII art
+    logo = """ 
+      ____                  _                                            _               
+  / ___|   __ _   _ __  | |_    ___     __ _   _ __    __ _   _ __   | |__     ___   _ __ 
+ | |      / _  | | '__| | __|  / _ \\   / _  | | '__|  / _  | | '_ \\  | '_ \\   / _ \\ | '__|
+ | |___  | (_| | | |    | |_  | (_) | | (_| | | |    | (_| | | |_) | | | | | |  __/ | |   
+  \\____|  \\__,_| |_|     \\__|  \\___/   \\__, | |_|     \\__,_| | .__/  |_| |_|  \\___| |_|   
+             |___/                 |_|                          
+    """
+    # Calculate the width dynamically based on the longest line
+    lines = logo.strip().split("\n")
+    max_width = max(len(line) for line in lines)
+    border = "=" * max_width
+
+    # Print the header with borders
+    print(border)
+    for line in lines:
+        print(colored_text(line.center(max_width), Color.GREEN))
+    print(border)
     title = "CARTOGRAPHER FIRMWARE FLASHER"
     version = f" v{FLASHER_VERSION}"
     combined_title = colored_text(title, Color.CYAN) + colored_text(version, Color.RED)
-    print(combined_title.center(80))
+    print(combined_title.center(110))
 
     # Display modes, centered
     display_modes(args)
 
     # Print the bottom border
-    print("=" * 60)
+    print("=" * max_width)
 
 
 def colored_text(text: str, color: Color) -> str:
@@ -89,10 +121,13 @@ def success_msg(message: str) -> None:
     _ = input(colored_text("\nPress Enter to continue...", Color.YELLOW))
 
 
-def page(title: str) -> None:
-    print("=" * 40)
-    print(colored_text(title.center(40), Color.CYAN))
-    print("=" * 40)
+def page(title: str, width: int = PAGE_WIDTH) -> None:
+    if len(title) > width:
+        width = len(title) + 4  # Ensure width accommodates long titles with padding
+    border = "=" * width
+    print(border)
+    print(colored_text(title.center(width), Color.CYAN))
+    print(border)
 
 
 def step_title(title: str) -> None:
@@ -108,7 +143,8 @@ def display_modes(args: FirmwareNamespace) -> None:
         (args.debug, lambda: "DEBUGGING"),
         (args.branch, lambda: f"BRANCH: {(args.branch or '').upper()}"),
         (args.type, lambda: "FLASH KATAPULT"),
-        (args.latest, lambda: "FLASH LATEST"),
+        (args.all, lambda: "ALL FIRMWARE"),
+        (is_advanced, lambda: "ADVANCED"),
     ]
 
     # Build modes list based on conditions
@@ -123,13 +159,13 @@ def display_modes(args: FirmwareNamespace) -> None:
 
 def show_mode(mode: str):
     # Center the mode string
-    mode = mode.center(60)
+    mode = mode.center(PAGE_WIDTH)
     print(colored_text(mode, Color.RED))
 
 
 class Menu:
     title: str
-    menu_items: Dict[int, "Menu.MenuItem"]
+    menu_items: Dict[int, Union["Menu.MenuItem", "Menu.Separator"]]
 
     class MenuItem:
         description: str
@@ -139,49 +175,85 @@ class Menu:
             self.description = description
             self.action = action
 
-    def __init__(self, title: str, menu_items: "dict[int, MenuItem]"):
+    class Separator:
+        text: str
+        """Represents a line separator in the menu."""
+
+        def __init__(self, text: str = "") -> None:
+            self.text = text
+
+    def __init__(
+        self, title: str, menu_items: Dict[int, Union["MenuItem", "Separator"]]
+    ):
         self.title = title
         self.menu_items = menu_items
 
     def display(self):
-        # Print menu header
-        print("=" * 40)
-        print(colored_text(self.title.center(40), Color.MAGENTA))
-        print("=" * 40)
+        while True:
+            # Print menu header
+            width: int = PAGE_WIDTH
+            if len(self.title) > width:
+                width = (
+                    len(self.title) + 4
+                )  # Ensure width accommodates long titles with padding
+            border = "=" * width
+            print(border)
+            print(colored_text(self.title.center(width).upper(), Color.MAGENTA))
+            print(border)
+            indent = " "  # Adjust the number of spaces for indentation
+            # Print menu items and separators
+            for key, menu_item in self.menu_items.items():
+                if isinstance(menu_item, self.Separator):
+                    # Print a separator line
+                    print(
+                        "-" * width + (f" {menu_item.text}" if menu_item.text else "")
+                    )
+                else:
+                    # Print menu items
+                    if key == 0:
+                        print(
+                            f"{indent}{key}.",
+                            colored_text(menu_item.description, Color.RED),
+                        )
+                    else:
+                        print(f"{indent}{key}. {menu_item.description}")
+            print("=" * width)
 
-        # Print menu items
-        for key, menu_item in self.menu_items.items():
-            if key == 0:
-                print(f"{key}.", colored_text(menu_item.description, Color.RED))
+            # Get user input
+            try:
+                choice = int(
+                    input(colored_text(" Select an option: ", Color.YELLOW)).strip()
+                )
+            except ValueError:
+                print(colored_text("Invalid input. Please enter a number.", Color.RED))
+                return
+
+            # Handle exit explicitly for 0
+            if choice == 0:
+                print(colored_text("Exiting...", Color.CYAN))
+                exit()
+
+            # Call the corresponding function for valid choices
+            if choice in self.menu_items:
+                menu_item = self.menu_items[choice]
+                if isinstance(menu_item, self.MenuItem):
+                    menu_item.action()  # Call the action associated with the menu item
+                    break
+                else:
+                    print(
+                        colored_text(
+                            "Invalid choice. Separators are not selectable.", Color.RED
+                        )
+                    )
             else:
-                print(f"{key}. {menu_item.description}")
-        print("=" * 40)
-
-        # Get user input
-        try:
-            choice = int(
-                input(colored_text("Select an option: ", Color.YELLOW)).strip()
-            )
-        except ValueError:
-            print(colored_text("Invalid input. Please enter a number.", Color.RED))
-            return
-
-        # Handle exit explicitly for 0
-        if choice == 0:
-            print(colored_text("Exiting...", Color.CYAN))
-            exit()
-
-        # Call the corresponding function for valid choices
-        if choice in self.menu_items:
-            menu_item = self.menu_items[choice]
-            menu_item.action()  # Call the action associated with the menu item
-        else:
-            print(colored_text("Invalid choice. Please try again.", Color.RED))
+                header()
+                print(colored_text("Invalid choice. Please try again.", Color.RED))
 
 
 class Firmware:
     can: "Can"
     usb: "Usb"
+    dfu: "Dfu"
 
     def __init__(
         self,
@@ -191,10 +263,10 @@ class Firmware:
         high_temp: bool = False,
         flash: Optional[str] = None,
         kseries: bool = False,
-        latest: bool = False,
+        all: bool = False,
         device: Optional[str] = None,
     ):
-        self.selected_device: Optional[str] = None  # Initialize the selected UUID
+        self.selected_device: Optional[str] = None
         self.selected_firmware: Optional[str] = None
         self.dir_path: Optional[str] = None
         self.debug: bool = debug
@@ -204,10 +276,11 @@ class Firmware:
         self.high_temp: bool = high_temp
         self.flash: Optional[str] = flash
         self.kseries: bool = kseries
-        self.latest: bool = latest
+        self.all: bool = all
         self.device: Optional[str] = device
         self.can = Can(self, debug=self.debug, ftype=self.ftype)
-        self.usb = Usb(
+        self.usb = Usb(self, debug=self.debug, ftype=self.ftype)
+        self.dfu = Dfu(
             self, debug=self.debug, ftype=self.ftype
         )  # Pass Firmware instance to CAN
         self.validator: Validator = Validator(self)  # Initialize the Validator
@@ -219,6 +292,7 @@ class Firmware:
         handlers: Dict[str, Callable[[], None]] = {
             "CAN": self.can.menu,
             "USB": self.usb.menu,
+            "DFU": self.dfu.menu,
         }
 
         if self.device and self.flash in handlers:
@@ -227,7 +301,7 @@ class Firmware:
                 self.set_device(self.device)
 
                 # Handle --latest argument
-                if self.latest:
+                if not self.all:
                     self.firmware_menu(type=self.flash)
 
                 # Call the appropriate menu directly from the handlers dictionary
@@ -238,8 +312,11 @@ class Firmware:
         # Fall back to the main menu if no valid condition is met
         self.main_menu()
 
-    def set_device(self, uuid: str) -> None:
-        self.selected_device = uuid
+    def set_device(self, device: str):
+        self.selected_device = device
+
+    def set_firmware(self, firmware: str):
+        self.selected_firmware = firmware
 
     def get_device(self) -> Optional[str]:
         return self.selected_device  # None if not set, str if set
@@ -247,25 +324,280 @@ class Firmware:
     def get_firmware(self) -> Optional[str]:
         return self.selected_firmware
 
+    def display_device(self):
+        # Display selected device and firmware if available
+        device: Optional[str] = self.get_device()
+        if device:
+            print(colored_text("Device Selected:", Color.MAGENTA), device)
+
+    def display_firmware(self):
+        firmware: Optional[str] = self.get_firmware()
+        if firmware:
+            print(
+                colored_text("Firmware Selected:", Color.MAGENTA),
+                firmware,
+            )
+
     # Create main menu
     def main_menu(self):
+        if is_advanced:
+            self.all = True
+        if self.flash == "DFU":
+            self.all = True
         header()
         self.selected_device = None
         self.selected_firmware = None
-        menu_items = {
-            1: Menu.MenuItem("Katapult - CAN", self.can.menu),
-            2: Menu.MenuItem("Katapult - USB", self.usb.menu),
-            3: Menu.MenuItem("DFU (Coming Soon)", self.dfu_menu),
-            0: Menu.MenuItem("Exit", lambda: exit()),  # Add exit option explicitly
+        menu_items: Dict[int, Union[Menu.MenuItem, Menu.Separator]] = {
+            1: Menu.MenuItem(
+                "Katapult - CAN    "
+                + colored_text("[For Flashing via CAN]", Color.YELLOW),
+                self.can.menu,
+            ),
+            2: Menu.MenuItem(
+                "Katapult - USB    "
+                + colored_text("[For Flashing via USB]", Color.YELLOW),
+                self.usb.menu,
+            ),
+            3: Menu.MenuItem(
+                "DFU               "
+                + colored_text("[For Flashing with DFU via USB]", Color.YELLOW),
+                self.dfu.menu,
+            ),
         }
+        if not is_advanced:
+            menu_items[len(menu_items) + 1] = Menu.Separator()
+            menu_items[len(menu_items) + 1] = Menu.MenuItem(
+                colored_text("Enable Advanced Mode", Color.GREEN),
+                self.set_advanced,
+            )
+        else:
+            menu_items[len(menu_items) + 1] = Menu.Separator()
+            menu_items[len(menu_items) + 1] = Menu.MenuItem(
+                colored_text("Disable Advanced Mode", Color.RED),
+                self.set_advanced,
+            )
+            menu_items[len(menu_items) + 1] = Menu.Separator()
+            menu_items[len(menu_items) + 1] = Menu.MenuItem(
+                colored_text("Switch Flash Mode", Color.CYAN),
+                self.mode_menu,
+            )
+            menu_items[len(menu_items) + 1] = Menu.MenuItem(
+                colored_text("Switch Branch", Color.CYAN),
+                self.branch_menu,
+            )
+            menu_items[len(menu_items) + 1] = Menu.Separator()
+            debug_text = "Enable Debugging" if not self.debug else "Disable Debugging"
+            debug_color = Color.GREEN if not self.debug else Color.RED
 
+            menu_items[len(menu_items) + 1] = Menu.MenuItem(
+                colored_text(debug_text, debug_color),
+                self.set_debugging,
+            )
+            kseries_text = (
+                "Enable Creality K Series Firmware"
+                if not self.kseries
+                else "Disable Creality K Series Firmware"
+            )
+            kseries_color = Color.GREEN if not self.kseries else Color.RED
+
+            menu_items[len(menu_items) + 1] = Menu.MenuItem(
+                colored_text(kseries_text, kseries_color),
+                self.set_kseries,
+            )
+            ftype_text = (
+                "Enable Katapult Bootloader Firmware"
+                if not self.ftype
+                else "Disable Katapult Bootloader Firmware"
+            )
+            ftype_color = Color.GREEN if not self.ftype else Color.RED
+
+            menu_items[len(menu_items) + 1] = Menu.MenuItem(
+                colored_text(ftype_text, ftype_color),
+                self.set_ftype,
+            )
+
+            high_temp_text = (
+                "Enable High Temp Firmware (HT Probes ONLY)"
+                if not self.ftype
+                else "Disable High Temp Firmware (HT Probes ONLY)"
+            )
+            high_temp_color = Color.GREEN if not self.high_temp else Color.RED
+
+            menu_items[len(menu_items) + 1] = Menu.MenuItem(
+                colored_text(high_temp_text, high_temp_color),
+                self.set_high_temp,
+            )
+        menu_items[len(menu_items) + 1] = Menu.Separator()
+        # Add the "Exit" option last
+        menu_items[0] = Menu.MenuItem("Exit", lambda: exit())
         # Create and display the menu
         menu = Menu("Main Menu", menu_items)
         menu.display()
 
-    def dfu_menu(self):
+    def set_advanced(self):
+        global is_advanced
+        if is_advanced:
+            is_advanced = args.all = False
+        else:
+            is_advanced = args.all = True
+        self.main_menu()
+
+    def set_debugging(self):
+        if self.debug:
+            self.debug = args.debug = False
+        else:
+            self.debug = args.debug = True
+        self.main_menu()
+
+    def set_kseries(self):
+        if self.kseries:
+            self.kseries = args.kseries = False
+            self.flash = args.flash = None
+        else:
+            self.kseries = args.kseries = True
+            self.flash = args.flash = "USB"
+        self.main_menu()
+
+    def set_ftype(self):
+        if self.ftype:
+            self.ftype = args.type = False
+        else:
+            self.ftype = args.type = True
+        self.main_menu()
+
+    def set_high_temp(self):
+        if self.high_temp:
+            self.high_temp = args.high_temp = False
+        else:
+            self.high_temp = args.high_temp = True
+        self.main_menu()
+
+    def mode_menu(self):
         header()
-        step_title("Select a DFU device")
+
+        selected_text = colored_text("(selected)", Color.GREEN)
+
+        # Define branch names and mark the selected branch
+        modes = {"CAN": "CAN", "USB": "USB", "DFU": "DFU"}
+        for key in modes:
+            if key == self.flash:
+                modes[key] += f" {selected_text}"
+
+        # Prepare menu items
+        menu_items: Dict[int, Union[Menu.MenuItem, Menu.Separator]] = {}
+
+        menu_items[len(menu_items) + 1] = Menu.MenuItem(
+            modes["CAN"],
+            lambda: self.set_mode("CAN"),
+        )
+        menu_items[len(menu_items) + 1] = Menu.MenuItem(
+            modes["USB"],
+            lambda: self.set_mode("USB"),
+        )
+        menu_items[len(menu_items) + 1] = Menu.MenuItem(
+            modes["DFU"],
+            lambda: self.set_mode("DFU"),
+        )
+        menu_items[len(menu_items) + 1] = Menu.Separator()
+        menu_items[len(menu_items) + 1] = Menu.MenuItem(
+            colored_text("Back to Main Menu", Color.CYAN),
+            self.main_menu,
+        )
+        menu_items[len(menu_items) + 1] = Menu.Separator()
+        # Add the "Exit" option last
+        menu_items[0] = Menu.MenuItem("Exit", lambda: exit())
+
+        # Create and display the menu
+        menu = Menu("Select a flashing mode", menu_items)
+        menu.display()
+
+    def branch_menu(self):
+        def display_branch_table():
+            # Table header
+            print(f"{'Branch Name':<10} | {'Description'}")
+            print("-" * 50)
+            # Table rows
+            print(f"{'Master':<10} | The most stable firmware version.")
+            print(f"{'Beta':<10} | Firmware that is currently being tested.")
+            print(f"{'Develop':<10} | Extremely experimental firmware.")
+            print(f"{'Custom':<10} | Firmware from alternate branches.\n")
+
+        print()
+        header()
+        display_branch_table()
+
+        selected_text = colored_text("(selected)", Color.GREEN)
+
+        # Define branch names and mark the selected branch
+        branches = {
+            "master": "Master",
+            "beta": "Beta",
+            "develop": "Develop",
+        }
+        for key in branches:
+            if key == self.branch:
+                branches[key] += f" {selected_text}"
+
+        # Handle custom branch label
+        if self.branch not in branches:
+            custom_branch_label = f"{self.branch} {selected_text} - enter again?"
+        else:
+            custom_branch_label = "Custom Branch"
+
+        # Prepare menu items
+        menu_items: Dict[int, Union[Menu.MenuItem, Menu.Separator]] = {}
+
+        menu_items[len(menu_items) + 1] = Menu.MenuItem(
+            branches["master"],
+            lambda: self.set_branch("master"),
+        )
+        menu_items[len(menu_items) + 1] = Menu.MenuItem(
+            branches["beta"],
+            lambda: self.set_branch("beta"),
+        )
+        menu_items[len(menu_items) + 1] = Menu.MenuItem(
+            branches["develop"],
+            lambda: self.set_branch("develop"),
+        )
+        menu_items[len(menu_items) + 1] = Menu.MenuItem(
+            custom_branch_label,
+            self.set_custom_branch,
+        )
+        menu_items[len(menu_items) + 1] = Menu.Separator()
+        menu_items[len(menu_items) + 1] = Menu.MenuItem(
+            colored_text("Back to Main Menu", Color.CYAN),
+            self.main_menu,
+        )
+        menu_items[len(menu_items) + 1] = Menu.Separator()
+        # Add the "Exit" option last
+        menu_items[0] = Menu.MenuItem("Exit", lambda: exit())
+
+        # Create and display the menu
+        menu = Menu("Select a Branch to Flash From", menu_items)
+        menu.display()
+
+    def set_mode(self, mode: str):
+        if mode:
+            self.flash = args.flash = mode
+        else:
+            error_msg("You didnt specify a mode to use.")
+        self.mode_menu()
+
+    def set_branch(self, branch: str):
+        if branch:
+            self.branch = args.branch = branch
+        else:
+            error_msg("You didnt specify a branch to use.")
+        self.branch_menu()
+
+    def set_custom_branch(self):
+        # Prompt user for a custom branch name or perform additional logic
+        custom_branch = input("Enter the name of the custom branch: ").strip()
+        if custom_branch:
+            self.set_branch(custom_branch)
+        else:
+            print("No custom branch provided.")
+            self.branch_menu()
 
     def find_firmware_files(
         self,
@@ -341,7 +673,7 @@ class Firmware:
     def display_firmware_menu(self, firmware_files: List[Tuple[str, str]], type: str):
         if firmware_files:
             # Define menu items for firmware files
-            menu_items = {
+            menu_items: Dict[int, Union[Menu.MenuItem, Menu.Separator]] = {
                 index: Menu.MenuItem(
                     f"{subdirectory}/{file}",
                     lambda file=file, subdirectory=subdirectory: self.select_firmware(
@@ -350,15 +682,17 @@ class Firmware:
                 )
                 for index, (subdirectory, file) in enumerate(firmware_files, start=1)
             }
-
+            menu_items[len(menu_items) + 1] = Menu.Separator()
             # Add static options after firmware options
             menu_items[len(menu_items) + 1] = Menu.MenuItem(
                 "Check Again", lambda: self.firmware_menu(type)
             )
+            menu_items[len(menu_items) + 1] = Menu.Separator()
             menu_items[len(menu_items) + 1] = Menu.MenuItem("Back", self.can.menu)
             menu_items[len(menu_items) + 1] = Menu.MenuItem(
                 colored_text("Back to main menu", Color.CYAN), self.main_menu
             )
+            menu_items[len(menu_items) + 1] = Menu.Separator()
             menu_items[0] = Menu.MenuItem("Exit", lambda: exit())  # Add Exit explicitly
 
             # Create and display the menu
@@ -368,10 +702,11 @@ class Firmware:
             print("No firmware files found.")
 
     def select_firmware(self, firmware: str, type: str):
-        self.selected_firmware = firmware  # Save the selected UUID globally
+        self.set_firmware(firmware)
         menu_handlers: Dict[str, Callable[[], None]] = {
             "CAN": self.can.menu,
             "USB": self.usb.menu,
+            "DFU": self.dfu.menu,
         }
 
         # Retrieve the appropriate handler and call it if valid
@@ -426,6 +761,7 @@ class Firmware:
                 else:
                     base_path = os.path.join(base_path, "survey")
             else:
+                self.all = True
                 base_path = os.path.join(base_path, "combined-firmware")
 
             # Update self.dir_path only once
@@ -433,7 +769,7 @@ class Firmware:
             firmware_files = self.find_firmware_files(
                 self.dir_path, search_pattern, exclude_pattern, self.high_temp
             )
-            if self.latest:
+            if not self.all:
                 self.select_latest(firmware_files, type)
             else:
                 self.display_firmware_menu(firmware_files, type)
@@ -463,6 +799,7 @@ class Firmware:
         type_mapping: Dict[str, Union[object, None]] = {
             "can": self.can,
             "usb": self.usb,
+            "dfu": self.dfu,
         }
 
         # Get the target object based on the `type`
@@ -484,7 +821,7 @@ class Firmware:
             return
         # Ask for user confirmation
         print("\nAre these details correct?")
-        menu_items = {
+        menu_items: Dict[int, Union[Menu.MenuItem, Menu.Separator]] = {
             1: Menu.MenuItem(
                 "Yes, proceed to flash", lambda: self.firmware_flash(type)
             ),
@@ -517,6 +854,8 @@ class Firmware:
             self.can.flash_device(firmware_file, self.selected_device)
         elif type == "USB":
             self.usb.flash_device(firmware_file, self.selected_device)
+        elif type == "DFU":
+            self.dfu.flash_device(firmware_file, self.selected_device)
         else:
             error_msg("You didnt select a valid flashing method")
 
@@ -573,22 +912,13 @@ class Can:
 
     def menu(self) -> None:
         header()
-        device = self.firmware.get_device()
-        firmware = self.firmware.get_firmware()
-        # Display selected UUID and firmware if available
-        if device is not None:
-            self.selected_device = device
-            print(colored_text("Device Selected:", Color.MAGENTA), self.selected_device)
-
-        if firmware is not None:
-            self.selected_firmware = firmware
-            print(
-                colored_text("Firmware Selected:", Color.MAGENTA),
-                self.selected_firmware,
-            )
+        self.firmware.display_device()
+        self.firmware.display_firmware()
+        self.selected_device = self.firmware.get_device()
+        self.selected_firmware = self.firmware.get_firmware()
 
         # Base menu items
-        menu_items = {
+        menu_items: Dict[int, Union[Menu.MenuItem, Menu.Separator]] = {
             1: Menu.MenuItem("Find Cartographer Device", self.device_menu),
             2: Menu.MenuItem(
                 "Find CAN Firmware", lambda: self.firmware.firmware_menu(type="CAN")
@@ -596,16 +926,17 @@ class Can:
         }
 
         # Dynamically add "Flash Selected Firmware" if conditions are met
-        if self.selected_firmware is not None and self.selected_device is not None:
+        if self.selected_firmware and self.selected_device:
+            menu_items[len(menu_items) + 1] = Menu.Separator()
             menu_items[len(menu_items) + 1] = Menu.MenuItem(
                 "Flash Selected Firmware", lambda: self.firmware.confirm(type="CAN")
             )
-
+        menu_items[len(menu_items) + 1] = Menu.Separator()
         # Add "Back to main menu" after "Flash Selected Firmware"
         menu_items[len(menu_items) + 1] = Menu.MenuItem(
             colored_text("Back to main menu", Color.CYAN), self.firmware.main_menu
         )
-
+        menu_items[len(menu_items) + 1] = Menu.Separator()
         # Add exit option explicitly at the end
         menu_items[0] = Menu.MenuItem("Exit", lambda: exit())
 
@@ -616,17 +947,19 @@ class Can:
     def device_menu(self):
         header()
 
-        menu_items = {
+        menu_items: Dict[int, Union[Menu.MenuItem, Menu.Separator]] = {
             1: Menu.MenuItem("Check klippy.log", self.search_klippy),
             2: Menu.MenuItem("Enter UUID", self.enter_uuid),
             3: Menu.MenuItem("Query CAN Devices", self.query_devices),
-            4: Menu.MenuItem(
+            4: Menu.Separator(),  # Blank separator
+            5: Menu.MenuItem(
                 "Back",
                 self.menu,
             ),
-            5: Menu.MenuItem(
+            6: Menu.MenuItem(
                 colored_text("Back to main menu", Color.CYAN), self.firmware.main_menu
             ),
+            7: Menu.Separator(),  # Blank separator
             0: Menu.MenuItem("Exit", lambda: exit()),  # Add exit option explicitly
         }
 
@@ -666,17 +999,11 @@ class Can:
         page("Finding CAN Device UUID via KLIPPY")
 
         try:
-            if not self.katapult_check():
-                error_msg(
-                    "The Katapult directory doesn't exist or it is not installed.",
-                )
-                return
-
             if not self.check_can_network():
                 error_msg(
                     "CAN network 'can0' is not active. Please ensure the CAN interface is configured.",
                 )
-                return
+                self.menu()
 
             mcu_scanner_uuids: list[str] = []  # UUIDs with [mcu scanner] above them
             scanner_uuids: list[str] = []  # UUIDs with [scanner] above them
@@ -706,7 +1033,7 @@ class Can:
             detected_uuids = mcu_scanner_uuids + scanner_uuids + regular_uuids
 
             # Prepare the menu
-            menu_items: dict[int, Menu.MenuItem] = {}
+            menu_items: Dict[int, Union[Menu.MenuItem, Menu.Separator]] = {}
             for idx, uuid in enumerate(detected_uuids, start=1):
                 if uuid in mcu_scanner_uuids:
                     menu_items[idx] = Menu.MenuItem(
@@ -722,16 +1049,18 @@ class Can:
                     menu_items[idx] = Menu.MenuItem(
                         f"Select {uuid}", lambda uuid=uuid: self.select_device(uuid)
                     )
-
+            menu_items[len(menu_items) + 1] = Menu.Separator()
             # Add static options after UUID options
             menu_items[len(menu_items) + 1] = Menu.MenuItem(
                 "Check Again", self.search_klippy
             )
+            menu_items[len(menu_items) + 1] = Menu.Separator()
             menu_items[len(menu_items) + 1] = Menu.MenuItem("Back", self.device_menu)
             menu_items[len(menu_items) + 1] = Menu.MenuItem(
                 colored_text("Back to main menu", Color.CYAN),
                 self.firmware.main_menu,
             )
+            menu_items[len(menu_items) + 1] = Menu.Separator()
             # Add the Exit option explicitly
             menu_items[0] = Menu.MenuItem("Exit", lambda: exit())
 
@@ -743,10 +1072,12 @@ class Can:
             error_msg(
                 f"KLIPPY log file not found at {KLIPPY_LOG}.",
             )
+            self.menu()
         except Exception as e:
             error_msg(
                 f"Unexpected error while processing KLIPPY log: {e}",
             )
+            self.menu()
 
     def enter_uuid(self):
         header()
@@ -758,16 +1089,16 @@ class Can:
 
             if user_input.lower() == "back":
                 self.menu()  # Return to the CAN menu
-                break
 
             # Validate the UUID format (basic validation)
             if self.validator.validate_device(user_input, "CAN"):
                 self.select_device(user_input)  # Save the UUID and return to CAN menu
-                break
+                self.menu()
             else:
                 error_msg(
                     "Invalid UUID format. Please try again., self.device_menu",
                 )
+                self.menu()
 
     def query_devices(self):
         header()
@@ -782,17 +1113,18 @@ class Can:
                 self.katapult_installer = KatapultInstaller(self.device_menu)
 
             # Define menu items
-            menu_items = {
+            menu_item: Dict[int, Union[Menu.MenuItem, Menu.Separator]] = {
                 1: Menu.MenuItem("Yes", self.katapult_installer.install),
                 2: Menu.MenuItem(
-                    colored_text("No, Back to main menu", Color.CYAN),
-                    self.firmware.main_menu,
+                    colored_text("No, Back to CAN menu", Color.CYAN),
+                    self.menu,
                 ),
+                3: Menu.Separator(),  # Blank separator
                 0: Menu.MenuItem("Exit", lambda: exit()),  # Add exit option explicitly
             }
 
             # Create and display the menu
-            menu = Menu("Would you like to install Katapult?", menu_items)
+            menu = Menu("Would you like to install Katapult?", menu_item)
             menu.display()
         else:
             try:
@@ -824,25 +1156,30 @@ class Can:
                         print("=" * 40)
                     else:
                         error_msg("No CAN devices found.")
+                        self.menu()
                 else:
                     error_msg("Unexpected output format.")
+                    self.menu()
 
             except subprocess.CalledProcessError as e:
                 error_msg(f"Error querying CAN devices: {e}")
+                self.menu()
             except Exception as e:
                 error_msg(f"Unexpected error: {e}")
+                self.menu()
             finally:
                 # Define menu items, starting with UUID options
-                menu_items: dict[int, Menu.MenuItem] = {}
+                menu_items: Dict[int, Union[Menu.MenuItem, Menu.Separator]] = {}
                 for index, uuid in enumerate(detected_uuids, start=1):
                     menu_items[index] = Menu.MenuItem(
                         f"Select {uuid}", lambda uuid=uuid: self.select_device(uuid)
                     )
-
+                menu_items[len(menu_items) + 1] = Menu.Separator()
                 # Add static options after UUID options
                 menu_items[len(menu_items) + 1] = Menu.MenuItem(
                     "Check Again", self.query_devices
                 )
+                menu_items[len(menu_items) + 1] = Menu.Separator()
                 menu_items[len(menu_items) + 1] = Menu.MenuItem(
                     "Back", self.device_menu
                 )
@@ -850,6 +1187,7 @@ class Can:
                     colored_text("Back to main menu", Color.CYAN),
                     self.firmware.main_menu,
                 )
+                menu_items[len(menu_items) + 1] = Menu.Separator()
                 # Add the Exit option explicitly
                 menu_items[0] = Menu.MenuItem("Exit", lambda: exit())
 
@@ -930,22 +1268,12 @@ class Usb:
 
     def menu(self) -> None:
         header()
-        device = self.firmware.get_device()
-        firmware = self.firmware.get_firmware()
-        # Display selected UUID and firmware if available
-        if device is not None:
-            self.selected_device = device
-            print(colored_text("Device Selected:", Color.MAGENTA), self.selected_device)
-
-        if firmware is not None:
-            self.selected_firmware = firmware
-            print(
-                colored_text("Firmware Selected:", Color.MAGENTA),
-                self.selected_firmware,
-            )
-
+        self.firmware.display_device()
+        self.firmware.display_firmware()
+        self.selected_device = self.firmware.get_device()
+        self.selected_firmware = self.firmware.get_firmware()
         # Base menu items
-        menu_items = {
+        menu_items: Dict[int, Union[Menu.MenuItem, Menu.Separator]] = {
             1: Menu.MenuItem("Find Cartographer Device", self.query_devices),
             2: Menu.MenuItem(
                 "Find USB Firmware", lambda: self.firmware.firmware_menu(type="USB")
@@ -953,16 +1281,17 @@ class Usb:
         }
 
         # Dynamically add "Flash Selected Firmware" if conditions are met
-        if self.selected_firmware is not None and self.selected_device is not None:
+        if self.selected_firmware and self.selected_device:
+            menu_items[len(menu_items) + 1] = Menu.Separator()
             menu_items[len(menu_items) + 1] = Menu.MenuItem(
                 "Flash Selected Firmware", lambda: self.firmware.confirm(type="USB")
             )
-
+        menu_items[len(menu_items) + 1] = Menu.Separator()
         # Add "Back to main menu" after "Flash Selected Firmware"
         menu_items[len(menu_items) + 1] = Menu.MenuItem(
             colored_text("Back to main menu", Color.CYAN), self.firmware.main_menu
         )
-
+        menu_items[len(menu_items) + 1] = Menu.Separator()
         # Add exit option explicitly at the end
         menu_items[0] = Menu.MenuItem("Exit", lambda: exit())
 
@@ -987,27 +1316,28 @@ class Usb:
                 self.katapult_installer = KatapultInstaller(self.menu)
 
             # Define menu items
-            menu_items = {
+            menu_item: Dict[int, Union[Menu.MenuItem, Menu.Separator]] = {
                 1: Menu.MenuItem("Yes", self.katapult_installer.install),
                 2: Menu.MenuItem(
-                    colored_text("No, Back to main menu", Color.CYAN),
-                    self.firmware.main_menu,
+                    colored_text("No, Back to USB menu", Color.CYAN),
+                    self.menu,
                 ),
+                3: Menu.Separator(),  # Blank separator
                 0: Menu.MenuItem("Exit", lambda: exit()),  # Add exit option explicitly
             }
 
             # Create and display the menu
-            menu = Menu("Would you like to install Katapult?", menu_items)
+            menu = Menu("Would you like to install Katapult?", menu_item)
             menu.display()
         else:
+            detected_devices: List[str] = []
             try:
                 # List all devices in /dev/serial/by-id/
                 base_path = "/dev/serial/by-id/"
                 if not os.path.exists(base_path):
                     error_msg(f"Path '{base_path}' does not exist.")
-                    return
+                    self.menu()
 
-                detected_devices: List[str] = []
                 for device in os.listdir(base_path):
                     if "Cartographer" in device or "katapult" in device:
                         detected_devices.append(device)
@@ -1016,7 +1346,7 @@ class Usb:
                     error_msg(
                         "No devices containing 'Cartographer' or 'katapult' found."
                     )
-                    return
+                    self.menu()
 
                 # Display the detected devices
                 print("Available Cartographe/Katapult Devices:")
@@ -1027,24 +1357,26 @@ class Usb:
 
             except Exception as e:
                 error_msg(f"Unexpected error while querying devices: {e}")
-                return
+                self.menu()
 
             # Define menu items, starting with detected devices
-            menu_items: dict[int, Menu.MenuItem] = {}
+            menu_items: Dict[int, Union[Menu.MenuItem, Menu.Separator]] = {}
             for index, device in enumerate(detected_devices, start=1):
                 menu_items[index] = Menu.MenuItem(
                     f"Select {device}", lambda device=device: self.select_device(device)
                 )
-
+            menu_items[len(menu_items) + 1] = Menu.Separator()
             # Add static options after the device options
             menu_items[len(menu_items) + 1] = Menu.MenuItem(
                 "Check Again", self.query_devices
             )
+            menu_items[len(menu_items) + 1] = Menu.Separator()
             menu_items[len(menu_items) + 1] = Menu.MenuItem("Back", self.menu)
             menu_items[len(menu_items) + 1] = Menu.MenuItem(
                 colored_text("Back to main menu", Color.CYAN), self.firmware.main_menu
             )
             # Add the Exit option explicitly
+            menu_items[len(menu_items) + 1] = Menu.Separator()
             menu_items[0] = Menu.MenuItem("Exit", lambda: exit())
 
             # Create and display the menu
@@ -1052,7 +1384,7 @@ class Usb:
             menu.display()
 
     def select_device(self, device: str):
-        self.selected_device = device  # Save the selected UUID globally
+        self.selected_device = device  # Save the selected device globally
         self.firmware.set_device(self.selected_device)
         self.menu()
 
@@ -1069,7 +1401,7 @@ class Usb:
                 # Validate that the device is a valid Cartographer device
                 if not self.validator.validate_device(device, "USB"):
                     error_msg("Your device is not a valid Cartographer device.")
-                    return
+                    self.menu()
 
                 # Prepend device path for Cartographer
                 device = f"/dev/serial/by-id/{device}"
@@ -1099,6 +1431,7 @@ class Usb:
 
                 if not katapult_device:
                     error_msg("No Katapult device found after entering bootloader.")
+                    self.menu()
                     return
 
             # Prepare the flash command
@@ -1151,11 +1484,235 @@ class Usb:
             self.firmware.flash_fail(f"Unexpected error: {str(e)}")
 
 
-class DFU:
-    # check if there is a device in DFU mode
-    def is_dfu(self):
+class Dfu:
+    def __init__(self, firmware: Firmware, debug: bool = False, ftype: bool = False):
+        self.firmware: Firmware = firmware
+        self.validator: Validator = Validator(firmware)
+        self.dfu_installer: Optional[DfuInstaller] = None
+        self.debug: bool = debug
+        self.ftype: bool = ftype
+        self.selected_device: Optional[str] = None
+        self.selected_firmware: Optional[str] = None
+
+    def menu(self) -> None:
         header()
-        step_title("Finding DFU Device")
+        self.firmware.display_device()
+        self.firmware.display_firmware()
+        self.selected_device = self.firmware.get_device()
+        self.selected_firmware = self.firmware.get_firmware()
+        # Base menu items
+        menu_items: Dict[int, Union[Menu.MenuItem, Menu.Separator]] = {
+            1: Menu.MenuItem("Find Cartographer Device", self.query_devices),
+            2: Menu.MenuItem(
+                "Find DFU Firmware", lambda: self.firmware.firmware_menu(type="DFU")
+            ),
+        }
+
+        # Dynamically add "Flash Selected Firmware" if conditions are met
+        if self.selected_firmware and self.selected_device:
+            menu_items[len(menu_items) + 1] = Menu.Separator()
+            menu_items[len(menu_items) + 1] = Menu.MenuItem(
+                "Flash Selected Firmware", lambda: self.firmware.confirm(type="DFU")
+            )
+        menu_items[len(menu_items) + 1] = Menu.Separator()
+        # Add "Back to main menu" after "Flash Selected Firmware"
+        menu_items[len(menu_items) + 1] = Menu.MenuItem(
+            colored_text("Back to main menu", Color.CYAN), self.firmware.main_menu
+        )
+        menu_items[len(menu_items) + 1] = Menu.Separator()
+        # Add exit option explicitly at the end
+        menu_items[0] = Menu.MenuItem("Exit", lambda: exit())
+
+        # Create and display the menu
+        menu = Menu("What would you like to do?", menu_items)
+        menu.display()
+
+    def check_dfu_util(self) -> bool:
+        if shutil.which("dfu-util"):
+            return True
+        else:
+            print("dfu-util is not installed. Please install it and try again.")
+            return False
+
+    def dfu_loop(self) -> List[str]:
+        start_time = time.time()
+        timeout = 30  # Timeout in seconds
+
+        detected_devices: List[str] = []
+
+        try:
+            while time.time() - start_time < timeout:
+                # Run the `lsusb` command
+                result = subprocess.run(
+                    ["lsusb"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+                )
+                lines = result.stdout.splitlines()
+
+                # Parse all lines containing "DFU Mode"
+                for line in lines:
+                    if "DFU Mode" in line:
+                        # Extract the device ID (the 6th field in `lsusb` output)
+                        device_id: str = line.split()[
+                            5
+                        ]  # Assuming field 6 contains the ID
+                        detected_devices.append(device_id)  # Add to the list
+                        print(f"Detected DFU device: {device_id}")
+                if detected_devices:
+                    return detected_devices  # Exit both loops immediately
+
+                print("No DFU devices found. Retrying in 1 second...")
+                time.sleep(1)  # Wait 1 second before retrying
+
+            print("No DFU devices found within the timeout period.")
+        except KeyboardInterrupt:
+            print("\nQuery canceled by user.")
+            return []
+        except Exception as e:
+            print(f"Error while querying devices: {e}")
+            return []
+
+        # Return detected devices to avoid further processing if none found
+        return detected_devices
+
+    def query_devices(self):
+        header()
+        page("Querying DFU devices..")
+        if not self.check_dfu_util():
+            error_msg("DFU Util is not installed.")
+            if self.dfu_installer is None:
+                self.dfu_installer = DfuInstaller(self.menu)
+
+            # Define menu items
+            menu_item: Dict[int, Union[Menu.MenuItem, Menu.Separator]] = {
+                1: Menu.MenuItem("Yes", self.dfu_installer.install),
+                2: Menu.MenuItem(
+                    colored_text("No, Back to DFU menu", Color.CYAN),
+                    self.menu,
+                ),
+                3: Menu.Separator(),  # Blank separator
+                0: Menu.MenuItem("Exit", lambda: exit()),  # Add exit option explicitly
+            }
+
+            # Create and display the menu
+            menu = Menu("Would you like to install DFU-Util?", menu_item)
+            menu.display()
+        else:
+            print(
+                f"You can now bridge the {colored_text('BOOT0', Color.YELLOW)} pins while plugging in Cartographer via USB at the same time.\n"
+            )
+
+            detected_devices: List[str] = self.dfu_loop()
+
+            if detected_devices:
+                success_msg("DFU Device Found")
+
+            # Define menu items, starting with detected devices
+            menu_items: Dict[int, Union[Menu.MenuItem, Menu.Separator]] = {}
+            for index, device in enumerate(detected_devices, start=1):
+                menu_items[index] = Menu.MenuItem(
+                    f"Select {device}", lambda device=device: self.select_device(device)
+                )
+            menu_items[len(menu_items) + 1] = Menu.Separator()
+            # Add static options after the device options
+            menu_items[len(menu_items) + 1] = Menu.MenuItem(
+                "Check Again", self.query_devices
+            )
+            menu_items[len(menu_items) + 1] = Menu.Separator()
+            menu_items[len(menu_items) + 1] = Menu.MenuItem("Back", self.menu)
+            menu_items[len(menu_items) + 1] = Menu.MenuItem(
+                colored_text("Back to main menu", Color.CYAN), self.firmware.main_menu
+            )
+            # Add the Exit option explicitly
+            menu_items[len(menu_items) + 1] = Menu.Separator()
+            menu_items[0] = Menu.MenuItem("Exit", lambda: exit())
+
+            # Create and display the menu
+            menu = Menu("Options", menu_items)
+            menu.display()
+
+    def select_device(self, device: str):
+        self.selected_device = device  # Save the selected device globally
+        self.firmware.set_device(self.selected_device)
+        self.menu()
+
+    def flash_device(self, firmware_file: str, device: str):
+        try:
+            # Validate selected device and firmware
+            self.validator.check_selected_device()
+            self.validator.check_selected_firmware()
+
+            # Validate that the device is a valid Cartographer DFU device
+            if not self.validator.validate_device(device, "DFU"):
+                error_msg("Your device is not a valid Cartographer DFU device.")
+                self.menu()
+
+            # Prepare the dfu-util command
+            command = [
+                "sudo",
+                "dfu-util",
+                "--device",
+                device,  # dfuID
+                "-R",  # Reset after flashing
+                "-a",
+                "0",  # Alternate setting 0
+                "-s",
+                "0x08000000:leave",  # Address and leave DFU mode
+                "-D",
+                firmware_file,  # Firmware file path
+            ]
+
+            # Run the dfu-util command as a subprocess
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+            # Print stdout as it happens
+            if process.stdout is not None:
+                for line in process.stdout:
+                    print(line.strip())
+
+            # Wait for the process to complete
+            _ = process.wait()
+
+            # Check stderr for known warnings to ignore
+            stderr_output = (
+                process.stderr.read().strip() if process.stderr is not None else ""
+            )
+
+            # Define warnings to ignore
+            ignored_warnings = [
+                "Invalid DFU suffix signature",
+                "can't detach",
+                "A valid DFU suffix",
+            ]
+
+            # Filter out ignored warnings
+            filtered_stderr = "\n".join(
+                line
+                for line in stderr_output.splitlines()
+                if not any(warning in line for warning in ignored_warnings)
+            )
+
+            # If returncode is 0 or all errors are ignored warnings, treat as success
+            if process.returncode == 0 or (not filtered_stderr):
+                _ = input("Press enter to continue..")
+                self.firmware.flash_success("Firmware flashed successfully.")
+            else:
+                _ = input("Press enter to continue..")
+                self.firmware.flash_fail(f"Error flashing firmware: {filtered_stderr}")
+
+        except subprocess.CalledProcessError as e:
+            stderr_output = (
+                e.stderr.strip() if e.stderr else "No error details available."
+            )
+            _ = input("Press enter to continue..")
+            self.firmware.flash_fail(f"Error flashing firmware: {stderr_output}")
+        except Exception as e:
+            _ = input("Press enter to continue..")
+            self.firmware.flash_fail(f"Unexpected error: {str(e)}")
 
 
 class Validator:
@@ -1172,15 +1729,15 @@ class Validator:
         elif type == "USB":
             device_regex = r".*Cartographer.*"
         else:
-            device_regex = r"^[a-f0-9]{12}$"
+            device_regex = r"^[a-f0-9]{4}:[a-f0-9]{4}$"
         return bool(re.match(device_regex, device))
 
     def check_selected_firmware(self):
-        if self.firmware.selected_firmware is None:
+        if not self.firmware.selected_firmware:
             self._error_and_return("You have not selected a firmware file.")
 
     def check_selected_device(self):
-        if self.firmware.selected_device is None:
+        if not self.firmware.selected_device:
             self._error_and_return("You have not selected a device to flash.")
 
     def check_temp_directory(self):
@@ -1337,12 +1894,65 @@ class KatapultInstaller:
             self.device_menu()
 
 
+class DfuInstaller:
+    def __init__(self, device_menu: Callable[[], None]) -> None:
+        """
+        Initialize the installer with a reference to the device menu callback.
+
+        :param device_menu: A callable to return to the device menu.
+        """
+        self.device_menu: Callable[[], None] = device_menu
+
+    def install(self) -> None:
+        """
+        Installs DFU Util
+        """
+        try:
+            if shutil.which("apt"):
+                success_msg("Detected apt package manager. Installing dfu-util...")
+                _ = subprocess.run(["sudo", "apt", "update"], check=True)
+                _ = subprocess.run(
+                    ["sudo", "apt", "install", "dfu-util", "-y"], check=True
+                )
+            elif shutil.which("yum"):
+                success_msg("Detected yum package manager. Installing dfu-util...")
+                _ = subprocess.run(
+                    ["sudo", "yum", "install", "dfu-util", "-y"], check=True
+                )
+            elif shutil.which("dnf"):
+                success_msg("Detected dnf package manager. Installing dfu-util...")
+                _ = subprocess.run(
+                    ["sudo", "dnf", "install", "dfu-util", "-y"], check=True
+                )
+            elif shutil.which("pacman"):
+                success_msg("Detected pacman package manager. Installing dfu-util...")
+                _ = subprocess.run(
+                    ["sudo", "pacman", "-S", "dfu-util", "--noconfirm"], check=True
+                )
+            else:
+                error_msg(
+                    "Package manager not supported. Please install dfu-util manually."
+                )
+                self.device_menu()
+
+            success_msg("dfu-util installed successfully.")
+
+        except subprocess.CalledProcessError as e:
+            error_msg(f"Error occurred during installation: {e}")
+            self.device_menu()
+        except Exception as e:
+            error_msg(f"Unexpected error: {e}")
+            self.device_menu()
+        finally:
+            self.device_menu()
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Firmware flashing script with -b to select branch"
     )
     _ = parser.add_argument(
-        "-b", "--branch", help="Specify the branch name", default="main"
+        "-b", "--branch", help="Specify the branch name", default="master"
     )
     _ = parser.add_argument(
         "-D", "--debug", help="Enable debug output", action="store_true"
@@ -1357,9 +1967,9 @@ if __name__ == "__main__":
         action="store_true",
     )
     _ = parser.add_argument(
-        "-l",
-        "--latest",
-        help="Skip searching for firmware and flash latest",
+        "-a",
+        "--all",
+        help="Show all available firmware",
         action="store_true",
     )
     _ = parser.add_argument(
@@ -1376,32 +1986,37 @@ if __name__ == "__main__":
         choices=["CAN", "USB", "DFU"],
         type=lambda s: s.upper(),
     )
-
-    args = parser.parse_args(namespace=FirmwareNamespace())
-    # Post-processing arguments
-    if args.kseries:
-        args.flash = "USB"  # Override the flash type to USB
-
-    # Assign the argument to a variable
-    branch = args.branch
-    fw = Firmware(
-        branch=args.branch,
-        debug=args.debug,
-        ftype=args.type,
-        high_temp=args.high_temp,
-        flash=args.flash,
-        kseries=args.kseries,
-        latest=args.latest,
-        device=args.device,
-    )
-    if not args.latest:
-        if args.flash == "CAN":
-            fw.can.menu()
-        elif args.flash == "USB":
-            fw.usb.menu()
-        elif args.flash == "DFU":
-            fw.dfu_menu()
+    try:
+        args = parser.parse_args(namespace=FirmwareNamespace())
+        # Post-processing arguments
+        if args.kseries:
+            args.flash = "USB"  # Override the flash type to USB
+        if args.type:
+            args.all = True
+        # Assign the argument to a variable
+        branch = args.branch
+        fw = Firmware(
+            branch=args.branch,
+            debug=args.debug,
+            ftype=args.type,
+            high_temp=args.high_temp,
+            flash=args.flash,
+            kseries=args.kseries,
+            all=args.all,
+            device=args.device,
+        )
+        make_terminal_bigger()
+        if args.all:
+            if args.flash == "CAN":
+                fw.can.menu()
+            elif args.flash == "USB":
+                fw.usb.menu()
+            elif args.flash == "DFU":
+                fw.dfu.menu()
+            else:
+                fw.main_menu()
         else:
-            fw.main_menu()
-    else:
-        fw.handle_initialization()
+            fw.handle_initialization()
+    except KeyboardInterrupt:
+        print("\nProcess interrupted by user. Exiting...")
+        exit(0)
