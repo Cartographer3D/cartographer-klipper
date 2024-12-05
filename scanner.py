@@ -24,7 +24,7 @@ import time
 import traceback
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import Callable, Generic, Optional, TypedDict, TypeVar, final
+from typing import Callable, Generic, Literal, Optional, TypedDict, TypeVar, final
 
 import chelper
 from klippy import Printer
@@ -123,6 +123,7 @@ S = TypeVar("S", bound=SettingsContainer)
 @final
 class Setting(Generic[T, S]):
     _value = sentinel
+    _last_gcmd: Optional[GCodeCommand] = None
 
     def __init__(
         self,
@@ -139,14 +140,19 @@ class Setting(Generic[T, S]):
         self._deprecate = deprecate
 
     def __get__(self, instance: S, _) -> T:
+        # First read
         if self._value is sentinel:
             self._value = self._get_config_value(instance.get_config())
             if self._deprecate:
                 instance.get_config().deprecate(self._config_name)
+
         gcmd = instance.get_gcode_command()
-        if gcmd is None:
-            return self._value
-        return self._get_gcmd_value(gcmd, self._value)
+        # If we already read for this gcmd, we don't need to do it again
+        # Important so we do not overwrite value from __set__
+        if gcmd is not None and gcmd is not self._last_gcmd:
+            self._last_gcmd = gcmd
+            self._value = self._get_gcmd_value(gcmd, self._value)
+        return self._value
 
     def __set__(self, instance: S, value: T):
         self.value = value
@@ -273,7 +279,7 @@ class ScannerTouchSettings(SettingsContainer):
         default=10,
         minval=0,
     )
-    def max_retries(self):
+    def retries(self):
         pass
 
     @float_setting(
@@ -447,27 +453,11 @@ class Scanner:
         self.trigger_hysteresis = config.getfloat("trigger_hysteresis", 0.006)
         self.z_settling_time = config.getint("z_settling_time", 5, minval=0)
 
-        max_speed_value = config.getfloat(
-            "scanner_touch_max_speed", 10, above=0, maxval=30
-        )
+        config.deprecate("scanner_touch_calibrate")
+        config.deprecate("scanner_touch_max_speed")
         ## NEW VARIABLES HERE
-        self.scanner_touch_config = {
-            "accel": config.getfloat("scanner_touch_accel", 100, above=0, minval=100),
-            "max_speed": max_speed_value,
-            "speed": config.getfloat("scanner_touch_speed", 3, maxval=max_speed_value),
-            "retract_dist": config.getfloat("scanner_touch_retract_dist", 2, minval=1),
-            "retract_speed": config.getfloat(
-                "scanner_touch_retract_speed", 10, minval=1
-            ),
-            "sample_count": config.getfloat("scanner_touch_sample_count", 3, minval=1),
-            "tolerance": config.getfloat("scanner_touch_tolerance", 0.01, above=0.0),
-            "max_retries": config.getint("scanner_touch_max_retries", 10, minval=0),
-            "move_speed": config.getfloat("scanner_touch_move_speed", 50, minval=1),
+        self.scanner_touch_config: dict[Literal["calibrate"], float] = {
             "calibrate": config.getfloat("scanner_touch_calibrate", 0),
-            "z_offset": config.getfloat("scanner_touch_z_offset", 0.05),
-            "threshold": config.getint("scanner_touch_threshold", 2500),
-            "max_temp": config.getfloat("scanner_touch_max_temp", 150),
-            "fuzzy_touch": config.getfloat("scanner_touch_fuzzy_touch", 0, maxval=10),
         }
         self.gcode = self.printer.lookup_object("gcode")
 
@@ -477,7 +467,7 @@ class Scanner:
             raise self.printer.command_error(
                 "Please change detect_threshold_z to scanner_touch_threshold in printer.cfg"
             )
-        self.detect_threshold_z = self.scanner_touch_config["threshold"]
+        self.detect_threshold_z = self.touch_settings.threshold
         self.previous_probe_success = None
 
         self.cal_config = {
@@ -636,86 +626,40 @@ class Scanner:
             self.calibration_method = "scan"
             self._start_calibration(gcmd)
 
-    def _get_common_variables(self, gcmd: GCodeCommand):
-        return {
-            "speed": gcmd.get_float(
-                "SPEED",
-                self.scanner_touch_config["speed"],
-                above=0,
-                maxval=self.scanner_touch_config["max_speed"],
-            ),
-            "move_speed": gcmd.get_float(
-                "MOVEMENT_SPEED", self.scanner_touch_config["move_speed"], above=0
-            ),
-            "accel": gcmd.get_float(
-                "ACCEL", self.scanner_touch_config["accel"], minval=1
-            ),
-            "retract_dist": gcmd.get_float(
-                "RETRACT", self.scanner_touch_config["retract_dist"], minval=1
-            ),
-            "retract_speed": gcmd.get_float(
-                "RETRACT_SPEED", self.scanner_touch_config["retract_speed"], minval=1
-            ),
-            "num_samples": gcmd.get_int(
-                "SAMPLES", self.scanner_touch_config["sample_count"], minval=1
-            ),
-            "tolerance": round(
-                gcmd.get_float(
-                    "TOLERANCE",
-                    float(self.scanner_touch_config["tolerance"]),
-                    above=0.0,
-                ),
-                4,
-            ),
-            "target": gcmd.get_float(
-                "TARGET", 0.015, above=0.0
-            ),  # Default target to 0.015 if not defined
-            "max_retries": gcmd.get_int(
-                "RETRIES", self.scanner_touch_config["max_retries"], minval=0
-            ),
-            "touch_location_x": gcmd.get_float(
-                "TOUCH_LOCATION_X", float(self.touch_location[0])
-            ),
-            "touch_location_y": gcmd.get_float(
-                "TOUCH_LOCATION_Y", float(self.touch_location[1])
-            ),
-            "randomize": gcmd.get_float(
-                "FUZZY_TOUCH", self.scanner_touch_config["fuzzy_touch"], maxval=10
-            ),
-            "verbose": gcmd.get_int("DEBUG", 0),
-        }
-
     cmd_SCANNER_TOUCH_help = "Home in TOUCH mode"
 
     def cmd_SCANNER_TOUCH(self, gcmd: GCodeCommand):
-        # Retrieve common variables
-        vars = self._get_common_variables(gcmd)
+        settings = self.touch_settings.with_gcode_command(gcmd)
 
         # Variables specific to the touch command
-        test_threshold = gcmd.get_int("THRESHOLD", self.detect_threshold_z, minval=100)
+        test_threshold = settings.threshold
         calibrate = gcmd.get_float("CALIBRATE", self.scanner_touch_config["calibrate"])
-        manual_z_offset = gcmd.get_float(
-            "Z_OFFSET", self.scanner_touch_config["z_offset"], minval=0
+        manual_z_offset = settings.z_offset
+
+        touch_location_x = gcmd.get_float(
+            "TOUCH_LOCATION_X", float(self.touch_location[0])
+        )
+
+        touch_location_y = gcmd.get_float(
+            "TOUCH_LOCATION_Y", float(self.touch_location[1])
         )
 
         # Debugging information
         self.log_debug_info(
-            vars["verbose"],
             gcmd,
-            f"SPEED: {vars['speed']}",
-            f"MOVEMENT_SPEED: {vars['move_speed']}",
-            f"ACCEL: {vars['accel']}",
-            f"RETRACT: {vars['retract_dist']}",
-            f"RETRACT_SPEED: {vars['retract_speed']}",
-            f"SAMPLES: {vars['num_samples']}",
-            f"TOLERANCE: {vars['tolerance']}",
-            f"RETRIES: {vars['max_retries']}",
-            f"TOUCH_LOCATION_X: {vars['touch_location_x']}",
-            f"TOUCH_LOCATION_Y: {vars['touch_location_y']}",
+            f"SPEED: {settings.speed}",
+            f"MOVEMENT_SPEED: {settings.move_speed}",
+            f"ACCEL: {settings.accel}",
+            f"RETRACT: {settings.retract_dist}",
+            f"RETRACT_SPEED: {settings.retract_speed}",
+            f"SAMPLES: {settings.sample_count}",
+            f"TOLERANCE: {settings.tolerance}",
+            f"RETRIES: {settings.retries}",
+            f"TOUCH_LOCATION_X: {touch_location_x}",
+            f"TOUCH_LOCATION_Y: {touch_location_y}",
             f"THRESHOLD: {test_threshold}",
             f"Z_OFFSET: {manual_z_offset}",
-            f"DEBUG: {vars['verbose']}",
-            f"MOVE: {vars['randomize']}",
+            f"FUZZY_TOUCH: {settings.fuzzy_touch}",
         )
 
         # Switch between Touch and Scan Probing
@@ -729,9 +673,7 @@ class Scanner:
             return
 
         self.check_temp(gcmd)
-        self.log_debug_info(
-            vars["verbose"], gcmd, f"Trigger Method: {self.trigger_method}"
-        )
+        self.log_debug_info(gcmd, f"Trigger Method: {self.trigger_method}")
         self.toolhead.wait_moves()
 
         curtime = self.printer.get_reactor().monotonic()
@@ -744,8 +686,8 @@ class Scanner:
         self.previous_probe_success = 0
         self._zhop()
         self._move(
-            [vars["touch_location_x"], vars["touch_location_y"], None],
-            vars["move_speed"],
+            [touch_location_x, touch_location_y, None],
+            settings.move_speed,
         )
 
         if gcmd.get("METHOD", "None").lower() == "manual":
@@ -757,7 +699,6 @@ class Scanner:
             z_min, z_max = kin_status["axis_minimum"][2], kin_status["axis_maximum"][2]
 
             self.log_debug_info(
-                vars["verbose"],
                 gcmd,
                 f"Initial Pos: {initial_position} \nHoming Pos: {homing_position} \nZ MIN: {z_min} \nZ MAX: {z_max}",
             )
@@ -765,37 +706,27 @@ class Scanner:
             initial_position[2] = z_max
             homing_position[2] = z_min
             self.log_debug_info(
-                vars["verbose"],
                 gcmd,
                 f"new Initial Pos [Initial Z - Z Max]: {initial_position} \nnew Homing Pos [Homing Pos - Z Min]: {homing_position}",
             )
 
             max_accel = self.toolhead.get_status(curtime)["max_accel"]
-            self.log_debug_info(
-                vars["verbose"], gcmd, f"Current Accel: {int(max_accel)}"
-            )
+            self.log_debug_info(gcmd, f"Current Accel: {int(max_accel)}")
 
             if calibrate == 1:
                 manual_z_offset = 0
 
             touch_settings = TouchSettings(
-                initial_position,
-                homing_position,
-                vars["accel"],
-                vars["speed"],
-                vars["retract_dist"],
-                vars["retract_speed"],
-                vars["num_samples"],
-                vars["tolerance"],
-                vars["max_retries"],
-                z_max,
-                max_accel,
-                test_threshold,
-                manual_z_offset,
-                vars["randomize"],
+                initial_position=initial_position,
+                homing_position=homing_position,
+                max_retries=settings.retries,
+                z_max=z_max,
+                max_accel=max_accel,
+                test_threshold=test_threshold,
+                manual_z_offset=manual_z_offset,
             )
 
-            result = self.start_touch(gcmd, touch_settings, vars["verbose"])
+            result = self.start_touch(gcmd, touch_settings)
 
             standard_deviation = result["standard_deviation"]
             final_position = result["final_position"]
@@ -803,15 +734,11 @@ class Scanner:
             success = result["success"]
             if success:
                 self.log_debug_info(
-                    vars["verbose"],
                     gcmd,
                     f"Touch procedure successful with {int(retries + 1)} attempts.",
                 )
+                self.log_debug_info(gcmd, f"Final position: {final_position}")
                 self.log_debug_info(
-                    vars["verbose"], gcmd, f"Final position: {final_position}"
-                )
-                self.log_debug_info(
-                    vars["verbose"],
                     gcmd,
                     f"Standard Deviation: {standard_deviation:.4f}",
                 )
@@ -828,22 +755,23 @@ class Scanner:
             self.extruder_target = 0
 
     # Event handlers
-    def start_touch(self, gcmd: GCodeCommand, touch_settings, verbose: bool):
+    def start_touch(self, gcmd: GCodeCommand, touch_settings: "TouchSettings"):
+        settings = self.touch_settings.with_gcode_command(gcmd)
         kinematics = self.toolhead.get_kinematics()
         initial_position = touch_settings.initial_position
         homing_position = touch_settings.homing_position
-        accel = touch_settings.accel
-        speed = touch_settings.speed
-        retract_dist = touch_settings.retract_dist
-        retract_speed = touch_settings.retract_speed
-        num_samples = touch_settings.num_samples
-        tolerance = touch_settings.tolerance
+        accel = settings.accel
+        speed = settings.speed
+        retract_dist = settings.retract_dist
+        retract_speed = settings.retract_speed
+        num_samples = settings.sample_count
+        tolerance = settings.tolerance
         max_retries = touch_settings.max_retries
         z_max = touch_settings.z_max
         max_accel = touch_settings.max_accel
         test_threshold = touch_settings.test_threshold
         manual_z_offset = touch_settings.manual_z_offset
-        randomize = touch_settings.randomize
+        randomize = settings.fuzzy_touch
 
         original_threshold = self.detect_threshold_z
         try:
@@ -900,7 +828,6 @@ class Scanner:
 
                 samples.append(probe_position[2])
                 self.log_debug_info(
-                    verbose,
                     gcmd,
                     f"Touch {len(samples)} result: {probe_position[2]:.4f}",
                 )
@@ -917,7 +844,6 @@ class Scanner:
                             f"Exceeded maximum attempts [{retries}/{int(max_retries)}]"
                         )
                     self.log_debug_info(
-                        verbose,
                         gcmd,
                         f"Deviation of {deviation:.4f} exceeds tolerance of {tolerance:.4f}",
                     )
@@ -929,7 +855,6 @@ class Scanner:
                     samples.clear()
 
                 self.log_debug_info(
-                    verbose,
                     gcmd,
                     f"Deviation: {deviation:.4f}\nNew Average: {average:.4f}\nTolerance: {tolerance:.4f}",
                 )
@@ -941,16 +866,13 @@ class Scanner:
             position_difference = initial_position[2] - self.toolhead.get_position()[2]
             adjusted_difference = initial_position[2] - np.mean(samples)
             self.log_debug_info(
-                verbose,
                 gcmd,
                 f"Position Difference: {position_difference:.4f}\nAdjusted Difference: {adjusted_difference:.4f}",
             )
 
             initial_position[2] = float(adjusted_difference - position_difference)
             formatted_position = [f"{coord:.2f}" for coord in initial_position]
-            self.log_debug_info(
-                verbose, gcmd, f"Updated Initial Position: {formatted_position}"
-            )
+            self.log_debug_info(gcmd, f"Updated Initial Position: {formatted_position}")
             if manual_z_offset > 0:
                 gcmd.respond_info(f"Offsetting by {manual_z_offset:.3f}")
                 initial_position[2] = initial_position[2] - manual_z_offset
@@ -961,7 +883,6 @@ class Scanner:
             self.previous_probe_success = 1
 
             # Return relevant data
-            self.detect_threshold_z = original_threshold
             return {
                 "samples": samples,
                 "standard_deviation": std_dev,
@@ -974,6 +895,8 @@ class Scanner:
             if hasattr(kinematics, "note_z_not_homed"):
                 kinematics.note_z_not_homed()
             raise
+        finally:
+            self.detect_threshold_z = original_threshold
 
     cmd_SCANNER_THRESHOLD_SCAN_help = "Scan THRESHOLD in TOUCH mode"
 
@@ -985,8 +908,7 @@ class Scanner:
             self.trigger_method = TriggerMethod.SCAN
             return
 
-        # Retrieve common and specific threshold scan variables
-        vars = self._get_common_variables(gcmd)
+        settings = self.touch_settings.with_gcode_command(gcmd)
 
         # Retrieve STEP value once
         step = gcmd.get_int("STEP", 250)
@@ -996,7 +918,7 @@ class Scanner:
             threshold_min = max(
                 THRESHOLD_MIN_LIMIT,
                 round(
-                    (self.detect_threshold_z * THRESHOLD_SCALING_FACTOR)
+                    (settings.threshold * THRESHOLD_SCALING_FACTOR)
                     / THRESHOLD_ROUNDING_BASE
                 )
                 * THRESHOLD_ROUNDING_BASE,
@@ -1027,9 +949,9 @@ class Scanner:
         max_acceptable_retries = round(
             confirmation_retries * THRESHOLD_ACCEPTANCE_FACTOR
         )
-        max_acceptable_std_dev = vars["target"]
-
-        verbose = vars["verbose"]
+        max_acceptable_std_dev = gcmd.get_float(
+            "TARGET", 0.015, above=0.0
+        )  # Default target to 0.015 if not defined
 
         # Prepare to track results
         results = []
@@ -1062,10 +984,17 @@ class Scanner:
                 lines.append(f"Please run {format_macro(cmd)}")
             raise gcmd.error(" ".join(lines))
 
+        touch_location_x = gcmd.get_float(
+            "TOUCH_LOCATION_X", float(self.touch_location[0])
+        )
+        touch_location_y = gcmd.get_float(
+            "TOUCH_LOCATION_Y", float(self.touch_location[1])
+        )
+
         self._zhop()
         self._move(
-            [vars["touch_location_x"], vars["touch_location_y"], None],
-            vars["move_speed"],
+            [touch_location_x, touch_location_y, None],
+            settings.move_speed,
         )
         self.previous_probe_success = 0
         current_threshold = threshold_min
@@ -1086,24 +1015,17 @@ class Scanner:
                 self.detect_threshold_z = current_threshold
 
                 touch_settings = TouchSettings(
-                    initial_position,
-                    homing_position,
-                    vars["accel"],
-                    vars["speed"],
-                    vars["retract_dist"],
-                    vars["retract_speed"],
-                    vars["num_samples"],
-                    vars["tolerance"],
-                    confirmation_retries,
-                    start_position,
-                    max_accel,
-                    current_threshold,
-                    0,
-                    vars["randomize"],
+                    initial_position=initial_position,
+                    homing_position=homing_position,
+                    max_retries=confirmation_retries,
+                    z_max=start_position,
+                    max_accel=max_accel,
+                    test_threshold=current_threshold,
+                    manual_z_offset=0,
                 )
 
                 # Start threshold scan and evaluate results
-                result = self.start_threshold_scan(gcmd, touch_settings, verbose)
+                result = self.start_threshold_scan(gcmd, touch_settings)
                 result["threshold"] = (
                     current_threshold  # Add threshold value to result for tracking
                 )
@@ -1131,7 +1053,7 @@ class Scanner:
                         repeat_result = {}
                         for attempt in range(repeat_attempts):
                             repeat_result = self.start_threshold_scan(
-                                gcmd, touch_settings, verbose
+                                gcmd, touch_settings
                             )
                             if not repeat_result["success"] or (
                                 repeat_result["standard_deviation"]
@@ -1162,7 +1084,7 @@ class Scanner:
                         # If all repeat attempts succeeded, save the threshold
                         if consistent_results and override == 0:
                             best_threshold = current_threshold
-                            self._save_threshold(best_threshold, vars["speed"])
+                            self._save_threshold(best_threshold, settings.speed)
                             break
                 # Move to the next candidate if current threshold didn't succeed
                 current_threshold += step
@@ -1210,7 +1132,7 @@ class Scanner:
 
             # Save and respond with the best threshold found
             self.detect_threshold_z = best_threshold
-            self._save_threshold(best_threshold, vars["speed"])
+            self._save_threshold(best_threshold, settings.speed)
 
             # Handle None for standard deviation by using a default message
             std_dev_display = (
@@ -1234,21 +1156,22 @@ class Scanner:
 
             self.trigger_method = TriggerMethod.SCAN
 
-    def start_threshold_scan(self, gcmd: GCodeCommand, touch_settings, verbose: bool):
+    def start_threshold_scan(self, gcmd: GCodeCommand, touch_settings: "TouchSettings"):
+        settings = self.touch_settings.with_gcode_command(gcmd)
         kinematics = self.toolhead.get_kinematics()
         initial_position = touch_settings.initial_position
         homing_position = touch_settings.homing_position
-        accel = touch_settings.accel
-        speed = touch_settings.speed
-        retract_dist = touch_settings.retract_dist
-        retract_speed = touch_settings.retract_speed
-        num_samples = touch_settings.num_samples
-        tolerance = touch_settings.tolerance
+        accel = settings.accel
+        speed = settings.speed
+        retract_dist = settings.retract_dist
+        retract_speed = settings.retract_speed
+        num_samples = settings.sample_count
+        tolerance = settings.tolerance
         max_retries = touch_settings.max_retries
         z_max = touch_settings.z_max
         max_accel = touch_settings.max_accel
         test_threshold = touch_settings.test_threshold
-        randomize = touch_settings.randomize
+        randomize = settings.fuzzy_touch
         try:
             self.detect_threshold_z = test_threshold
             # Set the initial position for the toolhead
@@ -1306,7 +1229,6 @@ class Scanner:
 
                 samples.append(probe_position[2])
                 self.log_debug_info(
-                    verbose,
                     gcmd,
                     f"Touch {len(samples)} result: {probe_position[2]:.4f}",
                 )
@@ -1316,7 +1238,6 @@ class Scanner:
                 deviation = round(deviation, 4)
                 if deviation > tolerance:
                     self.log_debug_info(
-                        verbose,
                         gcmd,
                         f"Deviation of {deviation:.4f} exceeds tolerance of {tolerance:.4f}",
                     )
@@ -1329,7 +1250,6 @@ class Scanner:
                     # If successful, we continue gathering samples until num_samples is reached.
 
                 self.log_debug_info(
-                    verbose,
                     gcmd,
                     f"Deviation: {deviation:.4f}\nNew Average: {average:.4f}\nTolerance: {tolerance:.4f}",
                 )
@@ -1342,7 +1262,6 @@ class Scanner:
                 )
                 adjusted_difference = initial_position[2] - np.median(samples)
                 self.log_debug_info(
-                    verbose,
                     gcmd,
                     f"Position Difference: {position_difference:.4f}\nAdjusted Difference: {adjusted_difference:.4f}",
                 )
@@ -1407,7 +1326,8 @@ class Scanner:
         count = float(len(positions))
         return [sum([pos[i] for pos in positions]) / count for i in range(3)]
 
-    def log_debug_info(self, verbose: bool, gcmd: GCodeCommand, *args: object):
+    def log_debug_info(self, gcmd: GCodeCommand, *args: object):
+        verbose = gcmd.get_int("DEBUG", 0) != 0
         if verbose:
             for message in args:
                 gcmd.respond_info(str(message))
@@ -1418,7 +1338,7 @@ class Scanner:
             curtime = self.printer.get_reactor().monotonic()
             cur_temp = hotend.get_heater().get_status(curtime)["temperature"]
             self.extruder_target = hotend.get_heater().get_status(curtime)["target"]
-            max_temp = self.scanner_touch_config["max_temp"]
+            max_temp = self.touch_settings.with_gcode_command(gcmd).max_temp
             wait_temp = max_temp + 5
             if self.extruder_target > max_temp:
                 gcmd.respond_info(
@@ -2545,12 +2465,11 @@ class Scanner:
             raise self.gcode.error("You must calibrate your model first.")
 
         if self.calibration_method == "touch":
-            newoffset = self.scanner_touch_config["z_offset"]
+            settings = self.touch_settings.with_gcode_command(gcmd)
+            newoffset = settings.z_offset
             newoffset += offset
             if newoffset < 0:
-                self.scanner_touch_config["z_offset"] = 0
-                configfile = self.printer.lookup_object("configfile")
-                configfile.set("scanner", "scanner_touch_z_offset", "%.3f" % 0)
+                settings.z_offset = 0
                 gcmd.respond_info(
                     f"Touch offset attempted to update to {newoffset:.3f}.\n"
                     "However it cannot be less than 0. So its been set to 0.\n"
@@ -2565,15 +2484,9 @@ class Scanner:
                 # offset would compound with the gcode offset. To ensure this doesn't
                 # happen, we revert to the old model offset afterwards.
                 # Really, the user should just be calling `SAVE_CONFIG` now.
-                self.scanner_touch_config["z_offset"] = newoffset
-                configfile = self.printer.lookup_object("configfile")
-                configfile.set(
-                    "scanner",
-                    "scanner_touch_z_offset",
-                    "%.3f" % self.scanner_touch_config["z_offset"],
-                )
+                settings.z_offset = newoffset
                 gcmd.respond_info(
-                    f"Touch offset has been updated by {offset:.3f} to {self.scanner_touch_config['z_offset']:.3f}.\n"
+                    f"Touch offset has been updated by {offset:.3f} to {newoffset:.3f}.\n"
                     f"You must run the {format_macro('SAVE_CONFIG')} command now to update the\n"
                     "printer config file and restart the printer."
                 )
@@ -2587,38 +2500,15 @@ class Scanner:
             )
 
 
+@dataclass
 class TouchSettings:
-    def __init__(
-        self,
-        initial_position,
-        homing_position,
-        accel,
-        speed,
-        retract_dist,
-        retract_speed,
-        num_samples,
-        tolerance,
-        max_retries,
-        z_max,
-        max_accel,
-        test_threshold,
-        manual_z_offset,
-        randomize,
-    ):
-        self.initial_position = initial_position
-        self.homing_position = homing_position
-        self.accel = accel
-        self.speed = speed
-        self.retract_dist = retract_dist
-        self.retract_speed = retract_speed
-        self.num_samples = num_samples
-        self.tolerance = tolerance
-        self.max_retries = max_retries
-        self.z_max = z_max
-        self.max_accel = max_accel
-        self.test_threshold = test_threshold
-        self.manual_z_offset = manual_z_offset
-        self.randomize = randomize
+    initial_position: "list[float]"
+    homing_position: "list[float]"
+    max_retries: int
+    z_max: float
+    max_accel: float
+    test_threshold: int
+    manual_z_offset: float
 
 
 @final
