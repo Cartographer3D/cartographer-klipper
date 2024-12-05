@@ -134,7 +134,6 @@ class Scanner:
         self.offset = {
             "x": config.getfloat("x_offset", 0.0),
             "y": config.getfloat("y_offset", 0.0),
-            "z": config.getfloat("z_offset", 0.0),
         }
 
         if config.has_section("safe_z_home"):
@@ -321,11 +320,6 @@ class Scanner:
             "Z_OFFSET_APPLY_PROBE",
             self.cmd_Z_OFFSET_APPLY_PROBE,
             desc=self.cmd_Z_OFFSET_APPLY_PROBE_help,
-        )
-        self.gcode.register_command(
-            "SAVE_TOUCH_OFFSET",
-            self.cmd_SAVE_TOUCH_OFFSET,
-            desc=self.cmd_SAVE_TOUCH_OFFSET_help,
         )
 
     cmd_SCANNER_CALIBRATE_help = "Calibrate scanner response curve"
@@ -1416,7 +1410,6 @@ class Scanner:
             pos[2] = status["axis_maximum"][2]
             self.toolhead.set_position(pos, homing_axes=(0, 1, 2))
             self.touch_probe(self.probe_speed)
-            pos[2] = -self.offset["z"]
             self.toolhead.set_position(pos)
             self._move([None, None, 0], self.lift_speed)
             kin = self.toolhead.get_kinematics()
@@ -2276,14 +2269,6 @@ class Scanner:
                 "printer config file and restart the printer."
             )
 
-    cmd_SAVE_TOUCH_OFFSET_help = "Save offset to z_offset for TOUCH method"
-
-    def cmd_SAVE_TOUCH_OFFSET(self, gcmd: GCodeCommand):
-        gcode_move = self.printer.lookup_object("gcode_move")
-        offset = gcode_move.get_status()["homing_origin"].z
-        configfile = self.printer.lookup_object("configfile")
-        configfile.set("scanner", "z_offset", "%.3f" % (self.offset["z"] + offset))
-
 
 class TouchSettings:
     def __init__(
@@ -2864,7 +2849,7 @@ class ScannerEndstopWrapper:
         # After homing Z we perform a measurement and adjust the toolhead
         # kinematic position.
         if self.scanner.trigger_method != 0:
-            homing_state.set_homed_position([None, None, -self.scanner.offset["z"]])
+            homing_state.set_homed_position([None, None, 0])
             return
         (dist, samples) = self.scanner._sample(self.scanner.z_settling_time, 10)
         if math.isinf(dist):
