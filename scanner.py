@@ -1076,10 +1076,10 @@ class Scanner:
 
                     samples.append(probe_position[2])
                 except Exception as e:
-                         self.log_debug_info(
-                            verbose,
-                            gcmd,
-                            f"Failed to retract and append sample: {e}")
+                    self.log_debug_info(
+                    verbose,
+                    gcmd,
+                    f"Failed to retract and append sample: {e}")
                 self.log_debug_info(
                     verbose,
                     gcmd,
