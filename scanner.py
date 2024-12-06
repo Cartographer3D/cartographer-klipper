@@ -2878,13 +2878,15 @@ class ScannerEndstopWrapper:
         if self.scanner.mcu_probe in hmove.get_mcu_endstops():
             etrsync = self._trsyncs[0]
             if self.scanner.trigger_method == 1:
-                self.scanner.scanner_home_cmd.send([
-                    etrsync.get_oid(),
-                    etrsync.REASON_ENDSTOP_HIT,
-                    0,
-                    self.scanner.detect_threshold_z,
-                    self.scanner.trigger_method,
-                ])
+                self.scanner.scanner_home_cmd.send(
+                    [
+                        etrsync.get_oid(),
+                        etrsync.REASON_ENDSTOP_HIT,
+                        0,
+                        self.scanner.detect_threshold_z,
+                        self.scanner.trigger_method,
+                    ]
+                )
 
     def get_mcu(self):
         return self._mcu
@@ -2947,13 +2949,15 @@ class ScannerEndstopWrapper:
         if self.scanner.trigger_method != 0:
             return self._trigger_completion
 
-        self.scanner.scanner_home_cmd.send([
-            etrsync.get_oid(),
-            etrsync.REASON_ENDSTOP_HIT,
-            0,
-            self.scanner.detect_threshold_z,
-            self.scanner.trigger_method,
-        ])
+        self.scanner.scanner_home_cmd.send(
+            [
+                etrsync.get_oid(),
+                etrsync.REASON_ENDSTOP_HIT,
+                0,
+                self.scanner.detect_threshold_z,
+                self.scanner.trigger_method,
+            ]
+        )
         return self._trigger_completion
 
     def home_wait(self, home_end_time):
@@ -3120,11 +3124,13 @@ class ScannerMeshHelper:
         r = settings["range"]
         m = settings["machine"]
         space = (r[1] - r[0]) / (float(settings["count"] - 1))
-        self.overscan = min([
-            max(0, r[0] - m[0]),
-            max(0, m[1] - r[1]),
-            space + 2.0,  # A half circle with 2mm lead in/out
-        ])
+        self.overscan = min(
+            [
+                max(0, r[0] - m[0]),
+                max(0, m[1] - r[1]),
+                space + 2.0,  # A half circle with 2mm lead in/out
+            ]
+        )
 
     def _generate_path(self):
         xo = self.scanner.offset["x"]
@@ -3459,10 +3465,12 @@ class ScannerMeshHelper:
 
         def do():
             try:
-                child_conn.send((
-                    False,
-                    self._do_process_clusters(raw_clusters, dump_file),
-                ))
+                child_conn.send(
+                    (
+                        False,
+                        self._do_process_clusters(raw_clusters, dump_file),
+                    )
+                )
             except Exception:
                 child_conn.send((True, traceback.format_exc()))
             finally:
