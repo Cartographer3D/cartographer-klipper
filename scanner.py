@@ -452,7 +452,6 @@ class Scanner:
         self.log_debug_info(
             vars["verbose"], gcmd, f"Trigger Method: {self.trigger_method}"
         )
-        gcmd.respond_info("Starting nozzle touch..")
         self.toolhead.wait_moves()
 
         curtime = self.printer.get_reactor().monotonic()
@@ -472,6 +471,7 @@ class Scanner:
         if gcmd.get("METHOD", "None").lower() == "manual":
             self._start_calibration(gcmd)
         else:
+            gcmd.respond_info("Starting nozzle touch..")
             initial_position = self.toolhead.get_position()[:]
             homing_position = initial_position[:]
             z_min, z_max = kin_status["axis_minimum"][2], kin_status["axis_maximum"][2]
@@ -1465,9 +1465,7 @@ class Scanner:
             curtime = self.printer.get_reactor().monotonic()
             kin_status = self.toolhead.get_kinematics().get_status(curtime)
             if "xy" not in kin_status["homed_axes"]:
-                raise self.printer.command_error(
-                    "Must home X and Y " "before calibration"
-                )
+                raise self.printer.command_error("Must home X and Y before calibration")
 
             kin_pos = self.toolhead.get_position()
             if self._is_faulty_coordinate(kin_pos[0], kin_pos[1]):
@@ -2911,7 +2909,7 @@ class ScannerEndstopWrapper:
                     if ot is not trsync and s.get_name().startswith(sname[:9]):
                         cerror = self._mcu.get_printer().config_error
                         raise cerror(
-                            "Multi-mcu homing not supported on" " multi-mcu shared axis"
+                            "Multi-mcu homing not supported on multi-mcu shared axis"
                         )
 
     def get_steppers(self):
