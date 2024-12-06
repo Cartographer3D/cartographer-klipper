@@ -4,7 +4,7 @@
 #
 # Based on the outstanding work from the Beacon3D Team, with modifications made by the Cartographer and IDM team.
 #
-# Copyright (C) 2023 Cartographer3D <cartographer3d.com>
+# Copyright (C) 2023-2024 Cartographer3D <cartographer3d.com>
 # Copyright (C) 2020-2023 Matt Baker <baker.matt.j@gmail.com>
 # Copyright (C) 2020-2023 Lasse Dalegaard <dalegaard@gmail.com>
 # Copyright (C) 2023 Beacon <beacon3d.com>
@@ -24,7 +24,7 @@ import threading
 import time
 import traceback
 from dataclasses import dataclass
-from typing import Callable, Optional, final
+from typing import Callable, Optional, TypedDict, final
 
 import chelper
 import msgproto
@@ -83,6 +83,7 @@ class Scanner:
         self.name = config.get_name()
         self.sensor = config.get("sensor")
         self.sensor_alt = config.get("sensor_alt", None)
+        self.last_z_result = 0.0
 
         if not self.sensor and not self.sensor_alt:
             raise self.printer.command_error(
@@ -1941,6 +1942,7 @@ class Scanner:
     def cmd_PROBE(self, gcmd: GCodeCommand):
         pos = self.run_probe(gcmd)
         gcmd.respond_info("Result is z=%.6f" % (pos[2],))
+        self.last_z_result = pos[2]
 
     def _save_threshold(self, threshold: int, speed: float):
         configfile = self.printer.lookup_object("configfile")
@@ -2741,10 +2743,22 @@ class APIDumpHelper:
         web_request.send({"header": self.fields})
 
 
+class _ProbeStatus(TypedDict):
+    name: str
+    # last_query: int  # TODO: Support this
+    last_z_result: float
+
+
 @final
 class ScannerWrapper:
     def __init__(self, scanner: Scanner):
         self.scanner = scanner
+
+    def get_status(self, _eventtime: float) -> _ProbeStatus:
+        return _ProbeStatus(
+            name=self.scanner.name,
+            last_z_result=self.scanner.last_z_result,
+        )
 
     def multi_probe_begin(self):
         return self.scanner.multi_probe_begin()
