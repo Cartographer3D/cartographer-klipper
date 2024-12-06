@@ -4,7 +4,7 @@
 #
 # Based on the outstanding work from the Beacon3D Team, with modifications made by the Cartographer and IDM team.
 #
-# Copyright (C) 2023 Cartographer3D <cartographer3d.com>
+# Copyright (C) 2023-2024 Cartographer3D <cartographer3d.com>
 # Copyright (C) 2020-2023 Matt Baker <baker.matt.j@gmail.com>
 # Copyright (C) 2020-2023 Lasse Dalegaard <dalegaard@gmail.com>
 # Copyright (C) 2023 Beacon <beacon3d.com>
@@ -2745,6 +2745,9 @@ class APIDumpHelper:
 class ScannerWrapper:
     def __init__(self, scanner: Scanner):
         self.scanner = scanner
+
+    def get_status(self, eventtime=None) -> "dict[str, str]":
+        return {"name": "probe"}
 
     def multi_probe_begin(self):
         return self.scanner.multi_probe_begin()
