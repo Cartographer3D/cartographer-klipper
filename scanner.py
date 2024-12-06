@@ -396,6 +396,7 @@ class Scanner:
             zero_reference_position = mesh_config.get("zero_reference_position", None)
             if zero_reference_position is not None:
                 manual_location = config.get("scanner_touch_location", None)
+                config.deprecate("scanner_touch_location")
                 if manual_location is not None:
                     manual_location = manual_location.split(",")
                     if manual_location:
