@@ -400,7 +400,7 @@ class Scanner:
                 "TOUCH_LOCATION_Y", float(self.touch_location[1])
             ),
             "randomize": gcmd.get_float(
-                "FUZZZY_TOUCH", self.scanner_touch_config["fuzzy_touch"], maxval=10
+                "FUZZY_TOUCH", self.scanner_touch_config["fuzzy_touch"], maxval=10
             ),
             "verbose": gcmd.get_int("DEBUG", 0),
         }
