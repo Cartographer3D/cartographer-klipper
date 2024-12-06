@@ -444,7 +444,6 @@ class Scanner:
         self.log_debug_info(
             vars["verbose"], gcmd, f"Trigger Method: {self.trigger_method}"
         )
-        gcmd.respond_info("Starting nozzle touch..")
         self.toolhead.wait_moves()
 
         curtime = self.printer.get_reactor().monotonic()
@@ -464,6 +463,7 @@ class Scanner:
         if gcmd.get("METHOD", "None").lower() == "manual":
             self._start_calibration(gcmd)
         else:
+            gcmd.respond_info("Starting nozzle touch..")
             initial_position = self.toolhead.get_position()[:]
             homing_position = initial_position[:]
             z_min, z_max = kin_status["axis_minimum"][2], kin_status["axis_maximum"][2]
@@ -1454,9 +1454,7 @@ class Scanner:
             curtime = self.printer.get_reactor().monotonic()
             kin_status = self.toolhead.get_kinematics().get_status(curtime)
             if "xy" not in kin_status["homed_axes"]:
-                raise self.printer.command_error(
-                    "Must home X and Y " "before calibration"
-                )
+                raise self.printer.command_error("Must home X and Y before calibration")
 
             kin_pos = self.toolhead.get_position()
             if self._is_faulty_coordinate(kin_pos[0], kin_pos[1]):
@@ -2880,15 +2878,13 @@ class ScannerEndstopWrapper:
         if self.scanner.mcu_probe in hmove.get_mcu_endstops():
             etrsync = self._trsyncs[0]
             if self.scanner.trigger_method == 1:
-                self.scanner.scanner_home_cmd.send(
-                    [
-                        etrsync.get_oid(),
-                        etrsync.REASON_ENDSTOP_HIT,
-                        0,
-                        self.scanner.detect_threshold_z,
-                        self.scanner.trigger_method,
-                    ]
-                )
+                self.scanner.scanner_home_cmd.send([
+                    etrsync.get_oid(),
+                    etrsync.REASON_ENDSTOP_HIT,
+                    0,
+                    self.scanner.detect_threshold_z,
+                    self.scanner.trigger_method,
+                ])
 
     def get_mcu(self):
         return self._mcu
@@ -2910,7 +2906,7 @@ class ScannerEndstopWrapper:
                     if ot is not trsync and s.get_name().startswith(sname[:9]):
                         cerror = self._mcu.get_printer().config_error
                         raise cerror(
-                            "Multi-mcu homing not supported on" " multi-mcu shared axis"
+                            "Multi-mcu homing not supported on multi-mcu shared axis"
                         )
 
     def get_steppers(self):
@@ -2951,15 +2947,13 @@ class ScannerEndstopWrapper:
         if self.scanner.trigger_method != 0:
             return self._trigger_completion
 
-        self.scanner.scanner_home_cmd.send(
-            [
-                etrsync.get_oid(),
-                etrsync.REASON_ENDSTOP_HIT,
-                0,
-                self.scanner.detect_threshold_z,
-                self.scanner.trigger_method,
-            ]
-        )
+        self.scanner.scanner_home_cmd.send([
+            etrsync.get_oid(),
+            etrsync.REASON_ENDSTOP_HIT,
+            0,
+            self.scanner.detect_threshold_z,
+            self.scanner.trigger_method,
+        ])
         return self._trigger_completion
 
     def home_wait(self, home_end_time):
@@ -3126,13 +3120,11 @@ class ScannerMeshHelper:
         r = settings["range"]
         m = settings["machine"]
         space = (r[1] - r[0]) / (float(settings["count"] - 1))
-        self.overscan = min(
-            [
-                max(0, r[0] - m[0]),
-                max(0, m[1] - r[1]),
-                space + 2.0,  # A half circle with 2mm lead in/out
-            ]
-        )
+        self.overscan = min([
+            max(0, r[0] - m[0]),
+            max(0, m[1] - r[1]),
+            space + 2.0,  # A half circle with 2mm lead in/out
+        ])
 
     def _generate_path(self):
         xo = self.scanner.offset["x"]
@@ -3467,9 +3459,10 @@ class ScannerMeshHelper:
 
         def do():
             try:
-                child_conn.send(
-                    (False, self._do_process_clusters(raw_clusters, dump_file))
-                )
+                child_conn.send((
+                    False,
+                    self._do_process_clusters(raw_clusters, dump_file),
+                ))
             except Exception:
                 child_conn.send((True, traceback.format_exc()))
             finally:
