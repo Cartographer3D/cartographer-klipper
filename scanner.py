@@ -444,7 +444,6 @@ class Scanner:
         self.log_debug_info(
             vars["verbose"], gcmd, f"Trigger Method: {self.trigger_method}"
         )
-        gcmd.respond_info("Starting nozzle touch..")
         self.toolhead.wait_moves()
 
         curtime = self.printer.get_reactor().monotonic()
@@ -464,6 +463,7 @@ class Scanner:
         if gcmd.get("METHOD", "None").lower() == "manual":
             self._start_calibration(gcmd)
         else:
+            gcmd.respond_info("Starting nozzle touch..")
             initial_position = self.toolhead.get_position()[:]
             homing_position = initial_position[:]
             z_min, z_max = kin_status["axis_minimum"][2], kin_status["axis_maximum"][2]
