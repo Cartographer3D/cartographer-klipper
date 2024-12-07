@@ -10,9 +10,19 @@ import fnmatch
 import platform
 import time
 
-from enum import Enum  # type: ignore
+from enum import Enum
 from time import sleep
-from typing import Optional, Tuple, Callable, NamedTuple, Dict, List, Union
+from typing import (
+    Optional,
+    TypedDict,
+    Callable,
+    NamedTuple,
+    Dict,
+    List,
+    Union,
+    Tuple,
+    Set,
+)
 
 HOME_PATH = os.path.expanduser("~")
 CONFIG_DIR: str = os.path.expanduser("~/printer_data/config")
@@ -36,6 +46,12 @@ class Color(Enum):
     CYAN = "\033[96m"
 
 
+class FlashMethod(str, Enum):
+    CAN = "CAN"
+    USB = "USB"
+    DFU = "DFU"
+
+
 # Define a custom namespace class
 class FirmwareNamespace(argparse.Namespace):
     branch: str = "master"
@@ -48,12 +64,36 @@ class FirmwareNamespace(argparse.Namespace):
     flash: Optional[str] = None
 
 
-class Version(NamedTuple):
-    parts: Tuple[int, ...]
+class Version(TypedDict):
+    major: int
+    minor: int
+    patch: int
+    prerelease: Optional[str]
+    build: Optional[str]
 
-    @classmethod
-    def from_string(cls, version: str) -> "Version":
-        return cls(tuple(int(part) for part in version.split(".")))
+
+class VersionParser:
+    @staticmethod
+    def from_string(version: str) -> Tuple[int, int, int]:
+        """
+        Parses a version string into a tuple (major, minor, patch) for comparison.
+
+        :param version: Version string in the format "major.minor.patch".
+        :return: A tuple (major, minor, patch) with integer components.
+        :raises ValueError: If the version string is not properly formatted.
+        """
+        # Split the version string into parts
+        parts: list[str] = version.split(".")
+
+        # Ensure we have exactly three parts for major.minor.patch
+        if len(parts) != 3:
+            raise ValueError(
+                f"Invalid version format: '{version}'. Expected format is 'major.minor.patch'."
+            )
+
+        # Convert each part to an integer and return as a tuple
+        major, minor, patch = (int(part) for part in parts)
+        return major, minor, patch
 
 
 class FirmwareFile(NamedTuple):
@@ -316,7 +356,7 @@ class Firmware:
         debug: bool = False,
         ftype: bool = False,
         high_temp: bool = False,
-        flash: Optional[str] = None,
+        flash: Optional[FlashMethod] = None,
         kseries: bool = False,
         all: bool = False,
         device: Optional[str] = None,
@@ -329,7 +369,7 @@ class Firmware:
         self.ftype: bool = ftype
 
         self.high_temp: bool = high_temp
-        self.flash: Optional[str] = flash
+        self.flash: Optional[FlashMethod] = flash
         self.kseries: bool = kseries
         self.all: bool = all
         self.device: Optional[str] = device
@@ -357,9 +397,9 @@ class Firmware:
         Handle device initialization based on the flash type and device UUID.
         """
         handlers: Dict[str, Callable[[], None]] = {
-            "CAN": self.can.menu,
-            "USB": self.usb.menu,
-            "DFU": self.dfu.menu,
+            FlashMethod.CAN: self.can.menu,
+            FlashMethod.USB: self.usb.menu,
+            FlashMethod.DFU: self.dfu.menu,
         }
 
         if self.device and self.flash in handlers:
@@ -434,20 +474,22 @@ class Firmware:
             firmware_files, key=lambda f: f.subdirectory
         )  # Sort by subdirectory
 
-    def select_latest(self, firmware_files: List[FirmwareFile], type: str):
+    def select_latest(self, firmware_files: List[FirmwareFile], type: FlashMethod):
         if not firmware_files:
             print("No firmware files found.")
             return
 
         # Extract unique subdirectory names
-        subdirectories = set(file[0] for file in firmware_files)
+        subdirectories: Set[str] = {file[0] for file in firmware_files}
         if not subdirectories:
             print("No valid subdirectories found.")
             return
 
-        latest_subdirectory = max(
+        latest_subdirectory: str = max(
             subdirectories,
-            key=lambda d: Version.from_string(os.path.basename(d)),  # Parse version
+            key=lambda d: VersionParser.from_string(
+                os.path.basename(d)
+            ),  # Parse version
         )
         # Filter firmware files in the latest subdirectory
         latest_firmware_files = [
@@ -486,7 +528,7 @@ class Firmware:
             self.flash = args.flash = None
         else:
             self.kseries = args.kseries = True
-            self.flash = args.flash = "USB"
+            self.flash = args.flash = FlashMethod.USB
         self.main_menu()
 
     def set_ftype(self):
@@ -505,7 +547,7 @@ class Firmware:
 
     def set_mode(self, mode: str):
         if mode:
-            self.flash = args.flash = mode
+            self.flash = args.flash = FlashMethod[mode]
         else:
             Utils.error_msg("You didnt specify a mode to use.")
         self.mode_menu()
@@ -529,7 +571,7 @@ class Firmware:
     # Create main menu
     def main_menu(self) -> None:
         # Handle advanced mode and flash settings
-        if is_advanced or self.flash == "DFU":
+        if is_advanced or self.flash == FlashMethod["DFU"]:
             self.all = True
 
         Utils.header()
@@ -645,27 +687,24 @@ class Firmware:
 
         selected_text = Utils.colored_text("(selected)", Color.GREEN)
 
-        # Define branch names and mark the selected branch
-        modes = {"CAN": "CAN", "USB": "USB", "DFU": "DFU"}
-        for key in modes:
-            if key == self.flash:
-                modes[key] += f" {selected_text}"
+        # Prepare modes and mark the selected mode
+        modes = {
+            method: f"{method.value} {selected_text}"
+            if method == self.flash
+            else method.value
+            for method in FlashMethod
+        }
 
-        # Prepare menu items
-        menu_items: Dict[int, Union[Menu.Item, Menu.Separator]] = {}
-
-        menu_items[len(menu_items) + 1] = Menu.Item(
-            modes["CAN"],
-            lambda: self.set_mode("CAN"),
-        )
-        menu_items[len(menu_items) + 1] = Menu.Item(
-            modes["USB"],
-            lambda: self.set_mode("USB"),
-        )
-        menu_items[len(menu_items) + 1] = Menu.Item(
-            modes["DFU"],
-            lambda: self.set_mode("DFU"),
-        )
+        # Prepare menu items dynamically
+        menu_items: Dict[int, Union[Menu.Item, Menu.Separator]] = {
+            idx + 1: Menu.Item(
+                modes[method],
+                lambda m=method: self.set_mode(
+                    m
+                ),  # Use a lambda to pass the method correctly
+            )
+            for idx, method in enumerate(FlashMethod)
+        }
         menu_items[len(menu_items) + 1] = Menu.Separator()
         menu_items[len(menu_items) + 1] = Menu.Item(
             Utils.colored_text("Back to Main Menu", Color.CYAN),
@@ -758,7 +797,9 @@ class Firmware:
                 firmware,
             )
 
-    def display_firmware_menu(self, firmware_files: List[FirmwareFile], type: str):
+    def display_firmware_menu(
+        self, firmware_files: List[FirmwareFile], type: FlashMethod
+    ):
         if firmware_files:
             # Define menu items for firmware files
             menu_items: Dict[int, Union[Menu.Item, Menu.Separator]] = {
@@ -789,12 +830,12 @@ class Firmware:
         else:
             print("No firmware files found.")
 
-    def select_firmware(self, firmware: str, type: str):
+    def select_firmware(self, firmware: str, type: FlashMethod):
         self.set_firmware(firmware)
         menu_handlers: Dict[str, Callable[[], None]] = {
-            "CAN": self.can.menu,
-            "USB": self.usb.menu,
-            "DFU": self.dfu.menu,
+            FlashMethod.CAN: self.can.menu,
+            FlashMethod.USB: self.usb.menu,
+            FlashMethod.DFU: self.dfu.menu,
         }
 
         # Retrieve the appropriate handler and call it if valid
@@ -805,7 +846,7 @@ class Firmware:
             Utils.error_msg("You have not selected a valid firmware file.")
 
     # Show a list of available firmware
-    def firmware_menu(self, type: str):
+    def firmware_menu(self, type: FlashMethod):
         if not type:
             raise ValueError("type cannot be None or empty")
         # Get the bitrate from CAN interface
@@ -815,10 +856,10 @@ class Firmware:
         exclude_pattern = None
         firmware_files = []  # Initialize firmware_files to avoid reference errors
 
-        if type == "CAN":
+        if type == FlashMethod.CAN:
             search_pattern = f"*{bitrate}*" if bitrate else "*"
             exclude_pattern = None if bitrate else ["*USB*", "*K1*"]
-        elif type == "USB":
+        elif type == FlashMethod.USB:
             if getattr(self, "kseries", False):  # Check if kseries is True
                 search_pattern = "*K1*USB*"
             else:
@@ -842,7 +883,7 @@ class Firmware:
             # Start with the base path
             base_path = os.path.join(self.dir_path, "firmware/v2-v3/")
 
-            if type != "DFU":
+            if type != FlashMethod.DFU:
                 if self.ftype:
                     base_path = os.path.join(base_path, "katapult-deployer")
                     search_pattern = "*katapult*"  # Include all files
@@ -863,7 +904,7 @@ class Firmware:
                 self.display_firmware_menu(firmware_files, type)
 
     # Confirm the user wants to flash the correct device & file
-    def confirm(self, type: str):
+    def confirm(self, type: FlashMethod):
         if not type:
             raise ValueError("type cannot be None or empty")
 
@@ -890,9 +931,9 @@ class Firmware:
         # Type mapping to dynamically resolve the target object
 
         type_mapping: Dict[str, Union[object, None]] = {
-            "can": self.can,
-            "usb": self.usb,
-            "dfu": self.dfu,
+            FlashMethod.CAN: self.can,
+            FlashMethod.USB: self.usb,
+            FlashMethod.DFU: self.dfu,
         }
 
         # Get the target object based on the `type`
@@ -927,7 +968,7 @@ class Firmware:
         menu.display()
 
     # Begin flashing procedure
-    def firmware_flash(self, type: str):
+    def firmware_flash(self, type: FlashMethod):
         Utils.header()
         Utils.page(f"Flashing via {type.upper()}..")
         self.validator.check_selected_firmware()
@@ -1046,7 +1087,7 @@ class Can:
                 self.menu()  # Return to the CAN menu
 
             # Validate the UUID format (basic validation)
-            if self.validator.validate_device(user_input, "CAN"):
+            if self.validator.validate_device(user_input, FlashMethod.CAN):
                 self.select_device(user_input)  # Save the UUID and return to CAN menu
                 self.menu()
             else:
@@ -1066,7 +1107,8 @@ class Can:
         menu_items: Dict[int, Union[Menu.Item, Menu.Separator]] = {
             1: Menu.Item("Find Cartographer Device", self.device_menu),
             2: Menu.Item(
-                "Find CAN Firmware", lambda: self.firmware.firmware_menu(type="CAN")
+                "Find CAN Firmware",
+                lambda: self.firmware.firmware_menu(type=FlashMethod.CAN),
             ),
         }
 
@@ -1074,7 +1116,8 @@ class Can:
         if self.selected_firmware and self.selected_device:
             menu_items[len(menu_items) + 1] = Menu.Separator()
             menu_items[len(menu_items) + 1] = Menu.Item(
-                "Flash Selected Firmware", lambda: self.firmware.confirm(type="CAN")
+                "Flash Selected Firmware",
+                lambda: self.firmware.confirm(type=FlashMethod.CAN),
             )
         menu_items[len(menu_items) + 1] = Menu.Separator()
         # Add "Back to main menu" after "Flash Selected Firmware"
@@ -1458,7 +1501,8 @@ class Usb:
         menu_items: Dict[int, Union[Menu.Item, Menu.Separator]] = {
             1: Menu.Item("Find Cartographer Device", self.query_devices),
             2: Menu.Item(
-                "Find USB Firmware", lambda: self.firmware.firmware_menu(type="USB")
+                "Find USB Firmware",
+                lambda: self.firmware.firmware_menu(type=FlashMethod.USB),
             ),
         }
 
@@ -1466,7 +1510,8 @@ class Usb:
         if self.selected_firmware and self.selected_device:
             menu_items[len(menu_items) + 1] = Menu.Separator()
             menu_items[len(menu_items) + 1] = Menu.Item(
-                "Flash Selected Firmware", lambda: self.firmware.confirm(type="USB")
+                "Flash Selected Firmware",
+                lambda: self.firmware.confirm(type=FlashMethod.USB),
             )
         menu_items[len(menu_items) + 1] = Menu.Separator()
         # Add "Back to main menu" after "Flash Selected Firmware"
@@ -1492,7 +1537,7 @@ class Usb:
                 katapult_device = f"/dev/serial/by-id/{device}"
             else:
                 # Validate that the device is a valid Cartographer device
-                if not self.validator.validate_device(device, "USB"):
+                if not self.validator.validate_device(device, FlashMethod.USB):
                     Utils.error_msg("Your device is not a valid Cartographer device.")
                     self.menu()
 
@@ -1708,7 +1753,8 @@ class Dfu:
         menu_items: Dict[int, Union[Menu.Item, Menu.Separator]] = {
             1: Menu.Item("Find Cartographer Device", self.query_devices),
             2: Menu.Item(
-                "Find DFU Firmware", lambda: self.firmware.firmware_menu(type="DFU")
+                "Find DFU Firmware",
+                lambda: self.firmware.firmware_menu(type=FlashMethod.DFU),
             ),
         }
 
@@ -1716,7 +1762,8 @@ class Dfu:
         if self.selected_firmware and self.selected_device:
             menu_items[len(menu_items) + 1] = Menu.Separator()
             menu_items[len(menu_items) + 1] = Menu.Item(
-                "Flash Selected Firmware", lambda: self.firmware.confirm(type="DFU")
+                "Flash Selected Firmware",
+                lambda: self.firmware.confirm(type=FlashMethod.DFU),
             )
         menu_items[len(menu_items) + 1] = Menu.Separator()
         # Add "Back to main menu" after "Flash Selected Firmware"
@@ -1738,7 +1785,7 @@ class Dfu:
             self.validator.check_selected_firmware()
 
             # Validate that the device is a valid Cartographer DFU device
-            if not self.validator.validate_device(device, "DFU"):
+            if not self.validator.validate_device(device, FlashMethod.DFU):
                 Utils.error_msg("Your device is not a valid Cartographer DFU device.")
                 self.menu()
 
@@ -2052,14 +2099,18 @@ if __name__ == "__main__":
         "-f",
         "--flash",
         help="Specify the flashing mode (CAN, USB, or DFU)",
-        choices=["CAN", "USB", "DFU"],
-        type=lambda s: s.upper(),
+        choices=[e.value for e in FlashMethod],  # Use FlashMethod values
+        type=lambda s: FlashMethod(s.upper()),  # Convert string to FlashMethod enum
     )
     try:
         args = parser.parse_args(namespace=FirmwareNamespace())
         # Post-processing arguments
+        # Ensure `args.flash` is a FlashMethod or None
+        if isinstance(args.flash, str):  # In case of any external assignment
+            args.flash = FlashMethod(args.flash.upper())
+
         if args.kseries:
-            args.flash = "USB"  # Override the flash type to USB
+            args.flash = FlashMethod.USB  # Override the flash type to USB
         if args.type:
             args.all = True
         # Assign the argument to a variable
@@ -2078,11 +2129,11 @@ if __name__ == "__main__":
         ## Adjust so users cannot be in certain modes together
         Utils.make_terminal_bigger()
         if args.all:
-            if args.flash == "CAN":
+            if args.flash == FlashMethod.CAN:
                 fw.can.menu()
-            elif args.flash == "USB":
+            elif args.flash == FlashMethod.USB:
                 fw.usb.menu()
-            elif args.flash == "DFU":
+            elif args.flash == FlashMethod.DFU:
                 fw.dfu.menu()
             else:
                 fw.main_menu()
