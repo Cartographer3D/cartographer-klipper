@@ -20,7 +20,7 @@ KATAPULT_DIR: str = os.path.expanduser("~/katapult")
 
 FLASHER_VERSION: str = "0.0.1"
 
-PAGE_WIDTH: int = 90  # Default global width
+PAGE_WIDTH: int = 89  # Default global width
 
 is_advanced: bool = False
 
@@ -57,6 +57,115 @@ class Version(NamedTuple):
 class FirmwareFile(NamedTuple):
     subdirectory: str
     filename: str
+
+
+class Utils:
+    @staticmethod
+    def make_terminal_bigger(width: int = 110, height: int = 40):
+        system = platform.system()
+        if system == "Windows":
+            _ = os.system(f"mode con: cols={width} lines={height}")
+        elif system in ["Linux", "Darwin"]:  # Darwin is macOS
+            _ = os.system(f"printf '\\e[8;{height};{width}t'")
+        else:
+            print("Unsupported OS for resizing the terminal.")
+
+    @staticmethod
+    def clear_console():
+        # For Windows
+        if os.name == "nt":
+            _ = os.system("cls")
+        # For MacOS and Linux (os.name is 'posix')
+        else:
+            _ = os.system("clear")
+
+    # Header for menus etc
+    @staticmethod
+    def header():
+        Utils.clear_console()
+        # Define the logo or ASCII art
+        logo = """ 
+        ____                  _                                            _               
+/ ___|   __ _   _ __  | |_    ___     __ _   _ __    __ _   _ __   | |__     ___   _ __ 
+| |      / _  | | '__| | __|  / _ \\   / _  | | '__|  / _  | | '_ \\  | '_ \\   / _ \\ | '__|
+| |___  | (_| | | |    | |_  | (_) | | (_| | | |    | (_| | | |_) | | | | | |  __/ | |   
+\\____|  \\__,_| |_|     \\__|  \\___/   \\__, | |_|     \\__,_| | .__/  |_| |_|  \\___| |_|   
+            |___/                 |_|                          
+        """
+        # Calculate the width dynamically based on the longest line
+        lines = logo.strip().split("\n")
+        max_width = max(len(line) for line in lines)
+        border = "=" * max_width
+
+        # Print the header with borders
+        print(border)
+        for line in lines:
+            print(Utils.colored_text(line.center(max_width), Color.GREEN))
+        print(border)
+        title = "CARTOGRAPHER FIRMWARE FLASHER"
+        version = f" v{FLASHER_VERSION}"
+        combined_title = Utils.colored_text(title, Color.CYAN) + Utils.colored_text(
+            version, Color.RED
+        )
+        print(combined_title.center(105))
+
+        # Display modes, centered
+        Utils.display_modes(args)
+
+        # Print the bottom border
+        print("=" * max_width)
+
+    @staticmethod
+    def colored_text(text: str, color: Color) -> str:
+        return f"{color.value}{text}{Color.RESET.value}"
+
+    @staticmethod
+    def error_msg(message: str) -> None:
+        print(Utils.colored_text("Error:", Color.RED), message)
+        _ = input(Utils.colored_text("\nPress Enter to continue...", Color.YELLOW))
+
+    @staticmethod
+    def success_msg(message: str) -> None:
+        print(Utils.colored_text("Success:", Color.GREEN), message)
+        _ = input(Utils.colored_text("\nPress Enter to continue...", Color.YELLOW))
+
+    @staticmethod
+    def page(title: str, width: int = PAGE_WIDTH) -> None:
+        if len(title) > width:
+            width = len(title) + 4  # Ensure width accommodates long titles with padding
+        border = "=" * width
+        print(border)
+        print(Utils.colored_text(title.center(width), Color.CYAN))
+        print(border)
+
+    @staticmethod
+    def display_modes(args: FirmwareNamespace) -> None:
+        # Map conditions to mode strings
+        mode_conditions = [
+            (args.flash, lambda: f"{(args.flash or '').upper()} MODE"),
+            (args.kseries, lambda: "K Series"),
+            (args.high_temp, lambda: "HIGH TEMP"),
+            (args.debug, lambda: "DEBUGGING"),
+            (args.branch, lambda: f"BRANCH: {(args.branch or '').upper()}"),
+            (args.type, lambda: "FLASH KATAPULT"),
+            (args.all, lambda: "ALL FIRMWARE"),
+            (is_advanced, lambda: "ADVANCED"),
+        ]
+
+        # Build modes list based on conditions
+        modes = [
+            generate_mode() for condition, generate_mode in mode_conditions if condition
+        ]
+
+        # Combine modes into a single string
+        combined_modes = " | ".join(modes)
+        Utils.show_mode(combined_modes)
+
+    @staticmethod
+    def show_mode(mode: str):
+        # Center the mode string
+        mode = mode.center(PAGE_WIDTH)
+        print(Utils.colored_text(mode, Color.RED))
 
 
 class Menu:
@@ -194,115 +303,6 @@ class Validator:
             )
         )
         self.firmware.main_menu()
-
-
-class Utils:
-    @staticmethod
-    def make_terminal_bigger(width: int = 90, height: int = 40):
-        system = platform.system()
-        if system == "Windows":
-            _ = os.system(f"mode con: cols={width} lines={height}")
-        elif system in ["Linux", "Darwin"]:  # Darwin is macOS
-            _ = os.system(f"printf '\\e[8;{height};{width}t'")
-        else:
-            print("Unsupported OS for resizing the terminal.")
-
-    @staticmethod
-    def clear_console():
-        # For Windows
-        if os.name == "nt":
-            _ = os.system("cls")
-        # For MacOS and Linux (os.name is 'posix')
-        else:
-            _ = os.system("clear")
-
-    # Header for menus etc
-    @staticmethod
-    def header():
-        Utils.clear_console()
-        # Define the logo or ASCII art
-        logo = """ 
-        ____                  _                                            _               
-    / ___|   __ _   _ __  | |_    ___     __ _   _ __    __ _   _ __   | |__     ___   _ __ 
-    | |      / _  | | '__| | __|  / _ \\   / _  | | '__|  / _  | | '_ \\  | '_ \\   / _ \\ | '__|
-    | |___  | (_| | | |    | |_  | (_) | | (_| | | |    | (_| | | |_) | | | | | |  __/ | |   
-    \\____|  \\__,_| |_|     \\__|  \\___/   \\__, | |_|     \\__,_| | .__/  |_| |_|  \\___| |_|   
-                |___/                 |_|                          
-        """
-        # Calculate the width dynamically based on the longest line
-        lines = logo.strip().split("\n")
-        max_width = max(len(line) for line in lines)
-        border = "=" * max_width
-
-        # Print the header with borders
-        print(border)
-        for line in lines:
-            print(Utils.colored_text(line.center(max_width), Color.GREEN))
-        print(border)
-        title = "CARTOGRAPHER FIRMWARE FLASHER"
-        version = f" v{FLASHER_VERSION}"
-        combined_title = Utils.colored_text(title, Color.CYAN) + Utils.colored_text(
-            version, Color.RED
-        )
-        print(combined_title.center(110))
-
-        # Display modes, centered
-        Utils.display_modes(args)
-
-        # Print the bottom border
-        print("=" * max_width)
-
-    @staticmethod
-    def colored_text(text: str, color: Color) -> str:
-        return f"{color.value}{text}{Color.RESET.value}"
-
-    @staticmethod
-    def error_msg(message: str) -> None:
-        print(Utils.colored_text("Error:", Color.RED), message)
-        _ = input(Utils.colored_text("\nPress Enter to continue...", Color.YELLOW))
-
-    @staticmethod
-    def success_msg(message: str) -> None:
-        print(Utils.colored_text("Success:", Color.GREEN), message)
-        _ = input(Utils.colored_text("\nPress Enter to continue...", Color.YELLOW))
-
-    @staticmethod
-    def page(title: str, width: int = PAGE_WIDTH) -> None:
-        if len(title) > width:
-            width = len(title) + 4  # Ensure width accommodates long titles with padding
-        border = "=" * width
-        print(border)
-        print(Utils.colored_text(title.center(width), Color.CYAN))
-        print(border)
-
-    @staticmethod
-    def display_modes(args: FirmwareNamespace) -> None:
-        # Map conditions to mode strings
-        mode_conditions = [
-            (args.flash, lambda: f"{(args.flash or '').upper()} MODE"),
-            (args.kseries, lambda: "K Series"),
-            (args.high_temp, lambda: "HIGH TEMP"),
-            (args.debug, lambda: "DEBUGGING"),
-            (args.branch, lambda: f"BRANCH: {(args.branch or '').upper()}"),
-            (args.type, lambda: "FLASH KATAPULT"),
-            (args.all, lambda: "ALL FIRMWARE"),
-            (is_advanced, lambda: "ADVANCED"),
-        ]
-
-        # Build modes list based on conditions
-        modes = [
-            generate_mode() for condition, generate_mode in mode_conditions if condition
-        ]
-
-        # Combine modes into a single string
-        combined_modes = " | ".join(modes)
-        Utils.show_mode(combined_modes)
-
-    @staticmethod
-    def show_mode(mode: str):
-        # Center the mode string
-        mode = mode.center(PAGE_WIDTH)
-        print(Utils.colored_text(mode, Color.RED))
 
 
 class Firmware:
@@ -2078,6 +2078,8 @@ if __name__ == "__main__":
             all=args.all,
             device=args.device,
         )
+        ## TODO ##
+        ## Adjust so users cannot be in certain modes together
         Utils.make_terminal_bigger()
         if args.all:
             if args.flash == "CAN":
