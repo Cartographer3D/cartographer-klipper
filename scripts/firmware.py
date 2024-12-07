@@ -172,9 +172,9 @@ class Utils:
 
 class Menu:
     title: str
-    menu_items: Dict[int, Union["Menu.MenuItem", "Menu.Separator"]]
+    menu_items: Dict[int, Union["Menu.Item", "Menu.Separator"]]
 
-    class MenuItem:
+    class Item:
         description: str
         action: Callable[[], None]
 
@@ -189,9 +189,7 @@ class Menu:
         def __init__(self, text: str = "") -> None:
             self.text = text
 
-    def __init__(
-        self, title: str, menu_items: Dict[int, Union["MenuItem", "Separator"]]
-    ):
+    def __init__(self, title: str, menu_items: Dict[int, Union["Item", "Separator"]]):
         self.title = title
         self.menu_items = menu_items
 
@@ -251,16 +249,16 @@ class Menu:
     def is_valid(self, choice: int) -> bool:
         """Check if the user's choice is valid."""
         return choice in self.menu_items and isinstance(
-            self.menu_items[choice], self.MenuItem
+            self.menu_items[choice], self.Item
         )
 
     def execute(self, choice: int) -> None:
         """Execute the action associated with a valid menu choice."""
         menu_item = self.menu_items[choice]
-        if isinstance(menu_item, self.MenuItem):
+        if isinstance(menu_item, self.Item):
             menu_item.action()  # Safe to call because type is now narrowed
         else:
-            raise TypeError(f"Expected MenuItem, got {type(menu_item).__name__}")
+            raise TypeError(f"Expected Item, got {type(menu_item).__name__}")
 
     def invalid(self) -> None:
         """Display a message for an invalid choice."""
@@ -539,18 +537,18 @@ class Firmware:
         self.selected_firmware = None
 
         # Define base menu items
-        menu_items: Dict[int, Union[Menu.MenuItem, Menu.Separator]] = {
-            1: Menu.MenuItem(
+        menu_items: Dict[int, Union[Menu.Item, Menu.Separator]] = {
+            1: Menu.Item(
                 "Katapult - CAN    "
                 + Utils.colored_text("[For Flashing via CAN]", Color.YELLOW),
                 self.can.menu,
             ),
-            2: Menu.MenuItem(
+            2: Menu.Item(
                 "Katapult - USB    "
                 + Utils.colored_text("[For Flashing via USB]", Color.YELLOW),
                 self.usb.menu,
             ),
-            3: Menu.MenuItem(
+            3: Menu.Item(
                 "DFU               "
                 + Utils.colored_text("[For Flashing with DFU via USB]", Color.YELLOW),
                 self.dfu.menu,
@@ -562,7 +560,7 @@ class Firmware:
 
         # Add Exit option
         menu_items[len(menu_items) + 1] = Menu.Separator()
-        menu_items[0] = Menu.MenuItem("Exit", lambda: exit())
+        menu_items[0] = Menu.Item("Exit", lambda: exit())
 
         # Create and display the menu
         menu = Menu("Main Menu", menu_items)
@@ -570,7 +568,7 @@ class Firmware:
 
     def add_advanced_options(
         self,
-        menu_items: Dict[int, Union[Menu.MenuItem, Menu.Separator]],
+        menu_items: Dict[int, Union[Menu.Item, Menu.Separator]],
         is_advanced: bool,
     ) -> None:
         """Add advanced or basic options to the menu."""
@@ -581,17 +579,17 @@ class Firmware:
             "Enable Advanced Mode" if not is_advanced else "Disable Advanced Mode"
         )
         mode_color = Color.GREEN if not is_advanced else Color.RED
-        menu_items[len(menu_items) + 1] = Menu.MenuItem(
+        menu_items[len(menu_items) + 1] = Menu.Item(
             Utils.colored_text(mode_text, mode_color), self.set_advanced
         )
 
         if is_advanced:
             # Add advanced options
             menu_items[len(menu_items) + 1] = Menu.Separator()
-            menu_items[len(menu_items) + 1] = Menu.MenuItem(
+            menu_items[len(menu_items) + 1] = Menu.Item(
                 Utils.colored_text("Switch Flash Mode", Color.CYAN), self.mode_menu
             )
-            menu_items[len(menu_items) + 1] = Menu.MenuItem(
+            menu_items[len(menu_items) + 1] = Menu.Item(
                 Utils.colored_text("Switch Branch", Color.CYAN), self.branch_menu
             )
             menu_items[len(menu_items) + 1] = Menu.Separator()
@@ -630,7 +628,7 @@ class Firmware:
 
     def add_toggle_item(
         self,
-        menu_items: Dict[int, Union[Menu.MenuItem, Menu.Separator]],
+        menu_items: Dict[int, Union[Menu.Item, Menu.Separator]],
         name: str,
         state: bool,
         action: Callable[[], None],
@@ -638,7 +636,7 @@ class Firmware:
         """Helper function to add toggleable menu items."""
         text = f"Enable {name}" if not state else f"Disable {name}"
         color = Color.GREEN if not state else Color.RED
-        menu_items[len(menu_items) + 1] = Menu.MenuItem(
+        menu_items[len(menu_items) + 1] = Menu.Item(
             Utils.colored_text(text, color), action
         )
 
@@ -654,28 +652,28 @@ class Firmware:
                 modes[key] += f" {selected_text}"
 
         # Prepare menu items
-        menu_items: Dict[int, Union[Menu.MenuItem, Menu.Separator]] = {}
+        menu_items: Dict[int, Union[Menu.Item, Menu.Separator]] = {}
 
-        menu_items[len(menu_items) + 1] = Menu.MenuItem(
+        menu_items[len(menu_items) + 1] = Menu.Item(
             modes["CAN"],
             lambda: self.set_mode("CAN"),
         )
-        menu_items[len(menu_items) + 1] = Menu.MenuItem(
+        menu_items[len(menu_items) + 1] = Menu.Item(
             modes["USB"],
             lambda: self.set_mode("USB"),
         )
-        menu_items[len(menu_items) + 1] = Menu.MenuItem(
+        menu_items[len(menu_items) + 1] = Menu.Item(
             modes["DFU"],
             lambda: self.set_mode("DFU"),
         )
         menu_items[len(menu_items) + 1] = Menu.Separator()
-        menu_items[len(menu_items) + 1] = Menu.MenuItem(
+        menu_items[len(menu_items) + 1] = Menu.Item(
             Utils.colored_text("Back to Main Menu", Color.CYAN),
             self.main_menu,
         )
         menu_items[len(menu_items) + 1] = Menu.Separator()
         # Add the "Exit" option last
-        menu_items[0] = Menu.MenuItem("Exit", lambda: exit())
+        menu_items[0] = Menu.Item("Exit", lambda: exit())
 
         # Create and display the menu
         menu = Menu("Select a flashing mode", menu_items)
@@ -715,32 +713,32 @@ class Firmware:
             custom_branch_label = "Custom Branch"
 
         # Prepare menu items
-        menu_items: Dict[int, Union[Menu.MenuItem, Menu.Separator]] = {}
+        menu_items: Dict[int, Union[Menu.Item, Menu.Separator]] = {}
 
-        menu_items[len(menu_items) + 1] = Menu.MenuItem(
+        menu_items[len(menu_items) + 1] = Menu.Item(
             branches["master"],
             lambda: self.set_branch("master"),
         )
-        menu_items[len(menu_items) + 1] = Menu.MenuItem(
+        menu_items[len(menu_items) + 1] = Menu.Item(
             branches["beta"],
             lambda: self.set_branch("beta"),
         )
-        menu_items[len(menu_items) + 1] = Menu.MenuItem(
+        menu_items[len(menu_items) + 1] = Menu.Item(
             branches["develop"],
             lambda: self.set_branch("develop"),
         )
-        menu_items[len(menu_items) + 1] = Menu.MenuItem(
+        menu_items[len(menu_items) + 1] = Menu.Item(
             custom_branch_label,
             self.set_custom_branch,
         )
         menu_items[len(menu_items) + 1] = Menu.Separator()
-        menu_items[len(menu_items) + 1] = Menu.MenuItem(
+        menu_items[len(menu_items) + 1] = Menu.Item(
             Utils.colored_text("Back to Main Menu", Color.CYAN),
             self.main_menu,
         )
         menu_items[len(menu_items) + 1] = Menu.Separator()
         # Add the "Exit" option last
-        menu_items[0] = Menu.MenuItem("Exit", lambda: exit())
+        menu_items[0] = Menu.Item("Exit", lambda: exit())
 
         # Create and display the menu
         menu = Menu("Select a Branch to Flash From", menu_items)
@@ -763,8 +761,8 @@ class Firmware:
     def display_firmware_menu(self, firmware_files: List[FirmwareFile], type: str):
         if firmware_files:
             # Define menu items for firmware files
-            menu_items: Dict[int, Union[Menu.MenuItem, Menu.Separator]] = {
-                index: Menu.MenuItem(
+            menu_items: Dict[int, Union[Menu.Item, Menu.Separator]] = {
+                index: Menu.Item(
                     f"{file.subdirectory}/{file.filename}",
                     lambda file=file: self.select_firmware(
                         os.path.join(file.subdirectory, file.filename), type
@@ -774,16 +772,16 @@ class Firmware:
             }
             menu_items[len(menu_items) + 1] = Menu.Separator()
             # Add static options after firmware options
-            menu_items[len(menu_items) + 1] = Menu.MenuItem(
+            menu_items[len(menu_items) + 1] = Menu.Item(
                 "Check Again", lambda: self.firmware_menu(type)
             )
             menu_items[len(menu_items) + 1] = Menu.Separator()
-            menu_items[len(menu_items) + 1] = Menu.MenuItem("Back", self.can.menu)
-            menu_items[len(menu_items) + 1] = Menu.MenuItem(
+            menu_items[len(menu_items) + 1] = Menu.Item("Back", self.can.menu)
+            menu_items[len(menu_items) + 1] = Menu.Item(
                 Utils.colored_text("Back to main menu", Color.CYAN), self.main_menu
             )
             menu_items[len(menu_items) + 1] = Menu.Separator()
-            menu_items[0] = Menu.MenuItem("Exit", lambda: exit())  # Add Exit explicitly
+            menu_items[0] = Menu.Item("Exit", lambda: exit())  # Add Exit explicitly
 
             # Create and display the menu
             menu = Menu("Select Firmware", menu_items)
@@ -918,12 +916,10 @@ class Firmware:
             return
         # Ask for user confirmation
         print("\nAre these details correct?")
-        menu_items: Dict[int, Union[Menu.MenuItem, Menu.Separator]] = {
-            1: Menu.MenuItem(
-                "Yes, proceed to flash", lambda: self.firmware_flash(type)
-            ),
-            2: Menu.MenuItem(f"No, return to {type.upper()} menu", menu_method),
-            0: Menu.MenuItem("Exit", lambda: exit()),  # Explicit exit option
+        menu_items: Dict[int, Union[Menu.Item, Menu.Separator]] = {
+            1: Menu.Item("Yes, proceed to flash", lambda: self.firmware_flash(type)),
+            2: Menu.Item(f"No, return to {type.upper()} menu", menu_method),
+            0: Menu.Item("Exit", lambda: exit()),  # Explicit exit option
         }
 
         # Display confirmation menu
@@ -1067,9 +1063,9 @@ class Can:
         self.selected_firmware = self.firmware.get_firmware()
 
         # Base menu items
-        menu_items: Dict[int, Union[Menu.MenuItem, Menu.Separator]] = {
-            1: Menu.MenuItem("Find Cartographer Device", self.device_menu),
-            2: Menu.MenuItem(
+        menu_items: Dict[int, Union[Menu.Item, Menu.Separator]] = {
+            1: Menu.Item("Find Cartographer Device", self.device_menu),
+            2: Menu.Item(
                 "Find CAN Firmware", lambda: self.firmware.firmware_menu(type="CAN")
             ),
         }
@@ -1077,17 +1073,17 @@ class Can:
         # Dynamically add "Flash Selected Firmware" if conditions are met
         if self.selected_firmware and self.selected_device:
             menu_items[len(menu_items) + 1] = Menu.Separator()
-            menu_items[len(menu_items) + 1] = Menu.MenuItem(
+            menu_items[len(menu_items) + 1] = Menu.Item(
                 "Flash Selected Firmware", lambda: self.firmware.confirm(type="CAN")
             )
         menu_items[len(menu_items) + 1] = Menu.Separator()
         # Add "Back to main menu" after "Flash Selected Firmware"
-        menu_items[len(menu_items) + 1] = Menu.MenuItem(
+        menu_items[len(menu_items) + 1] = Menu.Item(
             Utils.colored_text("Back to main menu", Color.CYAN), self.firmware.main_menu
         )
         menu_items[len(menu_items) + 1] = Menu.Separator()
         # Add exit option explicitly at the end
-        menu_items[0] = Menu.MenuItem("Exit", lambda: exit())
+        menu_items[0] = Menu.Item("Exit", lambda: exit())
 
         # Create and display the menu
         menu = Menu("What would you like to do?", menu_items)
@@ -1096,21 +1092,21 @@ class Can:
     def device_menu(self):
         Utils.header()
 
-        menu_items: Dict[int, Union[Menu.MenuItem, Menu.Separator]] = {
-            1: Menu.MenuItem("Check klippy.log", self.search_klippy),
-            2: Menu.MenuItem("Enter UUID", self.enter_uuid),
-            3: Menu.MenuItem("Query CAN Devices", self.query_devices),
+        menu_items: Dict[int, Union[Menu.Item, Menu.Separator]] = {
+            1: Menu.Item("Check klippy.log", self.search_klippy),
+            2: Menu.Item("Enter UUID", self.enter_uuid),
+            3: Menu.Item("Query CAN Devices", self.query_devices),
             4: Menu.Separator(),  # Blank separator
-            5: Menu.MenuItem(
+            5: Menu.Item(
                 "Back",
                 self.menu,
             ),
-            6: Menu.MenuItem(
+            6: Menu.Item(
                 Utils.colored_text("Back to main menu", Color.CYAN),
                 self.firmware.main_menu,
             ),
             7: Menu.Separator(),  # Blank separator
-            0: Menu.MenuItem("Exit", lambda: exit()),  # Add exit option explicitly
+            0: Menu.Item("Exit", lambda: exit()),  # Add exit option explicitly
         }
 
         # Create and display the menu
@@ -1130,14 +1126,14 @@ class Can:
                 self.katapult_installer = KatapultInstaller(self.device_menu)
 
             # Define menu items
-            menu_item: Dict[int, Union[Menu.MenuItem, Menu.Separator]] = {
-                1: Menu.MenuItem("Yes", self.katapult_installer.install),
-                2: Menu.MenuItem(
+            menu_item: Dict[int, Union[Menu.Item, Menu.Separator]] = {
+                1: Menu.Item("Yes", self.katapult_installer.install),
+                2: Menu.Item(
                     Utils.colored_text("No, Back to CAN menu", Color.CYAN),
                     self.menu,
                 ),
                 3: Menu.Separator(),  # Blank separator
-                0: Menu.MenuItem("Exit", lambda: exit()),  # Add exit option explicitly
+                0: Menu.Item("Exit", lambda: exit()),  # Add exit option explicitly
             }
 
             # Create and display the menu
@@ -1186,27 +1182,25 @@ class Can:
                 self.menu()
             finally:
                 # Define menu items, starting with UUID options
-                menu_items: Dict[int, Union[Menu.MenuItem, Menu.Separator]] = {}
+                menu_items: Dict[int, Union[Menu.Item, Menu.Separator]] = {}
                 for index, uuid in enumerate(detected_uuids, start=1):
-                    menu_items[index] = Menu.MenuItem(
+                    menu_items[index] = Menu.Item(
                         f"Select {uuid}", lambda uuid=uuid: self.select_device(uuid)
                     )
                 menu_items[len(menu_items) + 1] = Menu.Separator()
                 # Add static options after UUID options
-                menu_items[len(menu_items) + 1] = Menu.MenuItem(
+                menu_items[len(menu_items) + 1] = Menu.Item(
                     "Check Again", self.query_devices
                 )
                 menu_items[len(menu_items) + 1] = Menu.Separator()
-                menu_items[len(menu_items) + 1] = Menu.MenuItem(
-                    "Back", self.device_menu
-                )
-                menu_items[len(menu_items) + 1] = Menu.MenuItem(
+                menu_items[len(menu_items) + 1] = Menu.Item("Back", self.device_menu)
+                menu_items[len(menu_items) + 1] = Menu.Item(
                     Utils.colored_text("Back to main menu", Color.CYAN),
                     self.firmware.main_menu,
                 )
                 menu_items[len(menu_items) + 1] = Menu.Separator()
                 # Add the Exit option explicitly
-                menu_items[0] = Menu.MenuItem("Exit", lambda: exit())
+                menu_items[0] = Menu.Item("Exit", lambda: exit())
 
                 # Create and display the menu
                 menu = Menu("Options", menu_items)
@@ -1252,36 +1246,36 @@ class Can:
             detected_uuids = mcu_scanner_uuids + scanner_uuids + regular_uuids
 
             # Prepare the menu
-            menu_items: Dict[int, Union[Menu.MenuItem, Menu.Separator]] = {}
+            menu_items: Dict[int, Union[Menu.Item, Menu.Separator]] = {}
             for idx, uuid in enumerate(detected_uuids, start=1):
                 if uuid in mcu_scanner_uuids:
-                    menu_items[idx] = Menu.MenuItem(
+                    menu_items[idx] = Menu.Item(
                         f"Select {uuid} (MCU Scanner)",
                         lambda uuid=uuid: self.select_device(uuid),
                     )
                 elif uuid in scanner_uuids:
-                    menu_items[idx] = Menu.MenuItem(
+                    menu_items[idx] = Menu.Item(
                         f"Select {uuid} (Potential match)",
                         lambda uuid=uuid: self.select_device(uuid),
                     )
                 else:
-                    menu_items[idx] = Menu.MenuItem(
+                    menu_items[idx] = Menu.Item(
                         f"Select {uuid}", lambda uuid=uuid: self.select_device(uuid)
                     )
             menu_items[len(menu_items) + 1] = Menu.Separator()
             # Add static options after UUID options
-            menu_items[len(menu_items) + 1] = Menu.MenuItem(
+            menu_items[len(menu_items) + 1] = Menu.Item(
                 "Check Again", self.search_klippy
             )
             menu_items[len(menu_items) + 1] = Menu.Separator()
-            menu_items[len(menu_items) + 1] = Menu.MenuItem("Back", self.device_menu)
-            menu_items[len(menu_items) + 1] = Menu.MenuItem(
+            menu_items[len(menu_items) + 1] = Menu.Item("Back", self.device_menu)
+            menu_items[len(menu_items) + 1] = Menu.Item(
                 Utils.colored_text("Back to main menu", Color.CYAN),
                 self.firmware.main_menu,
             )
             menu_items[len(menu_items) + 1] = Menu.Separator()
             # Add the Exit option explicitly
-            menu_items[0] = Menu.MenuItem("Exit", lambda: exit())
+            menu_items[0] = Menu.Item("Exit", lambda: exit())
 
             # Create and display the menu
             menu = Menu("Options", menu_items)
@@ -1386,14 +1380,14 @@ class Usb:
                 self.katapult_installer = KatapultInstaller(self.menu)
 
             # Define menu items
-            menu_item: Dict[int, Union[Menu.MenuItem, Menu.Separator]] = {
-                1: Menu.MenuItem("Yes", self.katapult_installer.install),
-                2: Menu.MenuItem(
+            menu_item: Dict[int, Union[Menu.Item, Menu.Separator]] = {
+                1: Menu.Item("Yes", self.katapult_installer.install),
+                2: Menu.Item(
                     Utils.colored_text("No, Back to USB menu", Color.CYAN),
                     self.menu,
                 ),
                 3: Menu.Separator(),  # Blank separator
-                0: Menu.MenuItem("Exit", lambda: exit()),  # Add exit option explicitly
+                0: Menu.Item("Exit", lambda: exit()),  # Add exit option explicitly
             }
 
             # Create and display the menu
@@ -1430,25 +1424,25 @@ class Usb:
                 self.menu()
 
             # Define menu items, starting with detected devices
-            menu_items: Dict[int, Union[Menu.MenuItem, Menu.Separator]] = {}
+            menu_items: Dict[int, Union[Menu.Item, Menu.Separator]] = {}
             for index, device in enumerate(detected_devices, start=1):
-                menu_items[index] = Menu.MenuItem(
+                menu_items[index] = Menu.Item(
                     f"Select {device}", lambda device=device: self.select_device(device)
                 )
             menu_items[len(menu_items) + 1] = Menu.Separator()
             # Add static options after the device options
-            menu_items[len(menu_items) + 1] = Menu.MenuItem(
+            menu_items[len(menu_items) + 1] = Menu.Item(
                 "Check Again", self.query_devices
             )
             menu_items[len(menu_items) + 1] = Menu.Separator()
-            menu_items[len(menu_items) + 1] = Menu.MenuItem("Back", self.menu)
-            menu_items[len(menu_items) + 1] = Menu.MenuItem(
+            menu_items[len(menu_items) + 1] = Menu.Item("Back", self.menu)
+            menu_items[len(menu_items) + 1] = Menu.Item(
                 Utils.colored_text("Back to main menu", Color.CYAN),
                 self.firmware.main_menu,
             )
             # Add the Exit option explicitly
             menu_items[len(menu_items) + 1] = Menu.Separator()
-            menu_items[0] = Menu.MenuItem("Exit", lambda: exit())
+            menu_items[0] = Menu.Item("Exit", lambda: exit())
 
             # Create and display the menu
             menu = Menu("Options", menu_items)
@@ -1461,9 +1455,9 @@ class Usb:
         self.selected_device = self.firmware.get_device()
         self.selected_firmware = self.firmware.get_firmware()
         # Base menu items
-        menu_items: Dict[int, Union[Menu.MenuItem, Menu.Separator]] = {
-            1: Menu.MenuItem("Find Cartographer Device", self.query_devices),
-            2: Menu.MenuItem(
+        menu_items: Dict[int, Union[Menu.Item, Menu.Separator]] = {
+            1: Menu.Item("Find Cartographer Device", self.query_devices),
+            2: Menu.Item(
                 "Find USB Firmware", lambda: self.firmware.firmware_menu(type="USB")
             ),
         }
@@ -1471,17 +1465,17 @@ class Usb:
         # Dynamically add "Flash Selected Firmware" if conditions are met
         if self.selected_firmware and self.selected_device:
             menu_items[len(menu_items) + 1] = Menu.Separator()
-            menu_items[len(menu_items) + 1] = Menu.MenuItem(
+            menu_items[len(menu_items) + 1] = Menu.Item(
                 "Flash Selected Firmware", lambda: self.firmware.confirm(type="USB")
             )
         menu_items[len(menu_items) + 1] = Menu.Separator()
         # Add "Back to main menu" after "Flash Selected Firmware"
-        menu_items[len(menu_items) + 1] = Menu.MenuItem(
+        menu_items[len(menu_items) + 1] = Menu.Item(
             Utils.colored_text("Back to main menu", Color.CYAN), self.firmware.main_menu
         )
         menu_items[len(menu_items) + 1] = Menu.Separator()
         # Add exit option explicitly at the end
-        menu_items[0] = Menu.MenuItem("Exit", lambda: exit())
+        menu_items[0] = Menu.Item("Exit", lambda: exit())
 
         # Create and display the menu
         menu = Menu("What would you like to do?", menu_items)
@@ -1651,14 +1645,14 @@ class Dfu:
                 self.dfu_installer = DfuInstaller(self.menu)
 
             # Define menu items
-            menu_item: Dict[int, Union[Menu.MenuItem, Menu.Separator]] = {
-                1: Menu.MenuItem("Yes", self.dfu_installer.install),
-                2: Menu.MenuItem(
+            menu_item: Dict[int, Union[Menu.Item, Menu.Separator]] = {
+                1: Menu.Item("Yes", self.dfu_installer.install),
+                2: Menu.Item(
                     Utils.colored_text("No, Back to DFU menu", Color.CYAN),
                     self.menu,
                 ),
                 3: Menu.Separator(),  # Blank separator
-                0: Menu.MenuItem("Exit", lambda: exit()),  # Add exit option explicitly
+                0: Menu.Item("Exit", lambda: exit()),  # Add exit option explicitly
             }
 
             # Create and display the menu
@@ -1675,25 +1669,25 @@ class Dfu:
                 Utils.success_msg("DFU Device Found")
 
             # Define menu items, starting with detected devices
-            menu_items: Dict[int, Union[Menu.MenuItem, Menu.Separator]] = {}
+            menu_items: Dict[int, Union[Menu.Item, Menu.Separator]] = {}
             for index, device in enumerate(detected_devices, start=1):
-                menu_items[index] = Menu.MenuItem(
+                menu_items[index] = Menu.Item(
                     f"Select {device}", lambda device=device: self.select_device(device)
                 )
             menu_items[len(menu_items) + 1] = Menu.Separator()
             # Add static options after the device options
-            menu_items[len(menu_items) + 1] = Menu.MenuItem(
+            menu_items[len(menu_items) + 1] = Menu.Item(
                 "Check Again", self.query_devices
             )
             menu_items[len(menu_items) + 1] = Menu.Separator()
-            menu_items[len(menu_items) + 1] = Menu.MenuItem("Back", self.menu)
-            menu_items[len(menu_items) + 1] = Menu.MenuItem(
+            menu_items[len(menu_items) + 1] = Menu.Item("Back", self.menu)
+            menu_items[len(menu_items) + 1] = Menu.Item(
                 Utils.colored_text("Back to main menu", Color.CYAN),
                 self.firmware.main_menu,
             )
             # Add the Exit option explicitly
             menu_items[len(menu_items) + 1] = Menu.Separator()
-            menu_items[0] = Menu.MenuItem("Exit", lambda: exit())
+            menu_items[0] = Menu.Item("Exit", lambda: exit())
 
             # Create and display the menu
             menu = Menu("Options", menu_items)
@@ -1711,9 +1705,9 @@ class Dfu:
         self.selected_device = self.firmware.get_device()
         self.selected_firmware = self.firmware.get_firmware()
         # Base menu items
-        menu_items: Dict[int, Union[Menu.MenuItem, Menu.Separator]] = {
-            1: Menu.MenuItem("Find Cartographer Device", self.query_devices),
-            2: Menu.MenuItem(
+        menu_items: Dict[int, Union[Menu.Item, Menu.Separator]] = {
+            1: Menu.Item("Find Cartographer Device", self.query_devices),
+            2: Menu.Item(
                 "Find DFU Firmware", lambda: self.firmware.firmware_menu(type="DFU")
             ),
         }
@@ -1721,17 +1715,17 @@ class Dfu:
         # Dynamically add "Flash Selected Firmware" if conditions are met
         if self.selected_firmware and self.selected_device:
             menu_items[len(menu_items) + 1] = Menu.Separator()
-            menu_items[len(menu_items) + 1] = Menu.MenuItem(
+            menu_items[len(menu_items) + 1] = Menu.Item(
                 "Flash Selected Firmware", lambda: self.firmware.confirm(type="DFU")
             )
         menu_items[len(menu_items) + 1] = Menu.Separator()
         # Add "Back to main menu" after "Flash Selected Firmware"
-        menu_items[len(menu_items) + 1] = Menu.MenuItem(
+        menu_items[len(menu_items) + 1] = Menu.Item(
             Utils.colored_text("Back to main menu", Color.CYAN), self.firmware.main_menu
         )
         menu_items[len(menu_items) + 1] = Menu.Separator()
         # Add exit option explicitly at the end
-        menu_items[0] = Menu.MenuItem("Exit", lambda: exit())
+        menu_items[0] = Menu.Item("Exit", lambda: exit())
 
         # Create and display the menu
         menu = Menu("What would you like to do?", menu_items)
