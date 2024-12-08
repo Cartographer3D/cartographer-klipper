@@ -1273,6 +1273,9 @@ class Scanner:
 
     def _handle_mcu_identify(self):
         try:
+            if self._mcu.get_constants() is None:
+                raise pins.error("Scanner is not connected")
+
             if self._mcu._mcu_freq < 20000000:
                 self.sensor_freq = self._mcu._mcu_freq
             elif self._mcu._mcu_freq < 100000000:
