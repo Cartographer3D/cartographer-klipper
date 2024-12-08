@@ -1064,10 +1064,9 @@ class Scanner:
                     try:
                         self.set_accel(max_accel)
                     except Exception as e:
-                         self.log_debug_info(
-                            verbose,
-                            gcmd,
-                            f"Failed to set acceleration: {e}")
+                        self.log_debug_info(
+                            verbose, gcmd, f"Failed to set acceleration: {e}"
+                        )
                 try:
                     retract_position = self.toolhead.get_position()[:]
                     retract_position[2] = min(retract_position[2] + retract_dist, z_max)
@@ -1077,9 +1076,8 @@ class Scanner:
                     samples.append(probe_position[2])
                 except Exception as e:
                     self.log_debug_info(
-                    verbose,
-                    gcmd,
-                    f"Failed to retract and append sample: {e}")
+                        verbose, gcmd, f"Failed to retract and append sample: {e}"
+                    )
                 self.log_debug_info(
                     verbose,
                     gcmd,
@@ -1122,7 +1120,7 @@ class Scanner:
                     f"Position Difference: {position_difference:.4f}\nAdjusted Difference: {adjusted_difference:.4f}",
                 )
             else:
-                 self.log_debug_info(
+                self.log_debug_info(
                     verbose,
                     gcmd,
                     f"Samples collected doesnt equal samples requested [{samples}/{num_samples}]",
