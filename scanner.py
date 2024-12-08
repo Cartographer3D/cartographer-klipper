@@ -11,7 +11,6 @@
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
 import copy
-from enum import IntEnum
 import importlib
 import logging
 import math
@@ -24,6 +23,7 @@ import threading
 import time
 import traceback
 from dataclasses import dataclass
+from enum import IntEnum
 from typing import Callable, Optional, TypedDict, final
 
 import chelper
