@@ -4,6 +4,7 @@ change-template: "- $TITLE @$AUTHOR (#$NUMBER)"
 change-title-escapes: '\<*_&'
 exclude-labels:
   - "skip-changelog"
+  - "release"
 categories:
   - title: "💥 Breaking Changes"
     labels:
@@ -26,7 +27,7 @@ autolabeler:
       - '/feature\/.+/'
     title:
       - "/feat/i"
-  - label: "bug"
+  - label: "fix"
     branch:
       - '/fix\/.+/'
     title:
@@ -34,6 +35,9 @@ autolabeler:
   - label: "chore"
     title:
       - "/chore/"
+  - label: "release"
+    title:
+      - "/release/"
 version-resolver:
   major:
     labels:
@@ -44,6 +48,7 @@ version-resolver:
   patch:
     labels:
       - "bug"
+      - "fix"
       - "chore"
   default: patch
 template: |

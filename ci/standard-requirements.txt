@@ -1,0 +1,13 @@
+greenlet==2.0.2
+importlib_resources==6.4.5
+Jinja2==2.11.3
+kiwisolver==1.4.7
+MarkupSafe==1.1.1
+matplotlib==3.9.2
+numpy==1.23.4
+pillow==11.0.0
+pyparsing==3.2.0
+pyserial==3.4
+python-can==3.3.4
+python-dateutil==2.9.0.post0
+scipy==1.13.1
