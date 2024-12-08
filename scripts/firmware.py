@@ -869,7 +869,7 @@ class Firmware:
             search_pattern = "*"  # Default pattern for other types
 
         Utils.header()
-        Utils.page(f"{type} Firmware Menu")
+        Utils.page(f"{type.value} Firmware Menu")
 
         # Initialize and retrieve firmware only when this method is called
         self.retrieve: RetrieveFirmware = RetrieveFirmware(
@@ -909,7 +909,7 @@ class Firmware:
             raise ValueError("type cannot be None or empty")
 
         Utils.header()
-        Utils.page(f"Confirm {type} Flash")
+        Utils.page(f"Confirm {type.value} Flash")
 
         self.validator.check_selected_firmware()
         self.validator.check_selected_device()
@@ -923,39 +923,16 @@ class Firmware:
             Utils.colored_text("Firmware to Flash:", Color.MAGENTA),
             self.selected_firmware,
         )
+        if type not in {FlashMethod.CAN, FlashMethod.USB, FlashMethod.DFU}:
+            Utils.error_msg("Invalid Flash Method")
 
-        # Dynamically get the appropriate menu method based on `type`
+        if type == FlashMethod.CAN:
+            menu_method = self.can.menu
+        elif type == FlashMethod.USB:
+            menu_method = self.usb.menu
+        elif type == FlashMethod.DFU:
+            menu_method = self.dfu.menu
 
-        # Map type to the appropriate object
-
-        # Type mapping to dynamically resolve the target object
-
-        type_mapping: Dict[str, Union[object, None]] = {
-            FlashMethod.CAN: self.can,
-            FlashMethod.USB: self.usb,
-            FlashMethod.DFU: self.dfu,
-        }
-
-        # Get the target object based on the `type`
-        target_object: Optional[object] = type_mapping.get(type.lower(), self)
-
-        # Ensure target_object exists
-        if not target_object:
-            Utils.error_msg(
-                f"Invalid type '{type}' provided; no corresponding object found."
-            )
-            return
-        # Dynamically get the appropriate menu method from the target object
-        menu_method_name: str = "menu"  # Construct the menu method name
-        menu_method: Optional[Callable[[], None]] = getattr(
-            target_object, menu_method_name, None
-        )
-
-        # Validate and call the menu method
-        if menu_method is None or not callable(menu_method):
-            Utils.error_msg(f"Menu for type '{type}' not found.")
-            return
-        # Ask for user confirmation
         print("\nAre these details correct?")
         menu_items: Dict[int, Union[Menu.Item, Menu.Separator]] = {
             1: Menu.Item("Yes, proceed to flash", lambda: self.firmware_flash(type)),
@@ -1212,7 +1189,6 @@ class Can:
                         print("=" * 40)
                     else:
                         Utils.error_msg("No CAN devices found.")
-                        self.menu()
                 else:
                     Utils.error_msg("Unexpected output format.")
                     self.menu()
@@ -1456,11 +1432,11 @@ class Usb:
                     self.menu()
 
                 # Display the detected devices
-                print("Available Cartographe/Katapult Devices:")
-                print("=" * 40)
+                print("Available Cartographer/Katapult Devices:")
+                print("=" * PAGE_WIDTH)
                 for device in detected_devices:
                     print(device)
-                print("=" * 40)
+                print("=" * PAGE_WIDTH)
 
             except Exception as e:
                 Utils.error_msg(f"Unexpected error while querying devices: {e}")
