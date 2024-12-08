@@ -38,7 +38,13 @@ from mcu import MCU, MCU_trsync
 from stepper import MCU_stepper
 from webhooks import WebRequest
 
-from . import bed_mesh, manual_probe, probe, temperature_sensor, thermistor
+from . import (
+    bed_mesh,
+    manual_probe,
+    probe,
+    temperature_sensor,
+    thermistor,
+)
 
 DOCS_TOUCH_CALIBRATION = "https://docs.cartographer3d.com/cartographer-probe/installation-and-setup/installation/touch-based-calibration"
 DOCS_SCAN_CALIBRATION = "https://docs.cartographer3d.com/cartographer-probe/installation-and-setup/installation/scan-based-calibration"
@@ -228,6 +234,7 @@ class Scanner:
             "fuzzy_touch": config.getfloat("scanner_touch_fuzzy_touch", 0, maxval=10),
         }
         self.gcode = self.printer.lookup_object("gcode")
+
         self.probe_calibrate_z = 0.0
 
         if config.getint("detect_threshold_z", None) is not None:
@@ -244,7 +251,6 @@ class Scanner:
             "speed": config.getfloat("cal_speed", 1.0, minval=1, maxval=5),
             "move_speed": config.getfloat("cal_move_speed", 10.0, minval=1),
         }
-
         # Load models
         self.model = None
         self.models: dict[str, ScannerModel] = {}
@@ -364,6 +370,15 @@ class Scanner:
             self.cmd_Z_OFFSET_APPLY_PROBE,
             desc=self.cmd_Z_OFFSET_APPLY_PROBE_help,
         )
+
+    def validate_model_loaded(self, gcmd: GCodeCommand):
+        if self.model is None:
+            raise gcmd.error(
+                f"No model currently selected - make sure you have run {format_macro('CARTOGRAPHER_CALIBRATE')} first."
+                + f" Click <a href='{DOCS_TOUCH_CALIBRATION}'>HERE</a> for more information"
+            )
+
+        self.model.validate()
 
     cmd_SCANNER_CALIBRATE_help = "Calibrate scanner response curve"
 
@@ -728,8 +743,6 @@ class Scanner:
 
     def cmd_SCANNER_THRESHOLD_SCAN(self, gcmd: GCodeCommand):
         """Initiate threshold scanning to find the optimal threshold for accurate touch detection."""
-
-        # Ensure trigger_method is set for touch calibration
         if self.calibration_method == "touch":
             self.trigger_method = TriggerMethod.TOUCH
         else:
@@ -801,6 +814,10 @@ class Scanner:
             self.trigger_method = TriggerMethod.SCAN
             raise gcmd.error("Must home all axes first")
 
+        # Check if model is loaded
+        self.validate_model_loaded(gcmd)
+
+        # Check if bed leveling has been applied
         if self.bed_level.requires_bed_leveling():
             self.trigger_method = TriggerMethod.SCAN
             lines = ["Bed leveling required before threshold scan."]
@@ -815,7 +832,11 @@ class Scanner:
             vars["move_speed"],
         )
 
-        # Set initial scan values
+        self._zhop()
+        self._move(
+            [vars["touch_location_x"], vars["touch_location_y"], None],
+            vars["move_speed"],
+        )
         self.previous_probe_success = 0
         current_threshold = threshold_min
 
