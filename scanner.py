@@ -22,7 +22,9 @@ import struct
 import threading
 import time
 import traceback
-from typing import Any, Optional, TypedDict, final
+from dataclasses import dataclass
+from enum import IntEnum
+from typing import Callable, Optional, TypedDict, final
 
 import chelper
 import msgproto
@@ -30,11 +32,19 @@ import numpy as np
 import pins
 from clocksync import SecondarySync
 from configfile import ConfigWrapper
-from gcode import GCodeCommand, GCodeDispatch
+from gcode import GCodeCommand
 from klippy import Printer
 from mcu import MCU, MCU_trsync
+from stepper import MCU_stepper
+from webhooks import WebRequest
 
-from . import bed_mesh, manual_probe, probe, thermistor
+from . import (
+    bed_mesh,
+    manual_probe,
+    probe,
+    temperature_sensor,
+    thermistor,
+)
 
 DOCS_TOUCH_CALIBRATION = "https://docs.cartographer3d.com/cartographer-probe/installation-and-setup/installation/touch-based-calibration"
 DOCS_SCAN_CALIBRATION = "https://docs.cartographer3d.com/cartographer-probe/installation-and-setup/installation/scan-based-calibration"
@@ -52,31 +62,58 @@ THRESHOLD_STEP_MULTIPLIER = 10
 THRESHOLD_ACCEPTANCE_FACTOR = 0.66
 
 
-@final
+class TriggerMethod(IntEnum):
+    SCAN = 0
+    TOUCH = 1
+
+
+@dataclass
 class ThresholdResults:
-    def __init__(
-        self,
-        max_value: float,
-        min_value: float,
-        range_value: float,
-        avg_value: float,
-        median: float,
-        sigma: float,
-        in_range: int,
-        early: int,
-        late: int,
-        nb_samples: int,
-    ):
-        self.max_value = max_value
-        self.min_value = min_value
-        self.range_value = range_value
-        self.avg_value = avg_value
-        self.median = median
-        self.sigma = sigma
-        self.in_range = in_range
-        self.early = early
-        self.late = late
-        self.nb_samples = nb_samples
+    max_value: float
+    min_value: float
+    range_value: float
+    avg_value: float
+    median: float
+    sigma: float
+    in_range: int
+    early: int
+    late: int
+    nb_samples: int
+
+
+def format_macro(macro: str) -> str:
+    return f'<a class="command">{macro}</a>'
+
+
+@final
+class BedLeveling:
+    def __init__(self, printer: Printer):
+        self._printer = printer
+
+    def get_bed_leveling_command(self) -> Optional[str]:
+        qgl = self._printer.lookup_object("quad_gantry_level", None)
+        if qgl is not None:
+            return "QUAD_GANTRY_LEVEL"
+
+        z_tilt = self._printer.lookup_object("z_tilt", None)
+        if z_tilt is not None:
+            return "Z_TILT_ADJUST"
+
+    def requires_bed_leveling(self):
+        curtime = self._printer.get_reactor().monotonic()
+
+        qgl = self._printer.lookup_object("quad_gantry_level", None)
+        if qgl is not None:
+            return not qgl.get_status(curtime).get("applied", False)
+
+        z_tilt = self._printer.lookup_object("z_tilt", None)
+        if z_tilt is not None:
+            return not z_tilt.get_status(curtime).get("applied", False)
+
+        # We cannot do it automatically
+        # TODO: Check the bed to see if it is within "tolerance",
+        # if not, request that the user levels the bed.
+        return False
 
 
 @final
@@ -84,6 +121,7 @@ class Scanner:
     def __init__(self, config: ConfigWrapper):
         self.printer: Printer = config.get_printer()
         self.reactor = self.printer.get_reactor()
+        self.bed_level = BedLeveling(self.printer)
         self.name = config.get_name()
         self.sensor = config.get("sensor")
         self.sensor_alt = config.get("sensor_alt", None)
@@ -100,7 +138,9 @@ class Scanner:
 
         temp_sensor_override = config.get("temp_sensor_override", None)
         if temp_sensor_override is not None:
-            self.thermistor_override = config.printer.load_object(
+            self.thermistor_override: Optional[
+                temperature_sensor.PrinterSensorGeneric
+            ] = config.printer.load_object(
                 config, "temperature_sensor " + temp_sensor_override
             )
         else:
@@ -143,7 +183,6 @@ class Scanner:
         self.offset = {
             "x": config.getfloat("x_offset", 0.0),
             "y": config.getfloat("y_offset", 0.0),
-            "z": config.getfloat("z_offset", 0.0),
         }
 
         if config.has_section("safe_z_home"):
@@ -165,7 +204,7 @@ class Scanner:
         )
         config.deprecate("calibration_method")
 
-        self.trigger_method = 0
+        self.trigger_method = TriggerMethod.SCAN
 
         self.trigger_distance = config.getfloat("trigger_distance", 2.0)
         self.trigger_dive_threshold = config.getfloat("trigger_dive_threshold", 1.5)
@@ -194,7 +233,8 @@ class Scanner:
             "max_temp": config.getfloat("scanner_touch_max_temp", 150),
             "fuzzy_touch": config.getfloat("scanner_touch_fuzzy_touch", 0, maxval=10),
         }
-        self.gcode: GCodeDispatch = self.printer.lookup_object("gcode")
+        self.gcode = self.printer.lookup_object("gcode")
+
         self.probe_calibrate_z = 0.0
 
         if config.getint("detect_threshold_z", None) is not None:
@@ -211,7 +251,6 @@ class Scanner:
             "speed": config.getfloat("cal_speed", 1.0, minval=1, maxval=5),
             "move_speed": config.getfloat("cal_move_speed", 10.0, minval=1),
         }
-
         # Load models
         self.model = None
         self.models: dict[str, ScannerModel] = {}
@@ -248,7 +287,7 @@ class Scanner:
         )
         self.trapq = None
         self._last_trapq_move = None
-        self.mod_axis_twist_comp = None
+        self.mod_axis_twist_comp: Optional[Callable[[list[float]], float]] = None
         self.raw_axis_twist_comp = None
 
         mainsync = self.printer.lookup_object("mcu")._clocksync
@@ -331,11 +370,15 @@ class Scanner:
             self.cmd_Z_OFFSET_APPLY_PROBE,
             desc=self.cmd_Z_OFFSET_APPLY_PROBE_help,
         )
-        self.gcode.register_command(
-            "SAVE_TOUCH_OFFSET",
-            self.cmd_SAVE_TOUCH_OFFSET,
-            desc=self.cmd_SAVE_TOUCH_OFFSET_help,
-        )
+
+    def validate_model_loaded(self, gcmd: GCodeCommand):
+        if self.model is None:
+            raise gcmd.error(
+                f"No model currently selected - make sure you have run {format_macro('CARTOGRAPHER_CALIBRATE')} first."
+                + f" Click <a href='{DOCS_TOUCH_CALIBRATION}'>HERE</a> for more information"
+            )
+
+        self.model.validate()
 
     cmd_SCANNER_CALIBRATE_help = "Calibrate scanner response curve"
 
@@ -441,9 +484,9 @@ class Scanner:
 
         # Switch between Touch and Scan Probing
         if self.calibration_method == "touch":
-            self.trigger_method = 1
+            self.trigger_method = TriggerMethod.TOUCH
         else:
-            self.trigger_method = 0
+            self.trigger_method = TriggerMethod.SCAN
             self.calibration_method = "scan"
             if calibrate == 1 or gcmd.get("METHOD", "None").lower() == "manual":
                 self._start_calibration(gcmd)
@@ -459,7 +502,7 @@ class Scanner:
         kinematics = self.toolhead.get_kinematics()
         kin_status = kinematics.get_status(curtime)
         if "x" not in kin_status["homed_axes"] or "y" not in kin_status["homed_axes"]:
-            self.trigger_method = 0
+            self.trigger_method = TriggerMethod.SCAN
             raise gcmd.error("Must home X and Y axes first")
 
         self.previous_probe_success = 0
@@ -542,14 +585,14 @@ class Scanner:
                     )
 
             else:
-                self.trigger_method = 0
+                self.trigger_method = TriggerMethod.SCAN
                 gcmd.respond_info("Touch procedure failed.")
             self._zhop()
             self.set_temp(gcmd)
             self.extruder_target = 0
 
     # Event handlers
-    def start_touch(self, gcmd: GCodeCommand, touch_settings, verbose):
+    def start_touch(self, gcmd: GCodeCommand, touch_settings, verbose: bool):
         kinematics = self.toolhead.get_kinematics()
         initial_position = touch_settings.initial_position
         homing_position = touch_settings.homing_position
@@ -570,7 +613,7 @@ class Scanner:
         try:
             self.detect_threshold_z = test_threshold
             # Set the initial position for the toolhead
-            self.toolhead.set_position(initial_position, [2])
+            self.toolhead.set_position(initial_position, homing_axes=[2])
 
             retries = 0
 
@@ -606,7 +649,7 @@ class Scanner:
                     )
                 except self.printer.command_error as e:
                     if self.printer.is_shutdown():
-                        self.trigger_method = 0
+                        self.trigger_method = TriggerMethod.SCAN
                         raise self.printer.command_error(
                             "Touch procedure interrupted due to printer shutdown"
                         ) from e
@@ -632,7 +675,7 @@ class Scanner:
                 deviation = round(deviation, 4)
                 if deviation > tolerance:
                     if retries >= max_retries:
-                        self.trigger_method = 0
+                        self.trigger_method = TriggerMethod.SCAN
                         self._zhop()
                         raise gcmd.error(
                             f"Exceeded maximum attempts [{retries}/{int(max_retries)}]"
@@ -678,7 +721,7 @@ class Scanner:
             self.toolhead.set_position(initial_position)
             self.toolhead.wait_moves()
             self.toolhead.flush_step_generation()
-            self.trigger_method = 0
+            self.trigger_method = TriggerMethod.SCAN
             self.previous_probe_success = 1
 
             # Return relevant data
@@ -691,7 +734,7 @@ class Scanner:
                 "success": self.previous_probe_success,
             }
         except self.printer.command_error:
-            self.trigger_method = 0
+            self.trigger_method = TriggerMethod.SCAN
             if hasattr(kinematics, "note_z_not_homed"):
                 kinematics.note_z_not_homed()
             raise
@@ -700,12 +743,10 @@ class Scanner:
 
     def cmd_SCANNER_THRESHOLD_SCAN(self, gcmd: GCodeCommand):
         """Initiate threshold scanning to find the optimal threshold for accurate touch detection."""
-
-        # Ensure trigger_method is set for touch calibration
         if self.calibration_method == "touch":
-            self.trigger_method = 1
+            self.trigger_method = TriggerMethod.TOUCH
         else:
-            self.trigger_method = 0
+            self.trigger_method = TriggerMethod.SCAN
             return
 
         # Retrieve common and specific threshold scan variables
@@ -765,11 +806,37 @@ class Scanner:
         curtime = self.printer.get_reactor().monotonic()
         kinematics = self.toolhead.get_kinematics()
         kin_status = kinematics.get_status(curtime)
-        if "x" not in kin_status["homed_axes"] or "y" not in kin_status["homed_axes"]:
-            self.trigger_method = 0
-            raise gcmd.error("Must home X and Y axes first")
+        if (
+            "x" not in kin_status["homed_axes"]
+            or "y" not in kin_status["homed_axes"]
+            or "z" not in kin_status["homed_axes"]
+        ):
+            self.trigger_method = TriggerMethod.SCAN
+            raise gcmd.error("Must home all axes first")
 
-        # Set initial scan values
+        # Check if model is loaded
+        self.validate_model_loaded(gcmd)
+
+        # Check if bed leveling has been applied
+        if self.bed_level.requires_bed_leveling():
+            self.trigger_method = TriggerMethod.SCAN
+            lines = ["Bed leveling required before threshold scan."]
+            cmd = self.bed_level.get_bed_leveling_command()
+            if cmd is not None:
+                lines.append(f"Please run {format_macro(cmd)}")
+            raise gcmd.error(" ".join(lines))
+
+        self._zhop()
+        self._move(
+            [vars["touch_location_x"], vars["touch_location_y"], None],
+            vars["move_speed"],
+        )
+
+        self._zhop()
+        self._move(
+            [vars["touch_location_x"], vars["touch_location_y"], None],
+            vars["move_speed"],
+        )
         self.previous_probe_success = 0
         current_threshold = threshold_min
 
@@ -931,11 +998,13 @@ class Scanner:
                 gcmd.respond_info(
                     f"No fully optimal threshold found. Best attempt: {best_threshold} with standard deviation of {std_dev_display}"
                 )
-            gcmd.respond_info("You can now SAVE_CONFIG to save your threshold.")
+            gcmd.respond_info(
+                f"You can now {format_macro('SAVE_CONFIG')} to save your threshold."
+            )
 
-            self.trigger_method = 0
+            self.trigger_method = TriggerMethod.SCAN
 
-    def start_threshold_scan(self, gcmd: GCodeCommand, touch_settings, verbose):
+    def start_threshold_scan(self, gcmd: GCodeCommand, touch_settings, verbose: bool):
         kinematics = self.toolhead.get_kinematics()
         initial_position = touch_settings.initial_position
         homing_position = touch_settings.homing_position
@@ -953,7 +1022,7 @@ class Scanner:
         try:
             self.detect_threshold_z = test_threshold
             # Set the initial position for the toolhead
-            self.toolhead.set_position(initial_position, [2])
+            self.toolhead.set_position(initial_position, homing_axes=[2])
 
             retries = 0
             new_retry = False
@@ -992,7 +1061,7 @@ class Scanner:
                     )
                 except self.printer.command_error as e:
                     if self.printer.is_shutdown():
-                        self.trigger_method = 0
+                        self.trigger_method = TriggerMethod.SCAN
                         raise self.printer.command_error(
                             "Touch procedure interrupted due to printer shutdown"
                         ) from e
@@ -1065,12 +1134,12 @@ class Scanner:
                 "consistent_results": False,  # Default to False
             }
         except self.printer.command_error:
-            self.trigger_method = 0
+            self.trigger_method = TriggerMethod.SCAN
             if hasattr(kinematics, "note_z_not_homed"):
                 kinematics.note_z_not_homed()
             raise
 
-    def touch_probe(self, speed, skip=0, verbose=True):
+    def touch_probe(self, speed: float, skip: int = 0, verbose: bool = True):
         skipped_msg = ""
         toolhead = self.printer.lookup_object("toolhead")
         curtime = self.printer.get_reactor().monotonic()
@@ -1095,7 +1164,7 @@ class Scanner:
             )
         return epos[:3]
 
-    def _calc_median(self, positions):
+    def _calc_median(self, positions: "list[list[float]]"):
         z_sorted = sorted(positions, key=(lambda p: p[2]))
         middle = len(positions) // 2
         if (len(positions) & 1) == 1:
@@ -1104,11 +1173,11 @@ class Scanner:
         # even number of samples
         return self._calc_mean(z_sorted[middle - 1 : middle + 1])
 
-    def _calc_mean(self, positions):
+    def _calc_mean(self, positions: "list[list[float]]"):
         count = float(len(positions))
         return [sum([pos[i] for pos in positions]) / count for i in range(3)]
 
-    def log_debug_info(self, verbose, gcmd: GCodeCommand, *args):
+    def log_debug_info(self, verbose: bool, gcmd: GCodeCommand, *args: object):
         if verbose:
             for message in args:
                 gcmd.respond_info(str(message))
@@ -1153,7 +1222,7 @@ class Scanner:
                 )
                 self.gcode.run_script_from_command(cmd)
 
-    def set_accel(self, value):
+    def set_accel(self, value: float):
         self.gcode.run_script_from_command("SET_VELOCITY_LIMIT ACCEL=%.3f" % (value,))
 
     def _zhop(self):
@@ -1175,32 +1244,23 @@ class Scanner:
                 self.toolhead.manual_move(move, self.z_hop_speed)
                 self.toolhead.wait_moves()
 
-    def _move(self, coord, speed):
+    def _move(self, coord: "list[float | None]", speed: float):
         self.printer.lookup_object("toolhead").manual_move(coord, speed)
 
     def _handle_connect(self):
         self.phoming = self.printer.lookup_object("homing")
-        self.mod_axis_twist_comp = self.printer.lookup_object(
-            "axis_twist_compensation", None
-        )
-        if self.mod_axis_twist_comp is not None:
-            if not hasattr(self.mod_axis_twist_comp, "get_z_compensation_value"):
-                self.raw_axis_twist_comp = self.mod_axis_twist_comp
+        axis_twist_comp = self.printer.lookup_object("axis_twist_compensation", None)
+        if axis_twist_comp is not None:
+            if hasattr(axis_twist_comp, "get_z_compensation_value"):
+                self.mod_axis_twist_comp = axis_twist_comp.get_z_compensation_value
+            else:
 
-                def get_z_compensation_value(self, pos):
+                def get_z_compensation_value(pos):
                     temp = list(pos)
-                    self.raw_axis_twist_comp._update_z_compensation_value(temp)
+                    axis_twist_comp._update_z_compensation_value(temp)
                     return temp[2] - pos[2]
 
-                axis_twist_comp = type(
-                    "class",
-                    (object,),
-                    {
-                        "get_z_compensation_value": get_z_compensation_value,
-                        "raw_axis_twist_comp": self.raw_axis_twist_comp,
-                    },
-                )
-                self.mod_axis_twist_comp = axis_twist_comp()
+                self.mod_axis_twist_comp = get_z_compensation_value
         # Ensure streaming mode is stopped
         self.scanner_stream_cmd.send([0])
 
@@ -1213,15 +1273,14 @@ class Scanner:
 
     def _handle_mcu_identify(self):
         try:
-            constants = self._mcu.get_constants()
             if self._mcu._mcu_freq < 20000000:
                 self.sensor_freq = self._mcu._mcu_freq
             elif self._mcu._mcu_freq < 100000000:
                 self.sensor_freq = self._mcu._mcu_freq / 2
             else:
                 self.sensor_freq = self._mcu._mcu_freq / 6
-            self.inv_adc_max = 1.0 / constants.get("ADC_MAX")
-            self.temp_smooth_count = constants.get(
+            self.inv_adc_max = 1.0 / self._mcu.get_constant_float("ADC_MAX")
+            self.temp_smooth_count = self._mcu.get_constant_float(
                 self.sensor.upper() + "_ADC_SMOOTH_COUNT"
             )
             self.thermistor = thermistor.Thermistor(10000.0, 0.0)
@@ -1231,7 +1290,9 @@ class Scanner:
             self.trapq = self.toolhead.get_trapq()
             self.fw_version = self._mcu.get_status()["mcu_version"]
         except msgproto.error as e:
-            raise msgproto.error(str(e))
+            raise msgproto.error(
+                f"Error during probe mcu identification, check connection:\n{e}"
+            )
 
     def _build_config(self):
         self.scanner_stream_cmd = self._mcu.lookup_command(
@@ -1340,7 +1401,7 @@ class Scanner:
         finally:
             self._stop_streaming()
 
-    def _move_to_probing_height(self, speed):
+    def _move_to_probing_height(self, speed: float):
         target = self.trigger_distance
         top = target + self.backlash_comp
         cur_z = self.toolhead.get_position()[2]
@@ -1349,7 +1410,7 @@ class Scanner:
         self.toolhead.manual_move([None, None, target], speed)
         self.toolhead.wait_moves()
 
-    def _probing_move_to_probing_height(self, speed):
+    def _probing_move_to_probing_height(self, speed: float):
         curtime = self.reactor.monotonic()
         status = self.toolhead.get_kinematics().get_status(curtime)
         pos = self.toolhead.get_position()
@@ -1363,9 +1424,16 @@ class Scanner:
                 reason += probe.HINT_TIMEOUT
             raise self.printer.command_error(reason)
 
-    def _probe(self, speed, skip=0, num_samples=10, allow_faulty=False, verbose=True):
+    def _probe(
+        self,
+        speed: float,
+        skip: int = 0,
+        num_samples: int = 10,
+        allow_faulty: bool = False,
+        verbose: bool = True,
+    ) -> "list[float]":
         skipped_msg = ""
-        if self.trigger_method != 0:
+        if self.trigger_method != TriggerMethod.SCAN:
             return self.touch_probe(speed, skip)
         target = self.trigger_distance
         tdt = self.trigger_dive_threshold
@@ -1414,10 +1482,10 @@ class Scanner:
             "TOUCH_LOCATION_Y", float(self.touch_location[1])
         )
         if self.calibration_method == "touch":
-            self.trigger_method = 1
+            self.trigger_method = TriggerMethod.TOUCH
         allow_faulty = gcmd.get_int("ALLOW_FAULTY_COORDINATE", 0) != 0
         if (
-            self.trigger_method != 0
+            self.trigger_method != TriggerMethod.SCAN
             and gcmd.get("METHOD", "manual").lower() != "manual"
         ):
             self._move([touch_location_x, touch_location_y, None], 40)
@@ -1428,7 +1496,6 @@ class Scanner:
             pos[2] = status["axis_maximum"][2]
             self.toolhead.set_position(pos, homing_axes=(0, 1, 2))
             self.touch_probe(self.probe_speed)
-            pos[2] = -self.offset["z"]
             self.toolhead.set_position(pos)
             self._move([None, None, 0], self.lift_speed)
             kin = self.toolhead.get_kinematics()
@@ -1445,7 +1512,7 @@ class Scanner:
             self._calibrate(
                 gcmd, kin_pos, nozzle_z, forced_z=False, touch=False, manual_mode=False
             )
-            self.trigger_method = 0
+            self.trigger_method = TriggerMethod.SCAN
 
         elif gcmd.get("SKIP_MANUAL_PROBE", None) is not None:
             kin = self.toolhead.get_kinematics()
@@ -1504,15 +1571,15 @@ class Scanner:
 
     def _calibrate(
         self,
-        gcmd,
+        gcmd: GCodeCommand,
         kin_pos,
-        cal_nozzle_z=None,
+        cal_nozzle_z: Optional[float] = None,
         forced_z=None,
         touch=False,
         manual_mode=False,
     ):
         if kin_pos is None:
-            self.trigger_method = 0
+            self.trigger_method = TriggerMethod.SCAN
             self._zhop()
             if forced_z:
                 kin = self.toolhead.get_kinematics()
@@ -1527,13 +1594,17 @@ class Scanner:
         model_name = gcmd.get("MODEL_NAME", "default")
 
         toolhead = self.toolhead
-        curtime = self.reactor.monotonic()
         toolhead.wait_moves()
 
         if manual_mode:
             nozzle_z = gcmd.get_float("NOZZLE_Z", self.cal_config["nozzle_z"])
             cal_min_z = kin_pos[2] - nozzle_z + cal_floor
             cal_max_z = kin_pos[2] - nozzle_z + cal_ceil
+        elif cal_nozzle_z is None:
+            raise Exception(
+                "A calculated nozzle Z position is required if not in manual mode,"
+                + " this is an error in our code."
+            )
         else:
             curpos = toolhead.get_position()
             curpos[2] = cal_nozzle_z
@@ -1559,7 +1630,7 @@ class Scanner:
         try:
             self._start_streaming()
             self._sample_printtime_sync(50)
-            with self.streaming_session(cb) as ss:
+            with self.streaming_session(cb):
                 self._sample_printtime_sync(50)
                 toolhead.dwell(0.250)
                 curpos[2] = cal_min_z
@@ -1568,7 +1639,7 @@ class Scanner:
                 self._sample_printtime_sync(50)
         except Exception as e:
             print(f"Error encounted while calibrating: {e}")
-            self.trigger_method = 0
+            self.trigger_method = TriggerMethod.SCAN
             self._zhop()
         finally:
             self._stop_streaming()
@@ -1613,7 +1684,7 @@ class Scanner:
             "Scanner calibrated at %.3f,%.3f from %.3f to %.3f, speed %.2f mm/s, temp %.2fC"
             % (pos[0], pos[1], cal_min_z, cal_max_z, cal_speed, temp_median)
         )
-        self.trigger_method = 0
+        self.trigger_method = TriggerMethod.SCAN
         self._zhop()
 
     # Internal
@@ -1684,8 +1755,8 @@ class Scanner:
 
         if pos is None:
             return
-        if sample["dist"] is not None and self.mod_axis_twist_comp:
-            sample["dist"] -= self.mod_axis_twist_comp.get_z_compensation_value(pos)
+        if sample["dist"] is not None and self.mod_axis_twist_comp is not None:
+            sample["dist"] -= self.mod_axis_twist_comp(pos)
         sample["pos"] = pos
         sample["vel"] = vel
 
@@ -1707,7 +1778,7 @@ class Scanner:
             self.scanner_stream_cmd.send([0])
         self._stream_flush()
 
-    def _stream_timeout(self, eventtime):
+    def _stream_timeout(self, _: float):
         if not self._stream_en:
             return self.reactor.NEVER
         msg = "Scanner sensor not receiving data"
@@ -1814,7 +1885,9 @@ class Scanner:
         self._stream_buffer.append(params.copy())
         self._stream_flush_schedule()
 
-    def _get_trapq_position(self, print_time):
+    def _get_trapq_position(
+        self, print_time: float
+    ) -> "tuple[list[float] | None, float | None]":
         ffi_main, ffi_lib = chelper.get_ffi()
         data = ffi_main.new("struct pull_move[1]")
         count = ffi_lib.trapq_extract_old(self.trapq, data, 1, 0.0, print_time)
@@ -1823,11 +1896,11 @@ class Scanner:
         move = data[0]
         move_time = max(0.0, min(move.move_t, print_time - move.print_time))
         dist = (move.start_v + 0.5 * move.accel * move_time) * move_time
-        pos = (
+        pos = [
             move.start_x + move.x_r * dist,
             move.start_y + move.y_r * dist,
             move.start_z + move.z_r * dist,
-        )
+        ]
         velocity = move.start_v + move.accel * move_time
         return pos, velocity
 
@@ -1900,7 +1973,7 @@ class Scanner:
 
     # Webhook handlers
 
-    def _handle_req_status(self, web_request):
+    def _handle_req_status(self, web_request: WebRequest):
         temp = None
         sample = self._sample_async()
         out = {
@@ -1912,7 +1985,7 @@ class Scanner:
             out["temp"] = temp
         web_request.send(out)
 
-    def _handle_req_dump(self, web_request):
+    def _handle_req_dump(self, web_request: WebRequest):
         self._api_dump_helper.add_client(web_request)
 
     # GCode command handlers
@@ -1922,19 +1995,19 @@ class Scanner:
         method = gcmd.get("MODE", "NONE").lower()
         if method == "scan":
             self.calibration_method = "scan"
-            self.trigger_method = 0
+            self.trigger_method = TriggerMethod.SCAN
             configfile = self.printer.lookup_object("configfile")
             configfile.set("scanner", "mode", "scan")
             gcmd.respond_info(
-                "Mode switched to SCAN. Please use SAVE_CONFIG to save this mode."
+                f"Mode switched to SCAN. Please use {format_macro('SAVE_CONFIG')} to save this mode."
             )
         elif method == "touch":
             self.calibration_method = "touch"
-            self.trigger_method = 1
+            self.trigger_method = TriggerMethod.TOUCH
             configfile = self.printer.lookup_object("configfile")
             configfile.set("scanner", "mode", "touch")
             gcmd.respond_info(
-                "Mode switched to TOUCH. Please use SAVE_CONFIG to save this mode."
+                f"Mode switched to TOUCH. Please use {format_macro('SAVE_CONFIG')} to save this mode."
             )
         threshold = gcmd.get_int("THRESHOLD", self.detect_threshold_z)
         if self.detect_threshold_z != threshold:
@@ -1950,7 +2023,7 @@ class Scanner:
         gcmd.respond_info("Result is z=%.6f" % (pos[2],))
         self.last_z_result = pos[2]
 
-    def _save_threshold(self, threshold, speed):
+    def _save_threshold(self, threshold: int, speed: float):
         configfile = self.printer.lookup_object("configfile")
         configfile.set("scanner", "scanner_touch_threshold", "%d" % int(threshold))
         configfile.set("scanner", "scanner_touch_speed", "%d" % int(speed))
@@ -1963,7 +2036,7 @@ class Scanner:
         speed = gcmd.get_float("PROBE_SPEED", self.speed, above=0.0)
         cur_z = self.toolhead.get_position()[2]
         self.toolhead.manual_move([None, None, cur_z + overrun], speed)
-        self.run_probe(gcmd)
+        _ = self.run_probe(gcmd)
 
         lift_speed = self.get_lift_speed(gcmd)
         target = gcmd.get_float("Z", self.trigger_distance)
@@ -2139,7 +2212,7 @@ class Scanner:
         liftpos = [None, None, start_height]
         cur_range_value = 0
         positions: list[list[float]] = []
-        if self.trigger_method == 0:
+        if self.trigger_method == TriggerMethod.SCAN:
             self.toolhead.manual_move(liftpos, lift_speed)
             self.multi_probe_begin()
             while (len(positions) < sample_count) and (cur_range_value < abort_range):
@@ -2181,16 +2254,16 @@ class Scanner:
         zs = [p[2] for p in positions[skip_samples:]]
         if not zs:
             return ThresholdResults(
-                math.inf,
-                -math.inf,
-                math.inf,
-                math.inf,
-                math.inf,
-                math.inf,
-                0,
-                0,
-                0,
-                0,
+                max_value=math.inf,
+                min_value=-math.inf,
+                range_value=math.inf,
+                avg_value=math.inf,
+                median=math.inf,
+                sigma=math.inf,
+                in_range=0,
+                early=0,
+                late=0,
+                nb_samples=0,
             )
 
         max_value = max(zs)
@@ -2217,16 +2290,16 @@ class Scanner:
         sigma = math.sqrt(deviation_sum / len(zs))
 
         return ThresholdResults(
-            max_value,
-            min_value,
-            range_value,
-            avg_value,
-            median_,
-            sigma,
-            in_range,
-            early,
-            late,
-            len(zs),
+            max_value=max_value,
+            min_value=min_value,
+            range_value=range_value,
+            avg_value=avg_value,
+            median=median_,
+            sigma=sigma,
+            in_range=in_range,
+            early=early,
+            late=late,
+            nb_samples=len(zs),
         )
 
     cmd_Z_OFFSET_APPLY_PROBE_help = "Adjust the probe's z_offset"
@@ -2271,7 +2344,7 @@ class Scanner:
                 )
                 gcmd.respond_info(
                     f"Touch offset has been updated by {offset:.3f} to {self.scanner_touch_config['z_offset']:.3f}.\n"
-                    "You must run the SAVE_CONFIG command now to update the\n"
+                    f"You must run the {format_macro('SAVE_CONFIG')} command now to update the\n"
                     "printer config file and restart the printer."
                 )
         else:
@@ -2279,17 +2352,9 @@ class Scanner:
             self.model.save(False)
             gcmd.respond_info(
                 f"Scanner model offset has been updated to {self.model.offset:.3f}.\n"
-                "You must run the SAVE_CONFIG command now to update the\n"
+                f"You must run the {format_macro('SAVE_CONFIG')} command now to update the\n"
                 "printer config file and restart the printer."
             )
-
-    cmd_SAVE_TOUCH_OFFSET_help = "Save offset to z_offset for TOUCH method"
-
-    def cmd_SAVE_TOUCH_OFFSET(self, gcmd: GCodeCommand):
-        gcode_move = self.printer.lookup_object("gcode_move")
-        offset = gcode_move.get_status()["homing_origin"].z
-        configfile = self.printer.lookup_object("configfile")
-        configfile.set("scanner", "z_offset", "%.3f" % (self.offset["z"] + offset))
 
 
 class TouchSettings:
@@ -2379,7 +2444,7 @@ class ScannerModel:
         if show_message:
             self.scanner.gcode.respond_info(
                 "Scanner calibration for model '%s' has "
-                "been updated\nfor the current session. The SAVE_CONFIG "
+                f"been updated\nfor the current session. The {format_macro('SAVE_CONFIG')} "
                 "command will\nupdate the printer config file and restart "
                 "the printer." % (self.name,)
             )
@@ -2445,8 +2510,9 @@ class ScannerModel:
         return freq
 
 
+@final
 class ScannerTempModelBuilder:
-    _DEFAULTS = {
+    _DEFAULTS: "dict[str, Optional[float]]" = {
         "a_a": None,
         "a_b": None,
         "b_a": None,
@@ -2455,11 +2521,11 @@ class ScannerTempModelBuilder:
         "fmin_temp": None,
     }
 
-    @classmethod
-    def load(cls, config):
+    @staticmethod
+    def load(config: ConfigWrapper):
         return ScannerTempModelBuilder(config)
 
-    def __init__(self, config):
+    def __init__(self, config: ConfigWrapper):
         self.parameters = ScannerTempModelBuilder._DEFAULTS.copy()
         for key in self.parameters.keys():
             param = config.getfloat("tc_" + key, None)
@@ -2472,7 +2538,7 @@ class ScannerTempModelBuilder:
         logging.info("scanner: built tempco model %s", self.parameters)
         return ScannerTempModel(**self.parameters)
 
-    def build_with_base(self, scanner):
+    def build_with_base(self, scanner: Scanner):
         base_data = scanner.scanner_base_read_cmd.send([6, 0])
         (f_count, adc_count) = struct.unpack("<IH", base_data["bytes"])
         if f_count < 0xFFFFFFFF and adc_count < 0xFFFF:
@@ -2508,7 +2574,7 @@ class ScannerTempModel:
         return a * x + b
 
     def compensate(self, freq, temp_source, temp_target, tctl=None):
-        if self.a_a == None or self.a_b == None or self.b_a == None or self.b_b == None:
+        if self.a_a is None or self.a_b is None or self.b_a is None or self.b_b is None:
             return freq
         A = (
             4 * (temp_source * self.a_a) ** 2
@@ -2547,10 +2613,11 @@ class ScannerTempModel:
         return param_a * (temp_target + param_b / 2 / param_a) ** 2 + ax + self.fmin
 
 
+@final
 class ModelManager:
-    def __init__(self, scanner):
+    def __init__(self, scanner: Scanner):
         self.scanner = scanner
-        self.gcode: GCodeDispatch = scanner.printer.lookup_object("gcode")
+        self.gcode = scanner.printer.lookup_object("gcode")
 
         for sensor in [scanner.sensor, scanner.sensor_alt]:
             if sensor:  # Ensure the sensor is not None
@@ -2599,7 +2666,7 @@ class ModelManager:
         if name != oldname:
             model = copy.copy(model)
         model.name = name
-        model.save(self.scanner)
+        model.save()
         if name != oldname:
             self.scanner.models[name] = model
 
@@ -2609,15 +2676,15 @@ class ModelManager:
         name = gcmd.get("NAME")
         model = self.scanner.models.get(name, None)
         if model is None:
-            raise gcmd.error("Unknown model '%s'" % (name,))
+            raise gcmd.error(f"Unknown model '{name}'")
         configfile = self.scanner.printer.lookup_object("configfile")
         section = "scanner model " + model.name
         configfile.remove_section(section)
-        self.scanner.models.pop(name)
+        _ = self.scanner.models.pop(name)
         gcmd.respond_info(
-            "Model '%s' was removed for the current session.\n"
-            "Run SAVE_CONFIG to update the printer configuration"
-            "and restart Klipper." % (name,)
+            f"Model '{name}' was removed for the current session.\n"
+            + f"Run {format_macro('SAVE_CONFIG')} to update the printer configuration"
+            + "and restart Klipper."
         )
         if self.scanner.model == model:
             self.scanner.model = None
@@ -2649,7 +2716,7 @@ class AlphaBetaFilter:
         self.tl = None
 
     def update(self, time, measurement):
-        if self.xl == None:
+        if self.xl is None:
             self.xl = measurement
         if self.tl is not None:
             dt = time - self.tl
@@ -2747,7 +2814,7 @@ class APIDumpHelper:
             cconn.send(tmp)
         self.buffer = []
 
-    def add_client(self, web_request):
+    def add_client(self, web_request: WebRequest):
         cconn = web_request.get_client_connection()
         template = web_request.get_dict("response_template", {})
         self.clients[cconn] = template
@@ -2763,7 +2830,7 @@ class _ProbeStatus(TypedDict):
 
 @final
 class ScannerWrapper:
-    def __init__(self, scanner):
+    def __init__(self, scanner: Scanner):
         self.scanner = scanner
 
     def get_status(self, _eventtime: float) -> _ProbeStatus:
@@ -2788,10 +2855,10 @@ class ScannerWrapper:
         return self.scanner.run_probe(gcmd)
 
     def probe_prepare(self, hmove):
-        return self.scanner.probe_prepare(hmove)
+        pass
 
     def probe_finish(self, hmove):
-        return self.scanner.probe_finish(hmove)
+        pass
 
     def get_probe_params(self, gcmd: Optional[GCodeCommand] = None):
         return {
@@ -2814,14 +2881,15 @@ class ScannerWrapper:
         return res
 
 
+@final
 class ScannerTempWrapper:
-    def __init__(self, scanner):
+    def __init__(self, scanner: Scanner):
         self.scanner = scanner
 
-    def get_temp(self, eventtime):
+    def get_temp(self, eventtime: float):
         return self.scanner.last_temp, 0
 
-    def get_status(self, eventtime):
+    def get_status(self, eventtime: float):
         return {
             "temperature": round(self.scanner.last_temp, 2),
             "measured_min_temp": round(self.scanner.measured_min, 2),
@@ -2868,7 +2936,10 @@ class ScannerEndstopWrapper:
         self.is_homing = False
 
     def _handle_home_rails_end(self, homing_state, rails):
-        if self.scanner.model is None and self.scanner.trigger_method == 0:
+        if (
+            self.scanner.model is None
+            and self.scanner.trigger_method == TriggerMethod.SCAN
+        ):
             return
 
         if not self.is_homing:
@@ -2879,8 +2950,8 @@ class ScannerEndstopWrapper:
 
         # After homing Z we perform a measurement and adjust the toolhead
         # kinematic position.
-        if self.scanner.trigger_method != 0:
-            homing_state.set_homed_position([None, None, -self.scanner.offset["z"]])
+        if self.scanner.trigger_method != TriggerMethod.SCAN:
+            homing_state.set_homed_position([None, None, 0])
             return
         (dist, samples) = self.scanner._sample(self.scanner.z_settling_time, 10)
         if math.isinf(dist):
@@ -2893,7 +2964,7 @@ class ScannerEndstopWrapper:
     def _handle_homing_move_begin(self, hmove):
         if self.scanner.mcu_probe in hmove.get_mcu_endstops():
             etrsync = self._trsyncs[0]
-            if self.scanner.trigger_method == 1:
+            if self.scanner.trigger_method == TriggerMethod.TOUCH:
                 self.scanner.scanner_home_cmd.send(
                     [
                         etrsync.get_oid(),
@@ -2907,7 +2978,7 @@ class ScannerEndstopWrapper:
     def get_mcu(self):
         return self._mcu
 
-    def add_stepper(self, stepper):
+    def add_stepper(self, stepper: MCU_stepper):
         trsyncs = {trsync.get_mcu(): trsync for trsync in self._trsyncs}
         stepper_mcu = stepper.get_mcu()
         trsync = trsyncs.get(stepper_mcu)
@@ -2935,11 +3006,14 @@ class ScannerEndstopWrapper:
     ):
         if self.scanner.model is not None:
             self.scanner.model.validate()
-        if self.scanner.model is None and self.scanner.trigger_method == 0:
+        if (
+            self.scanner.model is None
+            and self.scanner.trigger_method == TriggerMethod.SCAN
+        ):
             raise self.scanner.printer.command_error("No Scanner model loaded")
 
         self.is_homing = True
-        if self.scanner.trigger_method == 0:
+        if self.scanner.trigger_method == TriggerMethod.SCAN:
             self.scanner._apply_threshold()
             self.scanner._sample_async()
         clock = self._mcu.print_time_to_clock(print_time)
@@ -2962,7 +3036,7 @@ class ScannerEndstopWrapper:
         ffi_main, ffi_lib = chelper.get_ffi()
         ffi_lib.trdispatch_start(self._trdispatch, etrsync.REASON_HOST_REQUEST)
 
-        if self.scanner.trigger_method != 0:
+        if self.scanner.trigger_method != TriggerMethod.SCAN:
             return self._trigger_completion
 
         self.scanner.scanner_home_cmd.send(
@@ -2981,7 +3055,7 @@ class ScannerEndstopWrapper:
         etrsync.set_home_end_time(home_end_time)
         if self._mcu.is_fileoutput():
             self._trigger_completion.complete(True)
-        self._trigger_completion.wait()
+        _ = self._trigger_completion.wait()
         self.scanner.scanner_stop_home.send()
         ffi_main, ffi_lib = chelper.get_ffi()
         ffi_lib.trdispatch_stop(self._trdispatch)
@@ -2999,7 +3073,6 @@ class ScannerEndstopWrapper:
     def query_endstop(self, print_time):
         if self.scanner.model is None:
             return 1
-        clock = self._mcu.print_time_to_clock(print_time)
         sample = self.scanner._sample_async()
         if self.scanner.trigger_freq <= sample["freq"]:
             return 1
@@ -3012,8 +3085,10 @@ class ScannerEndstopWrapper:
 
 @final
 class ScannerMeshHelper:
-    @classmethod
-    def create(cls, scanner, config):
+    @staticmethod
+    def create(
+        scanner: Scanner, config: ConfigWrapper
+    ) -> Optional["ScannerMeshHelper"]:
         if config.has_section("bed_mesh"):
             mesh_config = config.getsection("bed_mesh")
             if mesh_config.get("mesh_radius", None) is not None:
@@ -3090,7 +3165,7 @@ class ScannerMeshHelper:
             "klippy:connect", self._handle_connect
         )
 
-        self.gcode: GCodeDispatch = self.scanner.printer.lookup_object("gcode")
+        self.gcode = self.scanner.printer.lookup_object("gcode")
         self.prev_gcmd = self.gcode.register_command("BED_MESH_CALIBRATE", None)
         self.gcode.register_command(
             "BED_MESH_CALIBRATE",
@@ -3114,10 +3189,7 @@ class ScannerMeshHelper:
             self.prev_gcmd(gcmd)
 
     def _handle_connect(self):
-        # TODO: Proper type for exclude_object
-        self.exclude_object: Any | None = self.scanner.printer.lookup_object(
-            "exclude_object", None
-        )
+        self.exclude_object = self.scanner.printer.lookup_object("exclude_object", None)
 
     def _handle_mcu_identify(self):
         # Auto determine a safe overscan amount
@@ -3278,13 +3350,7 @@ class ScannerMeshHelper:
 
         # If the user requested adaptive meshing, try to shrink the values we just configured
         if gcmd.get_int("ADAPTIVE", 0):
-            if self.exclude_object is not None:
-                margin = gcmd.get_float("ADAPTIVE_MARGIN", self.adaptive_margin)
-                self._shrink_to_excluded_objects(gcmd, margin)
-            else:
-                gcmd.respond_info(
-                    "Requested adaptive mesh, but [exclude_object] is not enabled. Ignoring."
-                )
+            self._shrink_to_excluded_objects(gcmd)
 
         self.step_x = (self.max_x - self.min_x) / (self.res_x - 1)
         self.step_y = (self.max_y - self.min_y) / (self.res_y - 1)
@@ -3323,15 +3389,18 @@ class ScannerMeshHelper:
         matrix = self._process_clusters(clusters, gcmd)
         self._apply_mesh(matrix, gcmd)
 
-    def _shrink_to_excluded_objects(self, gcmd: GCodeCommand, margin):
+    def _shrink_to_excluded_objects(self, gcmd: GCodeCommand):
+        if self.exclude_object is None:
+            gcmd.respond_info(
+                "Requested adaptive mesh, but [exclude_object] is not enabled. Ignoring."
+            )
+            return
+
+        objects = self.exclude_object.get_status().get("objects", [])
+        margin = gcmd.get_float("ADAPTIVE_MARGIN", self.adaptive_margin)
+
         bound_min_x, bound_max_x = None, None
         bound_min_y, bound_max_y = None, None
-        if self.exclude_object is None:
-            # TODO: Show the error
-            return
-        objects = self.exclude_object.get_status().get("objects", {})
-        if len(objects) == 0:
-            return
 
         for obj in objects:
             for point in obj["polygon"]:
@@ -3339,6 +3408,17 @@ class ScannerMeshHelper:
                 bound_max_x = opt_max(bound_max_x, point[0])
                 bound_min_y = opt_min(bound_min_y, point[1])
                 bound_max_y = opt_max(bound_max_y, point[1])
+        if (
+            bound_min_x is None
+            or bound_max_x is None
+            or bound_min_y is None
+            or bound_max_y is None
+        ):
+            gcmd.respond_info(
+                "Requested adaptive mesh, but no oobjects defined. Ignoring."
+            )
+            return
+
         bound_min_x -= margin
         bound_max_x += margin
         bound_min_y -= margin
@@ -3347,8 +3427,6 @@ class ScannerMeshHelper:
         # Calculate original step size and apply the new bounds
         orig_span_x = self.max_x - self.min_x
         orig_span_y = self.max_y - self.min_y
-        orig_step_x = orig_span_x / (self.res_x - 1)
-        orig_step_y = orig_span_y / (self.res_y - 1)
 
         if bound_min_x >= self.min_x:
             self.min_x = bound_min_x
@@ -3457,7 +3535,7 @@ class ScannerMeshHelper:
                 clusters[k] = []
             clusters[k].append(d)
 
-        with self.scanner.streaming_session(cb) as ss:
+        with self.scanner.streaming_session(cb):
             self._fly_path(path, speed, runs)
 
         gcmd.respond_info(
@@ -3478,11 +3556,15 @@ class ScannerMeshHelper:
         def do():
             try:
                 child_conn.send(
-                    (False, self._do_process_clusters(raw_clusters, dump_file))
+                    (
+                        False,
+                        self._do_process_clusters(raw_clusters, dump_file),
+                    )
                 )
-            except:
+            except Exception:
                 child_conn.send((True, traceback.format_exc()))
-            child_conn.close()
+            finally:
+                child_conn.close()
 
         child = multiprocessing.Process(target=do)
         child.daemon = True
@@ -3508,7 +3590,6 @@ class ScannerMeshHelper:
             with open(dump_file, "w") as f:
                 f.write("x,y,xp,xy,dist\n")
                 for yi in range(self.res_y):
-                    line = []
                     for xi in range(self.res_x):
                         cluster = raw_clusters.get((xi, yi), [])
                         xp = xi * self.step_x + self.min_x
@@ -3695,7 +3776,7 @@ def arc_points(cx, cy, r, start_angle, span):
     return points
 
 
-def convert_float(data):
+def convert_float(data) -> float:
     toFloat = float(data)
     if np.isinf(toFloat) or np.isnan(toFloat):
         raise ValueError(
@@ -3712,7 +3793,7 @@ def coord_fallback(
         try:
             x, y = [parse(p.strip()) for p in param.split(",", 1)]
             return map(x, def_x), map(y, def_y)
-        except:
+        except ValueError:
             raise gcmd.error("Unable to parse parameter '%s'" % (name,))
     else:
         return def_x, def_y
