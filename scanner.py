@@ -1290,7 +1290,9 @@ class Scanner:
             self.trapq = self.toolhead.get_trapq()
             self.fw_version = self._mcu.get_status()["mcu_version"]
         except msgproto.error as e:
-            raise msgproto.error(str(e))
+            raise msgproto.error(
+                f"Error during probe mcu identification, check connection:\n{e}"
+            )
 
     def _build_config(self):
         self.scanner_stream_cmd = self._mcu.lookup_command(
