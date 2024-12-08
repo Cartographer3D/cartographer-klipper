@@ -1214,22 +1214,25 @@ class Scanner:
     def _handle_mcu_identify(self):
         try:
             constants = self._mcu.get_constants()
-            if self._mcu._mcu_freq < 20000000:
-                self.sensor_freq = self._mcu._mcu_freq
-            elif self._mcu._mcu_freq < 100000000:
-                self.sensor_freq = self._mcu._mcu_freq / 2
-            else:
-                self.sensor_freq = self._mcu._mcu_freq / 6
-            self.inv_adc_max = 1.0 / constants.get("ADC_MAX")
-            self.temp_smooth_count = constants.get(
-                self.sensor.upper() + "_ADC_SMOOTH_COUNT"
-            )
-            self.thermistor = thermistor.Thermistor(10000.0, 0.0)
-            self.thermistor.setup_coefficients_beta(25.0, 47000.0, 4041.0)
+            if constants:
+                if self._mcu._mcu_freq < 20000000:
+                    self.sensor_freq = self._mcu._mcu_freq
+                elif self._mcu._mcu_freq < 100000000:
+                    self.sensor_freq = self._mcu._mcu_freq / 2
+                else:
+                    self.sensor_freq = self._mcu._mcu_freq / 6
+                self.inv_adc_max = 1.0 / constants.get("ADC_MAX")
+                self.temp_smooth_count = constants.get(
+                    self.sensor.upper() + "_ADC_SMOOTH_COUNT"
+                )
+                self.thermistor = thermistor.Thermistor(10000.0, 0.0)
+                self.thermistor.setup_coefficients_beta(25.0, 47000.0, 4041.0)
 
-            self.toolhead = self.printer.lookup_object("toolhead")
-            self.trapq = self.toolhead.get_trapq()
-            self.fw_version = self._mcu.get_status()["mcu_version"]
+                self.toolhead = self.printer.lookup_object("toolhead")
+                self.trapq = self.toolhead.get_trapq()
+                self.fw_version = self._mcu.get_status()["mcu_version"]
+            else:
+                raise pins.error("Scanner is not connected")
         except msgproto.error as e:
             raise msgproto.error(str(e))
 
