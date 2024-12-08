@@ -80,10 +80,42 @@ def format_macro(macro: str) -> str:
 
 
 @final
+class BedLeveling:
+    def __init__(self, printer: Printer):
+        self._printer = printer
+
+    def get_bed_leveling_command(self) -> Optional[str]:
+        qgl = self._printer.lookup_object("quad_gantry_level", None)
+        if qgl is not None:
+            return "QUAD_GANTRY_LEVEL"
+
+        z_tilt = self._printer.lookup_object("z_tilt", None)
+        if z_tilt is not None:
+            return "Z_TILT_ADJUST"
+
+    def requires_bed_leveling(self):
+        curtime = self._printer.get_reactor().monotonic()
+
+        qgl = self._printer.lookup_object("quad_gantry_level", None)
+        if qgl is not None:
+            return not qgl.get_status(curtime).get("applied", False)
+
+        z_tilt = self._printer.lookup_object("z_tilt", None)
+        if z_tilt is not None:
+            return not z_tilt.get_status(curtime).get("applied", False)
+
+        # We cannot do it automatically
+        # TODO: Check the bed to see if it is within "tolerance",
+        # if not, request that the user levels the bed.
+        return False
+
+
+@final
 class Scanner:
     def __init__(self, config: ConfigWrapper):
         self.printer: Printer = config.get_printer()
         self.reactor = self.printer.get_reactor()
+        self.bed_level = BedLeveling(self.printer)
         self.name = config.get_name()
         self.sensor = config.get("sensor")
         self.sensor_alt = config.get("sensor_alt", None)
@@ -761,9 +793,27 @@ class Scanner:
         curtime = self.printer.get_reactor().monotonic()
         kinematics = self.toolhead.get_kinematics()
         kin_status = kinematics.get_status(curtime)
-        if "x" not in kin_status["homed_axes"] or "y" not in kin_status["homed_axes"]:
+        if (
+            "x" not in kin_status["homed_axes"]
+            or "y" not in kin_status["homed_axes"]
+            or "z" not in kin_status["homed_axes"]
+        ):
             self.trigger_method = TriggerMethod.SCAN
-            raise gcmd.error("Must home X and Y axes first")
+            raise gcmd.error("Must home all axes first")
+
+        if self.bed_level.requires_bed_leveling():
+            self.trigger_method = TriggerMethod.SCAN
+            lines = ["Bed leveling required before threshold scan."]
+            cmd = self.bed_level.get_bed_leveling_command()
+            if cmd is not None:
+                lines.append(f"Please run {format_macro(cmd)}")
+            raise gcmd.error(" ".join(lines))
+
+        self._zhop()
+        self._move(
+            [vars["touch_location_x"], vars["touch_location_y"], None],
+            vars["move_speed"],
+        )
 
         # Set initial scan values
         self.previous_probe_success = 0
