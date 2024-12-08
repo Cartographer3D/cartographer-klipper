@@ -11,10 +11,12 @@ from heaters import PrinterHeaters
 from homing import PrinterHoming
 from mcu import MCU
 from pins import PrinterPins
+from quad_gantry_level import QuadGantryLevel
 from reactor import Reactor
 from toolhead import ToolHead
 from webhooks import WebHooks
 from axis_twist_compensation import AxisTwistCompensation
+from z_tilt import ZTilt
 
 from scanner import Scanner
 
@@ -86,6 +88,11 @@ class Printer:
     def lookup_object(self, name: Literal["pins"]) -> PrinterPins:
         pass
     @overload
+    def lookup_object(
+        self, name: Literal["quad_gantry_level"], default: None
+    ) -> QuadGantryLevel | None:
+        pass
+    @overload
     def lookup_object(self, name: Literal["scanner"]) -> Scanner:
         pass
     @overload
@@ -93,6 +100,9 @@ class Printer:
         pass
     @overload
     def lookup_object(self, name: Literal["webhooks"]) -> WebHooks:
+        pass
+    @overload
+    def lookup_object(self, name: Literal["z_tilt"], default: None) -> ZTilt | None:
         pass
     @overload
     def lookup_object(self, name: str, default: T | type[sentinel] = sentinel) -> T:
