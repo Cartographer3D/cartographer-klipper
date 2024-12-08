@@ -75,6 +75,10 @@ class ThresholdResults:
     nb_samples: int
 
 
+def format_macro(macro: str) -> str:
+    return f'<a class="command">{macro}</a>'
+
+
 @final
 class Scanner:
     def __init__(self, config: ConfigWrapper):
@@ -923,7 +927,9 @@ class Scanner:
                 gcmd.respond_info(
                     f"No fully optimal threshold found. Best attempt: {best_threshold} with standard deviation of {std_dev_display}"
                 )
-            gcmd.respond_info("You can now SAVE_CONFIG to save your threshold.")
+            gcmd.respond_info(
+                f"You can now {format_macro('SAVE_CONFIG')} to save your threshold."
+            )
 
             self.trigger_method = TriggerMethod.SCAN
 
@@ -1920,7 +1926,7 @@ class Scanner:
             configfile = self.printer.lookup_object("configfile")
             configfile.set("scanner", "mode", "scan")
             gcmd.respond_info(
-                "Mode switched to SCAN. Please use SAVE_CONFIG to save this mode."
+                f"Mode switched to SCAN. Please use {format_macro('SAVE_CONFIG')} to save this mode."
             )
         elif method == "touch":
             self.calibration_method = "touch"
@@ -1928,7 +1934,7 @@ class Scanner:
             configfile = self.printer.lookup_object("configfile")
             configfile.set("scanner", "mode", "touch")
             gcmd.respond_info(
-                "Mode switched to TOUCH. Please use SAVE_CONFIG to save this mode."
+                f"Mode switched to TOUCH. Please use {format_macro('SAVE_CONFIG')} to save this mode."
             )
         threshold = gcmd.get_int("THRESHOLD", self.detect_threshold_z)
         if self.detect_threshold_z != threshold:
@@ -2265,7 +2271,7 @@ class Scanner:
                 )
                 gcmd.respond_info(
                     f"Touch offset has been updated by {offset:.3f} to {self.scanner_touch_config['z_offset']:.3f}.\n"
-                    "You must run the SAVE_CONFIG command now to update the\n"
+                    f"You must run the {format_macro('SAVE_CONFIG')} command now to update the\n"
                     "printer config file and restart the printer."
                 )
         else:
@@ -2273,7 +2279,7 @@ class Scanner:
             self.model.save(False)
             gcmd.respond_info(
                 f"Scanner model offset has been updated to {self.model.offset:.3f}.\n"
-                "You must run the SAVE_CONFIG command now to update the\n"
+                f"You must run the {format_macro('SAVE_CONFIG')} command now to update the\n"
                 "printer config file and restart the printer."
             )
 
@@ -2365,7 +2371,7 @@ class ScannerModel:
         if show_message:
             self.scanner.gcode.respond_info(
                 "Scanner calibration for model '%s' has "
-                "been updated\nfor the current session. The SAVE_CONFIG "
+                f"been updated\nfor the current session. The {format_macro('SAVE_CONFIG')} "
                 "command will\nupdate the printer config file and restart "
                 "the printer." % (self.name,)
             )
@@ -2604,7 +2610,7 @@ class ModelManager:
         _ = self.scanner.models.pop(name)
         gcmd.respond_info(
             f"Model '{name}' was removed for the current session.\n"
-            + "Run SAVE_CONFIG to update the printer configuration"
+            + f"Run {format_macro('SAVE_CONFIG')} to update the printer configuration"
             + "and restart Klipper."
         )
         if self.scanner.model == model:
