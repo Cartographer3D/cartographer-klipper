@@ -831,12 +831,6 @@ class Scanner:
             [vars["touch_location_x"], vars["touch_location_y"], None],
             vars["move_speed"],
         )
-
-        self._zhop()
-        self._move(
-            [vars["touch_location_x"], vars["touch_location_y"], None],
-            vars["move_speed"],
-        )
         self.previous_probe_success = 0
         current_threshold = threshold_min
 
