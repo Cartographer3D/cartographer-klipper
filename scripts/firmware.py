@@ -590,11 +590,6 @@ class Firmware:
                 + Utils.colored_text("[For Flashing via USB]", Color.YELLOW),
                 self.usb.menu,
             ),
-            3: Menu.Item(
-                "DFU               "
-                + Utils.colored_text("[For Flashing with DFU via USB]", Color.YELLOW),
-                self.dfu.menu,
-            ),
         }
 
         # Add advanced or basic options
@@ -627,6 +622,10 @@ class Firmware:
 
         if is_advanced:
             # Add advanced options
+            menu_items[len(menu_items) + 1] = Menu.Separator()
+            menu_items[len(menu_items) + 1] = Menu.Item(
+                Utils.colored_text("Flash via DFU", Color.MAGENTA), self.dfu.menu
+            )
             menu_items[len(menu_items) + 1] = Menu.Separator()
             menu_items[len(menu_items) + 1] = Menu.Item(
                 Utils.colored_text("Switch Flash Mode", Color.CYAN), self.mode_menu
