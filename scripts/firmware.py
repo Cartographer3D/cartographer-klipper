@@ -1158,6 +1158,7 @@ class Can:
         if not self.katapult.install():
             Utils.error_msg("Error with Katapult")
             self.menu()
+            return
         try:
             cmd = os.path.expanduser("~/katapult/scripts/flashtool.py")
             command = ["python3", cmd, "-i", "can0", "-q"]
