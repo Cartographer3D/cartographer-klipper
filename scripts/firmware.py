@@ -1014,19 +1014,19 @@ class Firmware:
 
 
 class Can:
-    def __init__(self, firmware: Firmware, debug: bool = False, ftype: bool = False):
+    def __init__(
+        self,
+        firmware: Firmware,
+        debug: bool = False,
+        ftype: bool = False,
+    ):
         self.firmware: Firmware = firmware
         self.validator: Validator = Validator(firmware)
-        self.katapult_installer: Optional[KatapultInstaller] = None
+        self.katapult: KatapultInstaller = KatapultInstaller()
         self.debug: bool = debug
         self.ftype: bool = ftype
         self.selected_device: Optional[str] = None
         self.selected_firmware: Optional[str] = None
-
-    def katapult_check(self) -> bool:
-        if not os.path.exists(KATAPULT_DIR):
-            return False
-        return True
 
     def get_bitrate(self, interface: str = "can0"):
         try:
@@ -1155,92 +1155,72 @@ class Can:
         Utils.page("Querying CAN devices..")
         detected_uuids: list[str] = []
 
-        if not self.katapult_check():
-            Utils.error_msg(
-                "The Katapult directory doesn't exist or it is not installed.",
-            )
-            if self.katapult_installer is None:
-                self.katapult_installer = KatapultInstaller(self.device_menu)
+        if not self.katapult.install():
+            Utils.error_msg("Error with Katapult")
+            self.menu()
+            return
+        try:
+            cmd = os.path.expanduser("~/katapult/scripts/flashtool.py")
+            command = ["python3", cmd, "-i", "can0", "-q"]
 
-            # Define menu items
-            menu_item: Dict[int, Union[Menu.Item, Menu.Separator]] = {
-                1: Menu.Item("Yes", self.katapult_installer.install),
-                2: Menu.Item(
-                    Utils.colored_text("No, Back to CAN menu", Color.CYAN),
-                    self.menu,
-                ),
-                3: Menu.Separator(),  # Blank separator
-                0: Menu.Item("Exit", lambda: exit()),  # Add exit option explicitly
-            }
+            result = subprocess.run(command, text=True, capture_output=True, check=True)
+
+            # Parse and display the output
+            output = result.stdout.strip()
+
+            if "Query Complete" in output:
+                if "Detected UUID" in output:
+                    print("Available CAN Devices:")
+                    print("=" * 40)
+                    # Extract and display each detected UUID
+                    for line in output.splitlines():
+                        if "Detected UUID" in line:
+                            # Strip unnecessary parts and keep only the UUID
+                            uuid = (
+                                line.split(",")[0]
+                                .replace("Detected UUID: ", "")
+                                .strip()
+                            )
+                            print(uuid)
+                            detected_uuids.append(uuid)
+                    print("=" * 40)
+                else:
+                    Utils.error_msg("No CAN devices found.")
+            else:
+                Utils.error_msg("Unexpected output format.")
+                self.menu()
+
+        except subprocess.CalledProcessError as e:
+            Utils.error_msg(f"Error querying CAN devices: {e}")
+            self.menu()
+        except Exception as e:
+            Utils.error_msg(f"Unexpected error: {e}")
+            self.menu()
+        finally:
+            # Define menu items, starting with UUID options
+            menu_items: Dict[int, Union[Menu.Item, Menu.Separator]] = {}
+            for index, uuid in enumerate(detected_uuids, start=1):
+                menu_items[index] = Menu.Item(
+                    f"Select {uuid}", lambda uuid=uuid: self.select_device(uuid)
+                )
+            menu_items[len(menu_items) + 1] = Menu.Separator()
+            # Add static options after UUID options
+            menu_items[len(menu_items) + 1] = Menu.Item(
+                "Check Again", self.query_devices
+            )
+            menu_items[len(menu_items) + 1] = Menu.Separator()
+            menu_items[len(menu_items) + 1] = Menu.Item("Back", self.device_menu)
+            menu_items[len(menu_items) + 1] = Menu.Item(
+                Utils.colored_text("Back to main menu", Color.CYAN),
+                self.firmware.main_menu,
+            )
+            menu_items[len(menu_items) + 1] = Menu.Separator()
+            # Add the Exit option explicitly
+            menu_items[0] = Menu.Item("Exit", lambda: exit())
 
             # Create and display the menu
-            menu = Menu("Would you like to install Katapult?", menu_item)
+            menu = Menu("Options", menu_items)
             menu.display()
-        else:
-            try:
-                cmd = os.path.expanduser("~/katapult/scripts/flashtool.py")
-                command = ["python3", cmd, "-i", "can0", "-q"]
-
-                result = subprocess.run(
-                    command, text=True, capture_output=True, check=True
-                )
-
-                # Parse and display the output
-                output = result.stdout.strip()
-
-                if "Query Complete" in output:
-                    if "Detected UUID" in output:
-                        print("Available CAN Devices:")
-                        print("=" * 40)
-                        # Extract and display each detected UUID
-                        for line in output.splitlines():
-                            if "Detected UUID" in line:
-                                # Strip unnecessary parts and keep only the UUID
-                                uuid = (
-                                    line.split(",")[0]
-                                    .replace("Detected UUID: ", "")
-                                    .strip()
-                                )
-                                print(uuid)
-                                detected_uuids.append(uuid)
-                        print("=" * 40)
-                    else:
-                        Utils.error_msg("No CAN devices found.")
-                else:
-                    Utils.error_msg("Unexpected output format.")
-                    self.menu()
-
-            except subprocess.CalledProcessError as e:
-                Utils.error_msg(f"Error querying CAN devices: {e}")
-                self.menu()
-            except Exception as e:
-                Utils.error_msg(f"Unexpected error: {e}")
-                self.menu()
-            finally:
-                # Define menu items, starting with UUID options
-                menu_items: Dict[int, Union[Menu.Item, Menu.Separator]] = {}
-                for index, uuid in enumerate(detected_uuids, start=1):
-                    menu_items[index] = Menu.Item(
-                        f"Select {uuid}", lambda uuid=uuid: self.select_device(uuid)
-                    )
-                menu_items[len(menu_items) + 1] = Menu.Separator()
-                # Add static options after UUID options
-                menu_items[len(menu_items) + 1] = Menu.Item(
-                    "Check Again", self.query_devices
-                )
-                menu_items[len(menu_items) + 1] = Menu.Separator()
-                menu_items[len(menu_items) + 1] = Menu.Item("Back", self.device_menu)
-                menu_items[len(menu_items) + 1] = Menu.Item(
-                    Utils.colored_text("Back to main menu", Color.CYAN),
-                    self.firmware.main_menu,
-                )
-                menu_items[len(menu_items) + 1] = Menu.Separator()
-                # Add the Exit option explicitly
-                menu_items[0] = Menu.Item("Exit", lambda: exit())
-
-                # Create and display the menu
-                menu = Menu("Options", menu_items)
-                menu.display()
 
     # find can uuid from klippy.log
     def search_klippy(self) -> None:
@@ -1329,6 +1309,10 @@ class Can:
             self.menu()
 
     def flash_device(self, firmware_file: str, device: str):
+        if not self.katapult.install():
+            Utils.error_msg("Error with Katapult")
+            self.menu()
+            return
         try:
             self.validator.check_selected_device()
             self.validator.check_selected_firmware()
@@ -1388,16 +1372,11 @@ class Usb:
     def __init__(self, firmware: Firmware, debug: bool = False, ftype: bool = False):
         self.firmware: Firmware = firmware
         self.validator: Validator = Validator(firmware)
-        self.katapult_installer: Optional[KatapultInstaller] = None
+        self.katapult: KatapultInstaller = KatapultInstaller()
         self.debug: bool = debug
         self.ftype: bool = ftype
         self.selected_device: Optional[str] = None
         self.selected_firmware: Optional[str] = None
-
-    def katapult_check(self) -> bool:
-        if not os.path.exists(KATAPULT_DIR):
-            return False
-        return True
 
     def select_device(self, device: str):
         self.selected_device = device  # Save the selected device globally
@@ -1408,81 +1387,62 @@ class Usb:
         Utils.header()
         Utils.page("Querying USB devices..")
 
-        if not self.katapult_check():
-            Utils.error_msg(
-                "The Katapult directory doesn't exist or it is not installed.",
-            )
-            if self.katapult_installer is None:
-                self.katapult_installer = KatapultInstaller(self.menu)
-
-            # Define menu items
-            menu_item: Dict[int, Union[Menu.Item, Menu.Separator]] = {
-                1: Menu.Item("Yes", self.katapult_installer.install),
-                2: Menu.Item(
-                    Utils.colored_text("No, Back to USB menu", Color.CYAN),
-                    self.menu,
-                ),
-                3: Menu.Separator(),  # Blank separator
-                0: Menu.Item("Exit", lambda: exit()),  # Add exit option explicitly
-            }
-
-            # Create and display the menu
-            menu = Menu("Would you like to install Katapult?", menu_item)
-            menu.display()
-        else:
-            detected_devices: List[str] = []
-            try:
-                # List all devices in /dev/serial/by-id/
-                base_path = "/dev/serial/by-id/"
-                if not os.path.exists(base_path):
-                    Utils.error_msg(f"Path '{base_path}' does not exist.")
-                    self.menu()
-
-                for device in os.listdir(base_path):
-                    if "Cartographer" in device or "katapult" in device:
-                        detected_devices.append(device)
-
-                if not detected_devices:
-                    Utils.error_msg(
-                        "No devices containing 'Cartographer' or 'katapult' found."
-                    )
-                    self.menu()
-
-                # Display the detected devices
-                print("Available Cartographer/Katapult Devices:")
-                print("=" * PAGE_WIDTH)
-                for device in detected_devices:
-                    print(device)
-                print("=" * PAGE_WIDTH)
-
-            except Exception as e:
-                Utils.error_msg(f"Unexpected error while querying devices: {e}")
+        if not self.katapult.install():
+            Utils.error_msg("Error with Katapult")
+            self.menu()
+            return
+        detected_devices: List[str] = []
+        try:
+            # List all devices in /dev/serial/by-id/
+            base_path = "/dev/serial/by-id/"
+            if not os.path.exists(base_path):
+                Utils.error_msg(f"Path '{base_path}' does not exist.")
                 self.menu()
 
-            # Define menu items, starting with detected devices
-            menu_items: Dict[int, Union[Menu.Item, Menu.Separator]] = {}
-            for index, device in enumerate(detected_devices, start=1):
-                menu_items[index] = Menu.Item(
-                    f"Select {device}", lambda device=device: self.select_device(device)
-                )
-            menu_items[len(menu_items) + 1] = Menu.Separator()
-            # Add static options after the device options
-            menu_items[len(menu_items) + 1] = Menu.Item(
-                "Check Again", self.query_devices
-            )
-            menu_items[len(menu_items) + 1] = Menu.Separator()
-            menu_items[len(menu_items) + 1] = Menu.Item("Back", self.menu)
-            menu_items[len(menu_items) + 1] = Menu.Item(
-                Utils.colored_text("Back to main menu", Color.CYAN),
-                self.firmware.main_menu,
-            )
-            # Add the Exit option explicitly
-            menu_items[len(menu_items) + 1] = Menu.Separator()
-            menu_items[0] = Menu.Item("Exit", lambda: exit())
+            for device in os.listdir(base_path):
+                if "Cartographer" in device or "katapult" in device:
+                    detected_devices.append(device)
 
-            # Create and display the menu
-            menu = Menu("Options", menu_items)
-            menu.display()
+            if not detected_devices:
+                Utils.error_msg(
+                    "No devices containing 'Cartographer' or 'katapult' found."
+                )
+                self.menu()
+                return
+
+            # Display the detected devices
+            print("Available Cartographer/Katapult Devices:")
+            print("=" * PAGE_WIDTH)
+            for device in detected_devices:
+                print(device)
+            print("=" * PAGE_WIDTH)
+
+        except Exception as e:
+            Utils.error_msg(f"Unexpected error while querying devices: {e}")
+            self.menu()
+
+        # Define menu items, starting with detected devices
+        menu_items: Dict[int, Union[Menu.Item, Menu.Separator]] = {}
+        for index, device in enumerate(detected_devices, start=1):
+            menu_items[index] = Menu.Item(
+                f"Select {device}", lambda device=device: self.select_device(device)
+            )
+        menu_items[len(menu_items) + 1] = Menu.Separator()
+        # Add static options after the device options
+        menu_items[len(menu_items) + 1] = Menu.Item("Check Again", self.query_devices)
+        menu_items[len(menu_items) + 1] = Menu.Separator()
+        menu_items[len(menu_items) + 1] = Menu.Item("Back", self.menu)
+        menu_items[len(menu_items) + 1] = Menu.Item(
+            Utils.colored_text("Back to main menu", Color.CYAN),
+            self.firmware.main_menu,
+        )
+        # Add the Exit option explicitly
+        menu_items[len(menu_items) + 1] = Menu.Separator()
+        menu_items[0] = Menu.Item("Exit", lambda: exit())
+
+        # Create and display the menu
+        menu = Menu("Options", menu_items)
+        menu.display()
 
     def menu(self) -> None:
         Utils.header()
@@ -1520,6 +1480,10 @@ class Usb:
         menu.display()
 
     def flash_device(self, firmware_file: str, device: str):
+        if not self.katapult.install():
+            Utils.error_msg("Error with Katapult")
+            self.menu()
+            return
         try:
             # Validate selected device and firmware
             self.validator.check_selected_device()
@@ -1950,49 +1914,105 @@ class RetrieveFirmware:
 
 
 class KatapultInstaller:
-    def __init__(self, device_menu: Callable[[], None]) -> None:
-        """
-        Initialize the installer with a reference to the device menu callback.
+    def create_directory(self) -> bool:
+        if not os.path.exists(KATAPULT_DIR):
+            try:
+                os.makedirs(KATAPULT_DIR)
+                if args.debug:
+                    print("Katapult directory created successfully.")
+            except OSError as e:
+                Utils.error_msg(f"Failed to create directory: {e}")
+                return False
+        return True
 
-        :param device_menu: A callable to return to the device menu.
-        """
-        self.device_menu: Callable[[], None] = device_menu
-
-    def install(self) -> None:
-        """
-        Installs Katapult by cloning the repository to the specified directory.
-        """
-        try:
-            # Check if Katapult is already installed
-            if os.path.exists(KATAPULT_DIR):
-                Utils.error_msg(
-                    f"Katapult is already installed at {KATAPULT_DIR}.",
+    def clone_repository(self) -> bool:
+        git_dir = os.path.join(KATAPULT_DIR, ".git")
+        if not os.path.exists(git_dir):
+            if args.debug:
+                print(
+                    "Directory exists but is not a Git repository. Cloning the repository..."
                 )
-                return
+            try:
+                _ = subprocess.run(
+                    [
+                        "git",
+                        "clone",
+                        "https://github.com/arksine/katapult",
+                        KATAPULT_DIR,
+                    ],
+                    check=True,
+                )
+                if args.debug:
+                    print("Repository cloned successfully.")
+                return True
+            except subprocess.CalledProcessError as e:
+                Utils.error_msg(f"Failed to clone repository: {e}")
+                return False
+        return True
 
-            # Command to clone the repository
-            command = [
-                "git",
-                "clone",
-                "https://github.com/Arksine/katapult.git",
-                KATAPULT_DIR,
-            ]
-
-            print("Cloning the Katapult repository...")
-            _ = subprocess.run(command, check=True, text=True)
-
-            Utils.success_msg(
-                f"Katapult has been successfully installed in {KATAPULT_DIR}."
+    def verify_repository(self) -> bool:
+        try:
+            result = subprocess.run(
+                ["git", "-C", KATAPULT_DIR, "config", "--get", "remote.origin.url"],
+                text=True,
+                capture_output=True,
+                check=True,
             )
-
+            origin_url = result.stdout.strip()
+            if origin_url != "https://github.com/arksine/katapult":
+                Utils.error_msg(f"Unexpected repository URL: {origin_url}")
+                return False
         except subprocess.CalledProcessError as e:
-            Utils.error_msg(f"Error cloning Katapult repository: {e}")
+            Utils.error_msg(f"Failed to verify repository origin: {e}")
+            return False
+        return True
 
-        except Exception as e:
-            Utils.error_msg(f"Unexpected error: {e}")
+    def check_and_update_repository(self) -> bool:
+        try:
+            _ = subprocess.run(["git", "-C", KATAPULT_DIR, "fetch"], check=True)
+            local_commit = subprocess.run(
+                ["git", "-C", KATAPULT_DIR, "rev-parse", "HEAD"],
+                text=True,
+                capture_output=True,
+                check=True,
+            ).stdout.strip()
+            remote_commit = subprocess.run(
+                ["git", "-C", KATAPULT_DIR, "rev-parse", "origin/master"],
+                text=True,
+                capture_output=True,
+                check=True,
+            ).stdout.strip()
 
-        finally:
-            self.device_menu()
+            if local_commit != remote_commit:
+                if args.debug:
+                    print("The repository is not up to date. Updating...")
+                _ = subprocess.run(["git", "-C", KATAPULT_DIR, "pull"], check=True)
+                if args.debug:
+                    print("Repository updated successfully.")
+            else:
+                if args.debug:
+                    print("The repository is up to date.")
+        except subprocess.CalledProcessError as e:
+            Utils.error_msg(f"Git update failed: {e}")
+            return False
+        return True
+
+    def install(self) -> bool:
+        if not self.create_directory():
+            return False
+
+        if not self.clone_repository():
+            return False
+
+        if not self.verify_repository():
+            return False
+
+        if not self.check_and_update_repository():
+            return False
+
+        if args.debug:
+            print("Katapult check passed.")
+        return True
 
 
 class DfuInstaller:
