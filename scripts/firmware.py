@@ -1909,8 +1909,7 @@ class RetrieveFirmware:
 
 
 class KatapultInstaller:
-    def install(self) -> bool:
-        # Create the directory if it doesn't exist
+    def create_directory(self) -> bool:
         if not os.path.exists(KATAPULT_DIR):
             try:
                 os.makedirs(KATAPULT_DIR)
@@ -1919,8 +1918,9 @@ class KatapultInstaller:
             except OSError as e:
                 Utils.error_msg(f"Failed to create directory: {e}")
                 return False
+        return True
 
-        # Check if it's a Git repository
+    def clone_repository(self) -> bool:
         git_dir = os.path.join(KATAPULT_DIR, ".git")
         if not os.path.exists(git_dir):
             if args.debug:
@@ -1937,14 +1937,16 @@ class KatapultInstaller:
                     ],
                     check=True,
                 )
-                print("Repository cloned successfully.")
+                if args.debug:
+                    print("Repository cloned successfully.")
                 return True
             except subprocess.CalledProcessError as e:
                 Utils.error_msg(f"Failed to clone repository: {e}")
                 return False
+        return True
 
+    def verify_repository(self) -> bool:
         try:
-            # Verify the repository origin
             result = subprocess.run(
                 ["git", "-C", KATAPULT_DIR, "config", "--get", "remote.origin.url"],
                 text=True,
@@ -1955,8 +1957,13 @@ class KatapultInstaller:
             if origin_url != "https://github.com/arksine/katapult":
                 Utils.error_msg(f"Unexpected repository URL: {origin_url}")
                 return False
+        except subprocess.CalledProcessError as e:
+            Utils.error_msg(f"Failed to verify repository origin: {e}")
+            return False
+        return True
 
-            # Check if the repository is up-to-date
+    def check_and_update_repository(self) -> bool:
+        try:
             _ = subprocess.run(["git", "-C", KATAPULT_DIR, "fetch"], check=True)
             local_commit = subprocess.run(
                 ["git", "-C", KATAPULT_DIR, "rev-parse", "HEAD"],
@@ -1980,10 +1987,24 @@ class KatapultInstaller:
             else:
                 if args.debug:
                     print("The repository is up to date.")
-
         except subprocess.CalledProcessError as e:
-            Utils.error_msg(f"Git command failed: {e}")
+            Utils.error_msg(f"Git update failed: {e}")
             return False
+        return True
+
+    def install(self) -> bool:
+        if not self.create_directory():
+            return False
+
+        if not self.clone_repository():
+            return False
+
+        if not self.verify_repository():
+            return False
+
+        if not self.check_and_update_repository():
+            return False
+
         if args.debug:
             print("Katapult check passed.")
         return True
