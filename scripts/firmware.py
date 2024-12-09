@@ -1084,7 +1084,7 @@ class Can:
         menu_items: Dict[int, Union[Menu.Item, Menu.Separator]] = {
             1: Menu.Item("Find Cartographer Device", self.device_menu),
             2: Menu.Item(
-                "Find CAN Firmware",
+                "Select CAN Firmware",
                 lambda: self.firmware.firmware_menu(type=FlashMethod.CAN),
             ),
         }
@@ -1477,7 +1477,7 @@ class Usb:
         menu_items: Dict[int, Union[Menu.Item, Menu.Separator]] = {
             1: Menu.Item("Find Cartographer Device", self.query_devices),
             2: Menu.Item(
-                "Find USB Firmware",
+                "Select USB Firmware",
                 lambda: self.firmware.firmware_menu(type=FlashMethod.USB),
             ),
         }
@@ -1729,7 +1729,7 @@ class Dfu:
         menu_items: Dict[int, Union[Menu.Item, Menu.Separator]] = {
             1: Menu.Item("Find Cartographer Device", self.query_devices),
             2: Menu.Item(
-                "Find DFU Firmware",
+                "Select DFU Firmware",
                 lambda: self.firmware.firmware_menu(type=FlashMethod.DFU),
             ),
         }
