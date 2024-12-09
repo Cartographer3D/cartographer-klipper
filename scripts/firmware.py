@@ -1406,6 +1406,7 @@ class Usb:
                     "No devices containing 'Cartographer' or 'katapult' found."
                 )
                 self.menu()
+                return
 
             # Display the detected devices
             print("Available Cartographer/Katapult Devices:")
