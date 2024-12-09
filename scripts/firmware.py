@@ -30,7 +30,7 @@ KLIPPY_LOG: str = os.path.expanduser("~/printer_data/logs/klippy.log")
 KLIPPER_DIR: str = os.path.expanduser("~/klipper")
 KATAPULT_DIR: str = os.path.expanduser("~/katapult")
 
-FLASHER_VERSION: str = "0.0.1"
+FLASHER_VERSION: str = "0.0.2"
 
 PAGE_WIDTH: int = 89  # Default global width
 
