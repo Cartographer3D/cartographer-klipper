@@ -2104,7 +2104,7 @@ if __name__ == "__main__":
         ## TODO ##
         ## Adjust so users cannot be in certain modes together
         Utils.make_terminal_bigger()
-        if args.all:
+        if args.all or args.flash and not args.all:
             if args.flash == FlashMethod.CAN:
                 fw.can.menu()
             elif args.flash == FlashMethod.USB:
