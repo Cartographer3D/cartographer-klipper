@@ -1388,6 +1388,7 @@ class Usb:
         if not self.katapult.install():
             Utils.error_msg("Error with Katapult")
             self.menu()
+            return
         detected_devices: List[str] = []
         try:
             # List all devices in /dev/serial/by-id/
