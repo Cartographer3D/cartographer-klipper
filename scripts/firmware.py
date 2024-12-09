@@ -568,6 +568,19 @@ class Firmware:
             print("No custom branch provided.")
             self.branch_menu()
 
+    def restart_klipper(self):
+        try:
+            # Execute the restart command
+            _ = subprocess.run(
+                ["sudo", "service", "klipper", "restart"],
+                check=True,
+                text=True,
+                capture_output=True,
+            )
+            Utils.success_msg("Service restarted successfully!")
+        except subprocess.CalledProcessError as e:
+            Utils.error_msg(f"Failed to restart the service ({e.stderr})")
+
     # Create main menu
     def main_menu(self) -> None:
         # Handle advanced mode and flash settings
@@ -993,6 +1006,11 @@ class Firmware:
     # Show what to do next screen
     def finished(self):
         Utils.header()
+        _ = input(
+            "Press any key and you may be asked for your password in order to restart klipper"
+            + "Please make sure youre not printing when you do this."
+        )
+        self.restart_klipper()
 
 
 class Can:
