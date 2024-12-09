@@ -1311,6 +1311,7 @@ class Can:
         if not self.katapult.install():
             Utils.error_msg("Error with Katapult")
             self.menu()
+            return
         try:
             self.validator.check_selected_device()
             self.validator.check_selected_firmware()
