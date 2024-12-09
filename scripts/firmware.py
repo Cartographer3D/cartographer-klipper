@@ -30,7 +30,7 @@ KLIPPY_LOG: str = os.path.expanduser("~/printer_data/logs/klippy.log")
 KLIPPER_DIR: str = os.path.expanduser("~/klipper")
 KATAPULT_DIR: str = os.path.expanduser("~/katapult")
 
-FLASHER_VERSION: str = "0.0.1"
+FLASHER_VERSION: str = "0.0.2"
 
 PAGE_WIDTH: int = 89  # Default global width
 
@@ -1084,7 +1084,7 @@ class Can:
         menu_items: Dict[int, Union[Menu.Item, Menu.Separator]] = {
             1: Menu.Item("Find Cartographer Device", self.device_menu),
             2: Menu.Item(
-                "Find CAN Firmware",
+                "Select CAN Firmware",
                 lambda: self.firmware.firmware_menu(type=FlashMethod.CAN),
             ),
         }
@@ -1477,7 +1477,7 @@ class Usb:
         menu_items: Dict[int, Union[Menu.Item, Menu.Separator]] = {
             1: Menu.Item("Find Cartographer Device", self.query_devices),
             2: Menu.Item(
-                "Find USB Firmware",
+                "Select USB Firmware",
                 lambda: self.firmware.firmware_menu(type=FlashMethod.USB),
             ),
         }
@@ -1729,7 +1729,7 @@ class Dfu:
         menu_items: Dict[int, Union[Menu.Item, Menu.Separator]] = {
             1: Menu.Item("Find Cartographer Device", self.query_devices),
             2: Menu.Item(
-                "Find DFU Firmware",
+                "Select DFU Firmware",
                 lambda: self.firmware.firmware_menu(type=FlashMethod.DFU),
             ),
         }
