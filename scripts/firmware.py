@@ -110,11 +110,17 @@ class Utils:
         logger = logging.getLogger()
         logger.setLevel(logging.DEBUG)  # Capture all logs (DEBUG and above)
 
-        # Create a console handler (always active)
+        # Create a console handler (only active for INFO level messages)
         console_handler = logging.StreamHandler()
-        console_handler.setLevel(
-            logging.INFO
-        )  # Show only info and above in the console
+        console_handler.setLevel(logging.DEBUG)  # Set to DEBUG to allow filtering
+
+        # Add a custom filter to only allow INFO messages
+        class InfoOnlyFilter(logging.Filter):
+            def filter(self, record: logging.LogRecord) -> bool:
+                return record.levelno == logging.INFO
+
+        console_handler.addFilter(InfoOnlyFilter())  # Apply the filter
+
         console_formatter = logging.Formatter(
             "%(message)s"
         )  # Simple format for console
