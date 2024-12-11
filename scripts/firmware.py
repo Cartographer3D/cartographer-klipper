@@ -9,6 +9,7 @@ import tempfile
 import fnmatch
 import platform
 import time
+import sys
 
 from enum import Enum
 from time import sleep
@@ -208,6 +209,26 @@ class Utils:
         # Center the mode string
         mode = mode.center(PAGE_WIDTH)
         print(Utils.colored_text(mode, Color.RED))
+
+    @staticmethod
+    def is_key_pressed(timeout: int = 1) -> bool:
+        if os.name == "nt":  # Windows
+            import msvcrt
+
+            start_time = time.time()
+            while time.time() - start_time < timeout:
+                if msvcrt.kbhit():
+                    _ = msvcrt.getch()  # Consume the key press
+                    return True
+            return False
+        else:  # Unix-based systems
+            import select
+
+            ready, _, _ = select.select([sys.stdin], [], [], timeout)
+            if ready:
+                _ = sys.stdin.read(1)  # Consume the key press
+                return True
+            return False
 
 
 class Menu:
@@ -1599,44 +1620,39 @@ class Dfu:
             return False
 
     def dfu_loop(self) -> List[str]:
-        start_time = time.time()
-        timeout = 30  # Timeout in seconds
-
         detected_devices: List[str] = []
+        print("Press any key to stop...\n")
 
         try:
-            while time.time() - start_time < timeout:
+            while True:
                 # Run the `lsusb` command
                 result = subprocess.run(
                     ["lsusb"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
                 )
                 lines = result.stdout.splitlines()
 
-                # Parse all lines containing "DFU Mode"
+                # Check for DFU Mode in the output
                 for line in lines:
                     if "DFU Mode" in line:
-                        # Extract the device ID (the 6th field in `lsusb` output)
-                        device_id: str = line.split()[
-                            5
-                        ]  # Assuming field 6 contains the ID
-                        detected_devices.append(device_id)  # Add to the list
-                        print(f"Detected DFU device: {device_id}")
-                if detected_devices:
-                    return detected_devices  # Exit both loops immediately
+                        device_id = line.split()[5]  # Extract device ID (6th field)
+                        detected_devices.append(device_id)
+                        print(f"DFU device found: {device_id}")
+                        _ = input("Press any key to return to the main menu.")
+                        return detected_devices  # Exit the loop and return devices
 
-                print("No DFU devices found. Retrying in 1 second...")
-                time.sleep(1)  # Wait 1 second before retrying
+                print(
+                    "DFU device not found, checking again... Press any key to return to the main menu."
+                )
 
-            print("No DFU devices found within the timeout period.")
+                # Check for key press with a timeout of 2 seconds
+                if Utils.is_key_pressed(timeout=2):
+                    return detected_devices
+
         except KeyboardInterrupt:
-            print("\nQuery canceled by user.")
-            return []
+            return detected_devices
         except Exception as e:
-            print(f"Error while querying devices: {e}")
-            return []
-
-        # Return detected devices to avoid further processing if none found
-        return detected_devices
+            print(f"Error: {e}")
+            return detected_devices
 
     def query_devices(self):
         Utils.header()
