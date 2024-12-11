@@ -212,10 +212,6 @@ class Utils:
         _ = input(Utils.colored_text("\nPress Enter to continue...", Color.YELLOW))
 
     @staticmethod
-    def log_debug(message: str) -> None:
-        logging.debug(message)
-
-    @staticmethod
     def page(title: str, width: int = PAGE_WIDTH) -> None:
         if len(title) > width:
             width = len(title) + 4  # Ensure width accommodates long titles with padding
