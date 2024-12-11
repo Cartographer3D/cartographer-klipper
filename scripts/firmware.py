@@ -1188,14 +1188,14 @@ class Can:
                     Utils.error_msg("No CAN devices found.")
             else:
                 Utils.error_msg("Unexpected output format.")
-                self.menu()
+                return
 
         except subprocess.CalledProcessError as e:
             Utils.error_msg(f"Error querying CAN devices: {e}")
-            self.menu()
+            return
         except Exception as e:
             Utils.error_msg(f"Unexpected error: {e}")
-            self.menu()
+            return
         finally:
             # Define menu items, starting with UUID options
             menu_items: Dict[int, Union[Menu.Item, Menu.Separator]] = {}
@@ -1389,7 +1389,6 @@ class Usb:
 
         if not self.katapult.install():
             Utils.error_msg("Error with Katapult")
-            self.menu()
             return
         detected_devices: List[str] = []
         try:
@@ -1397,7 +1396,7 @@ class Usb:
             base_path = "/dev/serial/by-id/"
             if not os.path.exists(base_path):
                 Utils.error_msg(f"Path '{base_path}' does not exist.")
-                self.menu()
+                return
 
             for device in os.listdir(base_path):
                 if "Cartographer" in device or "katapult" in device:
@@ -1407,7 +1406,6 @@ class Usb:
                 Utils.error_msg(
                     "No devices containing 'Cartographer' or 'katapult' found."
                 )
-                self.menu()
                 return
 
             # Display the detected devices
@@ -1419,7 +1417,7 @@ class Usb:
 
         except Exception as e:
             Utils.error_msg(f"Unexpected error while querying devices: {e}")
-            self.menu()
+            return
 
         # Define menu items, starting with detected devices
         menu_items: Dict[int, Union[Menu.Item, Menu.Separator]] = {}
