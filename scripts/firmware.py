@@ -1619,9 +1619,6 @@ class Dfu:
             print("dfu-util is not installed. Please install it and try again.")
             return False
 
-    def stop_loop(self, detected_devices: List[str]) -> List[str]:
-        return detected_devices
-
     def dfu_loop(self) -> List[str]:
         detected_devices: List[str] = []
         print("Press any key to stop...\n")
@@ -1649,10 +1646,10 @@ class Dfu:
 
                 # Check for key press with a timeout of 2 seconds
                 if Utils.is_key_pressed(timeout=2):
-                    return self.stop_loop(detected_devices)
+                    return detected_devices
 
         except KeyboardInterrupt:
-            return self.stop_loop(detected_devices)
+            return detected_devices
         except Exception as e:
             print(f"Error: {e}")
             return detected_devices
