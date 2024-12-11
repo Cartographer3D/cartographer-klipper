@@ -200,7 +200,7 @@ class Utils:
     @staticmethod
     def error_msg(message: str) -> None:
         colored_message = Utils.colored_text(f"Error: {message}", Color.RED)
-        logging.error(colored_message)
+        logging.error(message)
         print(colored_message)
         _ = input(Utils.colored_text("\nPress Enter to continue...", Color.YELLOW))
 
