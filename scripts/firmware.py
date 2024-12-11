@@ -110,10 +110,6 @@ class Utils:
         logger = logging.getLogger()
         logger.setLevel(logging.DEBUG)  # Capture all logs (DEBUG and above)
 
-        # Remove all existing handlers
-        if logger.hasHandlers():
-            logger.handlers.clear()
-
         # Create a console handler (always active)
         console_handler = logging.StreamHandler()
         console_handler.setLevel(
