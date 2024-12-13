@@ -316,6 +316,19 @@ class Utils:
                 return True
             return False
 
+    @staticmethod
+    def restart_klipper():
+        try:
+            # Execute the restart command
+            _ = subprocess.run(
+                ["sudo", "service", "klipper", "restart"],
+                check=True,
+                text=True,
+                capture_output=True,
+            )
+        except subprocess.CalledProcessError as e:
+            Utils.error_msg(f"Failed to restart the service ({e.stderr})")
+
 
 class Menu:
     title: str
@@ -523,6 +536,8 @@ class Firmware:
 
                 # Call the appropriate menu directly from the handlers dictionary
                 handlers[self.flash]()
+        elif self.flash in handlers:
+            handlers[self.flash]()
         else:
             self.main_menu()
 
@@ -615,7 +630,6 @@ class Firmware:
             subdirectory, file = latest_firmware_files[0]
             firmware_path = os.path.join(subdirectory, file)  # Construct the full path
             self.select_firmware(firmware_path, type)
-            self.main_menu()
         else:
             logging.info("No firmware files found in the latest subdirectory.")
 
@@ -749,19 +763,6 @@ class Firmware:
         except Exception as e:
             logging.error(f"Failed to reset configuration: {e}")
             Utils.error_msg(f"Error resetting configuration: {e}")
-
-    def restart_klipper(self):
-        try:
-            # Execute the restart command
-            _ = subprocess.run(
-                ["sudo", "service", "klipper", "restart"],
-                check=True,
-                text=True,
-                capture_output=True,
-            )
-            Utils.success_msg("Service restarted successfully!")
-        except subprocess.CalledProcessError as e:
-            Utils.error_msg(f"Failed to restart the service ({e.stderr})")
 
     # Create main menu
     def main_menu(self) -> None:
@@ -1073,7 +1074,8 @@ class Firmware:
             FlashMethod.USB: self.usb.menu,
             FlashMethod.DFU: self.dfu.menu,
         }
-
+        if args.device and args.flash and self.selected_firmware:
+            self.confirm(type)
         # Retrieve the appropriate handler and call it if valid
         handler = menu_handlers.get(type)
         if handler:
@@ -1085,6 +1087,7 @@ class Firmware:
     def firmware_menu(self, type: FlashMethod):
         if not type:
             raise ValueError("type cannot be None or empty")
+
         # Get the bitrate from CAN interface
         bitrate = self.can.get_bitrate()
 
@@ -1214,11 +1217,16 @@ class Firmware:
         Utils.page("Flashed Successfully")
         if self.debug:
             print(result)
-        Utils.success_msg("Firmware flashed successfully to device!")
+        logging.info("Firmware flashed successfully to device!")
         # Clean the temporary directory
         if self.retrieve:
             self.retrieve.clean_temp_dir()
-        self.main_menu()  # Return to the main menu or any other menu
+        _ = input(
+            "Press any key and you may be asked for your password in order to restart klipper\n"
+            + "Please make sure youre not printing when you do this."
+        )
+        Utils.restart_klipper()
+        exit()
 
     # If flash failed
     def flash_fail(self, message: str):
@@ -1228,15 +1236,6 @@ class Firmware:
         if self.retrieve:
             self.retrieve.clean_temp_dir()
         Utils.error_msg(message)
-
-    # Show what to do next screen
-    def finished(self):
-        Utils.header()
-        _ = input(
-            "Press any key and you may be asked for your password in order to restart klipper"
-            + "Please make sure youre not printing when you do this."
-        )
-        self.restart_klipper()
 
 
 class Can:
@@ -2453,17 +2452,7 @@ if __name__ == "__main__":
         ## TODO ##
         ## Adjust so users cannot be in certain modes together
         Utils.make_terminal_bigger()
-        if args.all or args.flash and not args.all:
-            if args.flash == FlashMethod.CAN:
-                fw.can.menu()
-            elif args.flash == FlashMethod.USB:
-                fw.usb.menu()
-            elif args.flash == FlashMethod.DFU:
-                fw.dfu.menu()
-            else:
-                fw.main_menu()
-        else:
-            fw.handle_initialization()
+        fw.handle_initialization()
     except KeyboardInterrupt:
         print("\nProcess interrupted by user. Exiting...")
         exit(0)
