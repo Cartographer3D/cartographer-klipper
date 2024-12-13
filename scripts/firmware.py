@@ -2243,8 +2243,8 @@ class KatapultInstaller:
                 capture_output=True,
                 check=True,
             )
-            origin_url = result.stdout.strip()
-            if origin_url != "https://github.com/arksine/katapult":
+            origin_url = result.stdout.strip().lower()
+            if origin_url != "https://github.com/arksine/katapult".lower():
                 Utils.error_msg(f"Unexpected repository URL: {origin_url}")
                 return False
         except subprocess.CalledProcessError as e:
