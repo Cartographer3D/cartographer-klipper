@@ -25,12 +25,8 @@ from typing import (
     Union,
     Tuple,
     Set,
+    ClassVar,
 )
-
-FlasherDirectories = {
-    "KLIPPY_LOG": os.path.expanduser("~/printer_data/logs/klippy.log"),
-    "KATAPULT_DIR": os.path.expanduser("~/katapult"),
-}
 
 FLASHER_VERSION: str = "0.0.3"
 
@@ -104,11 +100,56 @@ class FirmwareFile(NamedTuple):
 
 
 class Utils:
+    CONFIG_FILE: ClassVar[str] = "firmware.cfg"
+
+    # Default Directories
+    DEFAULT_DIRECTORIES: ClassVar[Dict[str, str]] = {
+        "KLIPPY_LOG": os.path.expanduser("~/printer_data/logs/klippy.log"),
+        "KATAPULT_DIR": os.path.expanduser("~/katapult"),
+        "KLIPPER": os.path.expanduser("~/klipper"),
+        "KLIPPY_ENV": os.path.expanduser("~/klippy_env"),
+    }
+
+    @classmethod
+    def load_config(cls) -> Dict[str, str]:
+        """
+        Load variables from the configuration file if it exists.
+        Fall back to default values if the file is not found.
+
+        Returns:
+            Dict[str, str]: A dictionary containing the configuration variables.
+        """
+        config_variables: Dict[str, str] = dict(cls.DEFAULT_DIRECTORIES)
+        logging.debug(f"Loading Config Variables: {config_variables}")
+
+        # Check if the configuration file exists
+        if os.path.isfile(cls.CONFIG_FILE):
+            file_variables: Dict[str, str] = {}
+            with open(cls.CONFIG_FILE, "r") as file:
+                # Use exec to evaluate the file content
+                exec(file.read(), {}, file_variables)
+
+            # Expand user (~) in paths
+            for key, value in file_variables.items():
+                if value.startswith("~"):
+                    file_variables[key] = os.path.expanduser(value)
+
+            # Update the default config with values from the file
+            config_variables.update(file_variables)
+            logging.debug(f"Updated Config Variables: {config_variables}")
+
+        return config_variables
+
     @staticmethod
     def configure_logging():
         # Get the root logger
         logger = logging.getLogger()
         logger.setLevel(logging.DEBUG)  # Capture all logs (DEBUG and above)
+
+        # Remove all existing handlers to avoid duplicate logs
+
+        if logger.hasHandlers():
+            logger.handlers.clear()
 
         # Create a console handler (only active for INFO level messages)
         console_handler = logging.StreamHandler()
@@ -439,8 +480,9 @@ class Firmware:
         self.kseries: bool = kseries
         self.all: bool = all
         self.device: Optional[str] = device
-        self.can = Can(self, debug=self.debug, ftype=self.ftype)
-        self.usb = Usb(self, debug=self.debug, ftype=self.ftype)
+        self.config: Dict[str, str] = Utils.load_config()
+        self.can = Can(self, self.config, debug=self.debug, ftype=self.ftype)
+        self.usb = Usb(self, self.config, debug=self.debug, ftype=self.ftype)
         self.dfu = Dfu(
             self, debug=self.debug, ftype=self.ftype
         )  # Pass Firmware instance to CAN
@@ -639,8 +681,7 @@ class Firmware:
             logging.info("No custom branch provided.")
             self.branch_menu()
 
-    def change_directory(self, directory: str):
-        if directory == "katapult"
+    def change_directory(self, directory: str): ...
 
     def restart_klipper(self):
         try:
@@ -715,7 +756,8 @@ class Firmware:
             )
             menu_items[len(menu_items) + 1] = Menu.Separator()
             menu_items[len(menu_items) + 1] = Menu.Item(
-                Utils.colored_text("Set Custom Directories", Color.CYAN), self.directory_menu
+                Utils.colored_text("Set Custom Directories", Color.CYAN),
+                self.directory_menu,
             )
             menu_items[len(menu_items) + 1] = Menu.Separator()
             menu_items[len(menu_items) + 1] = Menu.Item(
@@ -839,7 +881,6 @@ class Firmware:
         # Create and display the menu
         menu = Menu("Which Directory do you want to change?", menu_items)
         menu.display()
-
 
     def branch_menu(self):
         def display_branch_table():
@@ -1130,6 +1171,7 @@ class Can:
     def __init__(
         self,
         firmware: Firmware,
+        config: Dict[str, str],
         debug: bool = False,
         ftype: bool = False,
     ):
@@ -1140,6 +1182,7 @@ class Can:
         self.ftype: bool = ftype
         self.selected_device: Optional[str] = None
         self.selected_firmware: Optional[str] = None
+        self.config: Dict[str, str] = config
 
     def get_bitrate(self, interface: str = "can0"):
         try:
@@ -1274,7 +1317,7 @@ class Can:
             self.menu()
             return
         try:
-            cmd = os.path.expanduser("~/katapult/scripts/flashtool.py")
+            cmd = os.path.join(self.config["KATAPULT_DIR"], "scripts", "flashtool.py")
             command = ["python3", cmd, "-i", "can0", "-q"]
 
             result = subprocess.run(command, text=True, capture_output=True, check=True)
@@ -1352,7 +1395,7 @@ class Can:
             scanner_uuids: list[str] = []  # UUIDs with [scanner] above them
             regular_uuids: list[str] = []  # UUIDs without either tag
 
-            with open(FlasherDirectories["KLIPPY_LOG"], "r") as log_file:
+            with open(self.config["KLIPPY_LOG"], "r") as log_file:
                 lines = log_file.readlines()
 
             # Parse the log to find UUIDs and their contexts
@@ -1413,7 +1456,7 @@ class Can:
 
         except FileNotFoundError:
             Utils.error_msg(
-                f"KLIPPY log file not found at {FlasherDirectories['KLIPPY_LOG']}.",
+                f"KLIPPY log file not found at {self.config['KLIPPY_LOG']}.",
             )
             self.menu()
         except Exception as e:
@@ -1431,7 +1474,7 @@ class Can:
             self.validator.check_selected_device()
             self.validator.check_selected_firmware()
             # Prepare the command to execute the flash script
-            cmd: str = os.path.expanduser("~/katapult/scripts/flash_can.py")
+            cmd = os.path.join(self.config["KATAPULT_DIR"], "scripts", "flash_can.py")
             command = [
                 "python3",
                 cmd,
@@ -1485,7 +1528,13 @@ class Can:
 
 
 class Usb:
-    def __init__(self, firmware: Firmware, debug: bool = False, ftype: bool = False):
+    def __init__(
+        self,
+        firmware: Firmware,
+        config: Dict[str, str],
+        debug: bool = False,
+        ftype: bool = False,
+    ):
         self.firmware: Firmware = firmware
         self.validator: Validator = Validator(firmware)
         self.katapult: KatapultInstaller = KatapultInstaller()
@@ -1493,6 +1542,7 @@ class Usb:
         self.ftype: bool = ftype
         self.selected_device: Optional[str] = None
         self.selected_firmware: Optional[str] = None
+        self.config: Dict[str, str] = config
 
     def select_device(self, device: str):
         self.selected_device = device  # Save the selected device globally
@@ -1561,8 +1611,9 @@ class Usb:
     def enter_katapult_bootloader(self, device: str):
         try:
             device_path = f"/dev/serial/by-id/{device}"
+            env: str = os.path.join(self.config["KLIPPY_ENV"], "bin", "python")
             bootloader_cmd = [
-                os.path.expanduser("~/klippy-env/bin/python"),
+                env,
                 "-c",
                 f"import flash_usb as u; u.enter_bootloader('{device_path}')",
             ]
@@ -1573,7 +1624,7 @@ class Usb:
                 text=True,
                 capture_output=True,  # Captures both stdout and stderr
                 check=True,
-                cwd=os.path.expanduser("~/klipper/scripts"),
+                cwd=os.path.join(self.config["KLIPPER"], "scripts"),
             )
 
             # Log stdout
@@ -1680,7 +1731,7 @@ class Usb:
                     return
 
             # Prepare the flash command
-            cmd: str = os.path.expanduser("~/katapult/scripts/flash_can.py")
+            cmd = os.path.join(self.config["KATAPULT_DIR"], "scripts", "flash_can.py")
             command = [
                 "python3",
                 cmd,
@@ -2061,10 +2112,12 @@ class RetrieveFirmware:
 
 
 class KatapultInstaller:
+    config: Dict[str, str] = Utils.load_config()
+
     def create_directory(self) -> bool:
-        if not os.path.exists(FlasherDirectories["KATAPULT_DIR"]):
+        if not os.path.exists(self.config["KATAPULT_DIR"]):
             try:
-                os.makedirs(FlasherDirectories["KATAPULT_DIR"])
+                os.makedirs(self.config["KATAPULT_DIR"])
                 if args.debug:
                     logging.info("Katapult directory created successfully.")
                 else:
@@ -2075,7 +2128,7 @@ class KatapultInstaller:
         return True
 
     def clone_repository(self) -> bool:
-        git_dir = os.path.join(FlasherDirectories["KATAPULT_DIR"], ".git")
+        git_dir = os.path.join(self.config["KATAPULT_DIR"], ".git")
         if not os.path.exists(git_dir):
             if args.debug:
                 logging.info(
@@ -2091,7 +2144,7 @@ class KatapultInstaller:
                         "git",
                         "clone",
                         "https://github.com/arksine/katapult",
-                        FlasherDirectories["KATAPULT_DIR"],
+                        self.config["KATAPULT_DIR"],
                     ],
                     check=True,
                 )
@@ -2108,7 +2161,14 @@ class KatapultInstaller:
     def verify_repository(self) -> bool:
         try:
             result = subprocess.run(
-                ["git", "-C", FlasherDirectories["KATAPULT_DIR"], "config", "--get", "remote.origin.url"],
+                [
+                    "git",
+                    "-C",
+                    self.config["KATAPULT_DIR"],
+                    "config",
+                    "--get",
+                    "remote.origin.url",
+                ],
                 text=True,
                 capture_output=True,
                 check=True,
@@ -2124,15 +2184,23 @@ class KatapultInstaller:
 
     def check_and_update_repository(self) -> bool:
         try:
-            _ = subprocess.run(["git", "-C", FlasherDirectories["KATAPULT_DIR"], "fetch"], check=True)
+            _ = subprocess.run(
+                ["git", "-C", self.config["KATAPULT_DIR"], "fetch"], check=True
+            )
             local_commit = subprocess.run(
-                ["git", "-C", FlasherDirectories["KATAPULT_DIR"], "rev-parse", "HEAD"],
+                ["git", "-C", self.config["KATAPULT_DIR"], "rev-parse", "HEAD"],
                 text=True,
                 capture_output=True,
                 check=True,
             ).stdout.strip()
             remote_commit = subprocess.run(
-                ["git", "-C", FlasherDirectories["KATAPULT_DIR"], "rev-parse", "origin/master"],
+                [
+                    "git",
+                    "-C",
+                    self.config["KATAPULT_DIR"],
+                    "rev-parse",
+                    "origin/master",
+                ],
                 text=True,
                 capture_output=True,
                 check=True,
@@ -2143,7 +2211,10 @@ class KatapultInstaller:
                     logging.info("The repository is not up to date. Updating...")
                 else:
                     logging.debug("The repository is not up to date. Updating...")
-                _ = subprocess.run(["git", "-C", FlasherDirectories["KATAPULT_DIR"], "pull"], check=True)
+                _ = subprocess.run(
+                    ["git", "-C", self.config["KATAPULT_DIR"], "pull"],
+                    check=True,
+                )
                 if args.debug:
                     logging.info("Repository updated successfully.")
                 else:
@@ -2280,7 +2351,6 @@ if __name__ == "__main__":
     )
     try:
         args = parser.parse_args(namespace=FirmwareNamespace())
-
         Utils.configure_logging()
         logging.debug(
             "###################################################################################################"
