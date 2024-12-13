@@ -27,13 +27,12 @@ from typing import (
     Set,
 )
 
-HOME_PATH = os.path.expanduser("~")
-CONFIG_DIR: str = os.path.expanduser("~/printer_data/config")
-KLIPPY_LOG: str = os.path.expanduser("~/printer_data/logs/klippy.log")
-KLIPPER_DIR: str = os.path.expanduser("~/klipper")
-KATAPULT_DIR: str = os.path.expanduser("~/katapult")
+FlasherDirectories = {
+    "KLIPPY_LOG": os.path.expanduser("~/printer_data/logs/klippy.log"),
+    "KATAPULT_DIR": os.path.expanduser("~/katapult"),
+}
 
-FLASHER_VERSION: str = "0.0.2"
+FLASHER_VERSION: str = "0.0.3"
 
 PAGE_WIDTH: int = 89  # Default global width
 
@@ -640,6 +639,9 @@ class Firmware:
             logging.info("No custom branch provided.")
             self.branch_menu()
 
+    def change_directory(self, directory: str):
+        if directory == "katapult"
+
     def restart_klipper(self):
         try:
             # Execute the restart command
@@ -710,6 +712,10 @@ class Firmware:
             menu_items[len(menu_items) + 1] = Menu.Separator()
             menu_items[len(menu_items) + 1] = Menu.Item(
                 Utils.colored_text("Flash via DFU", Color.MAGENTA), self.dfu.menu
+            )
+            menu_items[len(menu_items) + 1] = Menu.Separator()
+            menu_items[len(menu_items) + 1] = Menu.Item(
+                Utils.colored_text("Set Custom Directories", Color.CYAN), self.directory_menu
             )
             menu_items[len(menu_items) + 1] = Menu.Separator()
             menu_items[len(menu_items) + 1] = Menu.Item(
@@ -801,6 +807,39 @@ class Firmware:
         # Create and display the menu
         menu = Menu("Select a flashing mode", menu_items)
         menu.display()
+
+    def directory_menu(self):
+        menu_items: Dict[int, Union[Menu.Item, Menu.Separator]] = {}
+
+        menu_items[len(menu_items) + 1] = Menu.Item(
+            "Printer_Data/Config",
+            lambda: self.change_directory("config"),
+        )
+        menu_items[len(menu_items) + 1] = Menu.Item(
+            "Klippy Logs",
+            lambda: self.change_directory("logs"),
+        )
+        menu_items[len(menu_items) + 1] = Menu.Item(
+            "Klipper",
+            lambda: self.change_directory("klipper"),
+        )
+        menu_items[len(menu_items) + 1] = Menu.Item(
+            "Katapult",
+            lambda: self.change_directory("katapult"),
+        )
+        menu_items[len(menu_items) + 1] = Menu.Separator()
+        menu_items[len(menu_items) + 1] = Menu.Item(
+            Utils.colored_text("Back to Main Menu", Color.CYAN),
+            self.main_menu,
+        )
+        menu_items[len(menu_items) + 1] = Menu.Separator()
+        # Add the "Exit" option last
+        menu_items[0] = Menu.Item("Exit", lambda: exit())
+
+        # Create and display the menu
+        menu = Menu("Which Directory do you want to change?", menu_items)
+        menu.display()
+
 
     def branch_menu(self):
         def display_branch_table():
@@ -1313,7 +1352,7 @@ class Can:
             scanner_uuids: list[str] = []  # UUIDs with [scanner] above them
             regular_uuids: list[str] = []  # UUIDs without either tag
 
-            with open(KLIPPY_LOG, "r") as log_file:
+            with open(FlasherDirectories["KLIPPY_LOG"], "r") as log_file:
                 lines = log_file.readlines()
 
             # Parse the log to find UUIDs and their contexts
@@ -1374,7 +1413,7 @@ class Can:
 
         except FileNotFoundError:
             Utils.error_msg(
-                f"KLIPPY log file not found at {KLIPPY_LOG}.",
+                f"KLIPPY log file not found at {FlasherDirectories['KLIPPY_LOG']}.",
             )
             self.menu()
         except Exception as e:
@@ -2023,9 +2062,9 @@ class RetrieveFirmware:
 
 class KatapultInstaller:
     def create_directory(self) -> bool:
-        if not os.path.exists(KATAPULT_DIR):
+        if not os.path.exists(FlasherDirectories["KATAPULT_DIR"]):
             try:
-                os.makedirs(KATAPULT_DIR)
+                os.makedirs(FlasherDirectories["KATAPULT_DIR"])
                 if args.debug:
                     logging.info("Katapult directory created successfully.")
                 else:
@@ -2036,7 +2075,7 @@ class KatapultInstaller:
         return True
 
     def clone_repository(self) -> bool:
-        git_dir = os.path.join(KATAPULT_DIR, ".git")
+        git_dir = os.path.join(FlasherDirectories["KATAPULT_DIR"], ".git")
         if not os.path.exists(git_dir):
             if args.debug:
                 logging.info(
@@ -2052,7 +2091,7 @@ class KatapultInstaller:
                         "git",
                         "clone",
                         "https://github.com/arksine/katapult",
-                        KATAPULT_DIR,
+                        FlasherDirectories["KATAPULT_DIR"],
                     ],
                     check=True,
                 )
@@ -2069,7 +2108,7 @@ class KatapultInstaller:
     def verify_repository(self) -> bool:
         try:
             result = subprocess.run(
-                ["git", "-C", KATAPULT_DIR, "config", "--get", "remote.origin.url"],
+                ["git", "-C", FlasherDirectories["KATAPULT_DIR"], "config", "--get", "remote.origin.url"],
                 text=True,
                 capture_output=True,
                 check=True,
@@ -2085,15 +2124,15 @@ class KatapultInstaller:
 
     def check_and_update_repository(self) -> bool:
         try:
-            _ = subprocess.run(["git", "-C", KATAPULT_DIR, "fetch"], check=True)
+            _ = subprocess.run(["git", "-C", FlasherDirectories["KATAPULT_DIR"], "fetch"], check=True)
             local_commit = subprocess.run(
-                ["git", "-C", KATAPULT_DIR, "rev-parse", "HEAD"],
+                ["git", "-C", FlasherDirectories["KATAPULT_DIR"], "rev-parse", "HEAD"],
                 text=True,
                 capture_output=True,
                 check=True,
             ).stdout.strip()
             remote_commit = subprocess.run(
-                ["git", "-C", KATAPULT_DIR, "rev-parse", "origin/master"],
+                ["git", "-C", FlasherDirectories["KATAPULT_DIR"], "rev-parse", "origin/master"],
                 text=True,
                 capture_output=True,
                 check=True,
@@ -2104,7 +2143,7 @@ class KatapultInstaller:
                     logging.info("The repository is not up to date. Updating...")
                 else:
                     logging.debug("The repository is not up to date. Updating...")
-                _ = subprocess.run(["git", "-C", KATAPULT_DIR, "pull"], check=True)
+                _ = subprocess.run(["git", "-C", FlasherDirectories["KATAPULT_DIR"], "pull"], check=True)
                 if args.debug:
                     logging.info("Repository updated successfully.")
                 else:
