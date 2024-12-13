@@ -851,15 +851,16 @@ class Firmware:
         menu.display()
 
     def directory_menu(self):
+        Utils.header()
         menu_items: Dict[int, Union[Menu.Item, Menu.Separator]] = {}
 
         menu_items[len(menu_items) + 1] = Menu.Item(
-            "Printer_Data/Config",
-            lambda: self.change_directory("config"),
+            "Klippy Env",
+            lambda: self.change_directory("klippy_env"),
         )
         menu_items[len(menu_items) + 1] = Menu.Item(
             "Klippy Logs",
-            lambda: self.change_directory("logs"),
+            lambda: self.change_directory("klippy_logs"),
         )
         menu_items[len(menu_items) + 1] = Menu.Item(
             "Klipper",
