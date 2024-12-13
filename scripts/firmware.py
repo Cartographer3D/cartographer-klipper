@@ -136,8 +136,8 @@ class Utils:
 
             # Update the default config with values from the file
             config_variables.update(file_variables)
-            logging.debug(f"Updated Config Variables: {config_variables}")
 
+        logging.debug(f"Updated Config Variables: {config_variables}")
         return config_variables
 
     @staticmethod
@@ -501,6 +501,12 @@ class Firmware:
         )  # Pass Firmware instance to CAN
         self.validator: Validator = Validator(self)  # Initialize the Validator
 
+        self.menu_handlers: Dict[str, Callable[[], None]] = {
+            FlashMethod.CAN: self.can.menu,
+            FlashMethod.USB: self.usb.menu,
+            FlashMethod.DFU: self.dfu.menu,
+        }
+
     def set_device(self, device: str):
         logging.debug(f"Device Set: {device}")
         self.selected_device = device
@@ -519,13 +525,8 @@ class Firmware:
         """
         Handle device initialization based on the flash type and device UUID.
         """
-        handlers: Dict[str, Callable[[], None]] = {
-            FlashMethod.CAN: self.can.menu,
-            FlashMethod.USB: self.usb.menu,
-            FlashMethod.DFU: self.dfu.menu,
-        }
 
-        if self.device and self.flash in handlers:
+        if self.device and self.flash in self.menu_handlers:
             # Validate the device
             if self.validator.validate_device(self.device, self.flash):
                 self.set_device(self.device)
@@ -535,9 +536,9 @@ class Firmware:
                     self.firmware_menu(type=self.flash)
 
                 # Call the appropriate menu directly from the handlers dictionary
-                handlers[self.flash]()
-        elif self.flash in handlers:
-            handlers[self.flash]()
+                self.menu_handlers[self.flash]()
+        elif self.flash in self.menu_handlers:
+            self.menu_handlers[self.flash]()
         else:
             self.main_menu()
 
@@ -695,28 +696,28 @@ class Firmware:
             logging.info("No custom branch provided.")
             self.branch_menu()
 
-    def edit_config(self, config: str) -> None:
+    def edit_config(self, option: str) -> None:
         """
         Display and allow editing of the specified config in the configuration file.
         """
         # Check if the config exists in the loaded config
-        if config not in self.config:
-            print(f"Config '{config}' is not a recognized configuration key.")
+        if option not in self.config:
+            print(f"Config '{option}' is not a recognized configuration key.")
             return
 
-        current_value = self.config[config]
-        print(f"Current value for '{config}': {current_value}")
+        current_value = self.config[option]
+        print(f"Current value for '{option}': {current_value}")
         new_value = input("Enter new value (or press Enter to keep current): ").strip()
 
         if new_value:
             # Update the configuration
-            self.set_config(config, new_value)
-            Utils.success_msg(f"Updated '{config}' to '{new_value}'.")
+            self.set_config(option, new_value)
+            Utils.success_msg(f"Updated '{option}' to '{new_value}'.")
         else:
-            Utils.success_msg(f"'{config}' unchanged.")
+            Utils.success_msg(f"'{option}' unchanged.")
         self.directory_menu()
 
-    def set_config(self, config: str, value: str) -> None:
+    def set_config(self, option: str, value: str) -> None:
         """
         Update or add a config value in the configuration file.
         """
@@ -729,22 +730,22 @@ class Firmware:
 
         # Check if the config already exists in the file
         for i, line in enumerate(lines):
-            if line.startswith(f"{config} ="):
+            if line.startswith(f"{option} ="):
                 # Update the existing line
-                lines[i] = f'{config} = "{value}"\n'
+                lines[i] = f'{option} = "{value}"\n'
                 break
         else:
-            # Add the new config line if not found
-            lines.append(f'{config} = "{value}"\n')
+            # Add the new option line if not found
+            lines.append(f'{option} = "{value}"\n')
 
         # Write updated content back to the file
         with open(Utils.CONFIG_FILE, "w") as file:
             file.writelines(lines)
 
         # Update the runtime config
-        self.config[config] = value
+        self.config[option] = value
 
-        logging.debug(f"Set {config} to '{value}' in '{Utils.CONFIG_FILE}'.")
+        logging.debug(f"Set {option} to '{value}' in '{Utils.CONFIG_FILE}'.")
 
     def reset_config(self) -> None:
         """
@@ -1054,7 +1055,9 @@ class Firmware:
                 "Check Again", lambda: self.firmware_menu(type)
             )
             menu_items[len(menu_items) + 1] = Menu.Separator()
-            menu_items[len(menu_items) + 1] = Menu.Item("Back", self.can.menu)
+            handler = self.menu_handlers.get(type)
+            if handler:
+                menu_items[len(menu_items) + 1] = Menu.Item("Back", lambda: handler())
             menu_items[len(menu_items) + 1] = Menu.Item(
                 Utils.colored_text("Back to main menu", Color.CYAN), self.main_menu
             )
@@ -1069,15 +1072,11 @@ class Firmware:
 
     def select_firmware(self, firmware: str, type: FlashMethod):
         self.set_firmware(firmware)
-        menu_handlers: Dict[str, Callable[[], None]] = {
-            FlashMethod.CAN: self.can.menu,
-            FlashMethod.USB: self.usb.menu,
-            FlashMethod.DFU: self.dfu.menu,
-        }
+
         if args.device and args.flash and self.selected_firmware:
             self.confirm(type)
         # Retrieve the appropriate handler and call it if valid
-        handler = menu_handlers.get(type)
+        handler = self.menu_handlers.get(type)
         if handler:
             handler()  # Call the appropriate menu method
         else:
