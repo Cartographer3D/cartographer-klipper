@@ -732,6 +732,24 @@ class Firmware:
 
         logging.debug(f"Set {config} to '{value}' in '{Utils.CONFIG_FILE}'.")
 
+    def reset_config(self) -> None:
+        """
+        Reset the configuration file to the default values.
+        """
+        try:
+            with open(Utils.CONFIG_FILE, "w") as file:
+                for key, value in Utils.DEFAULT_DIRECTORIES.items():
+                    _ = file.write(f'{key} = "{value}"\n')
+
+            self.config = dict(
+                Utils.DEFAULT_DIRECTORIES
+            )  # Reset runtime config as well
+            logging.debug(f"Reset configuration to defaults in '{Utils.CONFIG_FILE}'.")
+            Utils.success_msg("Configuration has been reset to default values.")
+        except Exception as e:
+            logging.error(f"Failed to reset configuration: {e}")
+            Utils.error_msg(f"Error resetting configuration: {e}")
+
     def restart_klipper(self):
         try:
             # Execute the restart command
@@ -918,6 +936,10 @@ class Firmware:
         menu_items[len(menu_items) + 1] = Menu.Item(
             "Katapult",
             lambda: self.edit_config("KATAPULT"),
+        )
+        menu_items[len(menu_items) + 1] = Menu.Separator()
+        menu_items[len(menu_items) + 1] = Menu.Item(
+            "Reset to Defaults", lambda: self.reset_config()
         )
         menu_items[len(menu_items) + 1] = Menu.Separator()
         menu_items[len(menu_items) + 1] = Menu.Item(
