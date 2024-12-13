@@ -935,7 +935,7 @@ class Firmware:
         )
         menu_items[len(menu_items) + 1] = Menu.Item(
             "Katapult",
-            lambda: self.edit_config("KATAPULT"),
+            lambda: self.edit_config("KATAPULT_DIR"),
         )
         menu_items[len(menu_items) + 1] = Menu.Separator()
         menu_items[len(menu_items) + 1] = Menu.Item(
