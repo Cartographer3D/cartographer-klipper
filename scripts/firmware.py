@@ -681,7 +681,56 @@ class Firmware:
             logging.info("No custom branch provided.")
             self.branch_menu()
 
-    def change_directory(self, directory: str): ...
+    def edit_config(self, config: str) -> None:
+        """
+        Display and allow editing of the specified config in the configuration file.
+        """
+        # Check if the config exists in the loaded config
+        if config not in self.config:
+            print(f"Config '{config}' is not a recognized configuration key.")
+            return
+
+        current_value = self.config[config]
+        print(f"Current value for '{config}': {current_value}")
+        new_value = input("Enter new value (or press Enter to keep current): ").strip()
+
+        if new_value:
+            # Update the configuration
+            self.set_config(config, new_value)
+            Utils.success_msg(f"Updated '{config}' to '{new_value}'.")
+        else:
+            Utils.success_msg(f"'{config}' unchanged.")
+        self.directory_menu()
+
+    def set_config(self, config: str, value: str) -> None:
+        """
+        Update or add a config value in the configuration file.
+        """
+        # Read current file content or initialize with defaults
+        if os.path.isfile(Utils.CONFIG_FILE):
+            with open(Utils.CONFIG_FILE, "r") as file:
+                lines = file.readlines()
+        else:
+            lines = []
+
+        # Check if the config already exists in the file
+        for i, line in enumerate(lines):
+            if line.startswith(f"{config} ="):
+                # Update the existing line
+                lines[i] = f'{config} = "{value}"\n'
+                break
+        else:
+            # Add the new config line if not found
+            lines.append(f'{config} = "{value}"\n')
+
+        # Write updated content back to the file
+        with open(Utils.CONFIG_FILE, "w") as file:
+            file.writelines(lines)
+
+        # Update the runtime config
+        self.config[config] = value
+
+        logging.debug(f"Set {config} to '{value}' in '{Utils.CONFIG_FILE}'.")
 
     def restart_klipper(self):
         try:
@@ -856,19 +905,19 @@ class Firmware:
 
         menu_items[len(menu_items) + 1] = Menu.Item(
             "Klippy Env",
-            lambda: self.change_directory("klippy_env"),
+            lambda: self.edit_config("KLIPPY_ENV"),
         )
         menu_items[len(menu_items) + 1] = Menu.Item(
             "Klippy Logs",
-            lambda: self.change_directory("klippy_logs"),
+            lambda: self.edit_config("KLIPPY_LOG"),
         )
         menu_items[len(menu_items) + 1] = Menu.Item(
             "Klipper",
-            lambda: self.change_directory("klipper"),
+            lambda: self.edit_config("KLIPPER"),
         )
         menu_items[len(menu_items) + 1] = Menu.Item(
             "Katapult",
-            lambda: self.change_directory("katapult"),
+            lambda: self.edit_config("KATAPULT"),
         )
         menu_items[len(menu_items) + 1] = Menu.Separator()
         menu_items[len(menu_items) + 1] = Menu.Item(
