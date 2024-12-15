@@ -829,7 +829,9 @@ class Firmware:
             # Add advanced options
             menu_items[len(menu_items) + 1] = Menu.Separator()
             menu_items[len(menu_items) + 1] = Menu.Item(
-                Utils.colored_text("Flash via DFU", Color.MAGENTA), self.dfu.menu
+                "DFU Menu          "
+                + Utils.colored_text("[For Flashing via DFU]", Color.YELLOW),
+                self.can.menu,
             )
             menu_items[len(menu_items) + 1] = Menu.Separator()
             menu_items[len(menu_items) + 1] = Menu.Item(
@@ -1359,6 +1361,7 @@ class Can:
                 "Flash Selected Firmware",
                 lambda: self.firmware.confirm(type=FlashMethod.CAN),
             )
+
         menu_items[len(menu_items) + 1] = Menu.Separator()
         # Add "Back to main menu" after "Flash Selected Firmware"
         menu_items[len(menu_items) + 1] = Menu.Item(
