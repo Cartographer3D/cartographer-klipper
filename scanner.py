@@ -676,7 +676,8 @@ class Scanner:
                     f"Touch {len(samples)} result: {probe_position[2]:.4f}",
                 )
 
-                deviation = np.std(samples)
+                average = np.median(samples)
+                deviation = max(abs(sample - average) for sample in samples)
 
                 deviation = round(deviation, 4)
                 if deviation > tolerance:
