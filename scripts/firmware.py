@@ -28,7 +28,7 @@ from typing import (
     ClassVar,
 )
 
-FLASHER_VERSION: str = "0.0.5"
+FLASHER_VERSION: str = "0.0.4"
 
 PAGE_WIDTH: int = 89  # Default global width
 
