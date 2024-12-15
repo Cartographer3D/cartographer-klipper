@@ -300,15 +300,30 @@ class Scanner:
                 self._mcu = self.printer.lookup_object("mcu")
             else:
                 self._mcu = self.printer.lookup_object("mcu " + mcu)
+        orig_stats = self._mcu.stats
+
+        def scanner_mcu_stats(eventtime):
+            show, value = orig_stats(eventtime)
+            value += " " + self._extend_stats()
+            return show, value
+
+        self._mcu.stats = scanner_mcu_stats
+
         self.cmd_queue = self._mcu.alloc_command_queue()
         self.mcu_probe = ScannerEndstopWrapper(self)
 
         self.results = []
-
+        self.scanner_stream_cmd = None
+        self.scanner_set_threshold = None
+        self.scanner_home_cmd = None
+        self.scanner_stop_home_cmd = None
         # Register z_virtual_endstop
         self.printer.lookup_object("pins").register_chip("probe", self)
         # Register event handlers
         self.printer.register_event_handler("klippy:connect", self._handle_connect)
+        self.printer.register_event_handler(
+            "klippy:shutdown", self.force_stop_streaming
+        )
         self._mcu.register_config_callback(self._build_config)
         self._mcu.register_response(
             self._handle_scanner_data, self.sensor.lower() + "_data"
@@ -1318,6 +1333,13 @@ class Scanner:
                 f"Error during probe mcu identification, check connection:\n{e}"
             )
 
+    def _extend_stats(self):
+        parts = [
+            "coil_temp=%.1f" % (self.last_temp,),
+            "refs=%d" % (self._stream_en,),
+        ]
+        return " ".join(parts)
+
     def check_connected(self):
         if self._mcu.non_critical_disconnected:
             raise self.printer.command_error(
@@ -1770,7 +1792,7 @@ class Scanner:
         sample["vel"] = vel
 
     def _start_streaming(self):
-        if self._stream_en == 0:
+        if self._stream_en == 0 and self.scanner_stream_cmd is not None:
             self.scanner_stream_cmd.send([1])
             curtime = self.reactor.monotonic()
             self.reactor.update_timer(
@@ -1784,15 +1806,25 @@ class Scanner:
         self._stream_en -= 1
         if self._stream_en == 0:
             self.reactor.update_timer(self._stream_timeout_timer, self.reactor.NEVER)
+            if self.scanner_stream_cmd is not None:
+                self.scanner_stream_cmd.send([0])
+        self._stream_flush()
+
+    def force_stop_streaming(self):
+        self.reactor.update_timer(self._stream_timeout_timer, self.reactor.NEVER)
+        if self.scanner_stream_cmd is not None:
             self.scanner_stream_cmd.send([0])
         self._stream_flush()
 
-    def _stream_timeout(self, _: float):
+    def _stream_timeout(self, eventtime):
+        if self._stream_flush():
+            return eventtime + STREAM_TIMEOUT
         if not self._stream_en:
             return self.reactor.NEVER
-        msg = "Scanner sensor not receiving data"
-        logging.error(msg)
-        self.printer.invoke_shutdown(msg)
+        if not self.printer.is_shutdown():
+            msg = "Scanner sensor not receiving data"
+            logging.error(msg)
+            self.printer.invoke_shutdown(msg)
         return self.reactor.NEVER
 
     def request_stream_latency(self, latency):
@@ -1941,7 +1973,6 @@ class Scanner:
 
     def _sample_async(self):
         # TODO: This is only used to get one sample, let's make it clearer.
-        self.check_connected()
         count = 1
         samples = []
 
@@ -2915,6 +2946,7 @@ TRSYNC_SINGLE_MCU_TIMEOUT = 0.250
 class ScannerEndstopWrapper:
     def __init__(self, scanner: Scanner):
         self.scanner = scanner
+        self.scanner.check_connected()
         self._mcu = scanner._mcu
 
         ffi_main, ffi_lib = chelper.get_ffi()
