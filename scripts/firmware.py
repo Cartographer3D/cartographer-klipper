@@ -28,7 +28,7 @@ from typing import (
     ClassVar,
 )
 
-FLASHER_VERSION: str = "0.0.4"
+FLASHER_VERSION: str = "0.0.7"
 
 PAGE_WIDTH: int = 89  # Default global width
 
@@ -108,6 +108,7 @@ class Utils:
         "KATAPULT_DIR": os.path.expanduser("~/katapult"),
         "KLIPPER": os.path.expanduser("~/klipper"),
         "KLIPPY_ENV": os.path.expanduser("~/klippy_env"),
+        "DEV_DIR": os.path.expanduser("/dev"),
     }
 
     @classmethod
@@ -939,6 +940,10 @@ class Firmware:
             "Katapult",
             lambda: self.edit_config("KATAPULT_DIR"),
         )
+        menu_items[len(menu_items) + 1] = Menu.Item(
+            "LSUSB (/Dev)",
+            lambda: self.edit_config("DEV_DIR"),
+        )
         menu_items[len(menu_items) + 1] = Menu.Separator()
         menu_items[len(menu_items) + 1] = Menu.Item(
             "Reset to Defaults", lambda: self.reset_config()
@@ -1629,7 +1634,7 @@ class Usb:
         detected_devices: List[str] = []
         try:
             # List all devices in /dev/serial/by-id/
-            base_path = "/dev/serial/by-id/"
+            base_path = f"{self.config['DEV_DIR']}/serial/by-id/"
             if not os.path.exists(base_path):
                 Utils.error_msg(f"Path '{base_path}' does not exist.")
                 return
@@ -1680,7 +1685,7 @@ class Usb:
 
     def enter_katapult_bootloader(self, device: str):
         try:
-            device_path = f"/dev/serial/by-id/{device}"
+            device_path = f"{self.config['DEV_DIR']}/serial/by-id/{device}"
             env: str = os.path.join(self.config["KLIPPY_ENV"], "bin", "python")
             bootloader_cmd = [
                 env,
@@ -1774,7 +1779,7 @@ class Usb:
 
             # Check if the device is already a Katapult device
             if "katapult" in device.lower():
-                katapult_device = f"/dev/serial/by-id/{device}"
+                katapult_device = f"{self.config['DEV_DIR']}/serial/by-id/{device}"
             else:
                 # Validate that the device is a valid Cartographer device
                 if not self.validator.validate_device(device, FlashMethod.USB):
@@ -1785,7 +1790,7 @@ class Usb:
                 sleep(5)
 
                 # Perform ls to find Katapult device
-                base_path = "/dev/serial/by-id/"
+                base_path = f"{self.config['DEV_DIR']}/serial/by-id/"
                 katapult_device = None
                 if os.path.exists(base_path):
                     for item in os.listdir(base_path):
