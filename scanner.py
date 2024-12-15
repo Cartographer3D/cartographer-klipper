@@ -729,15 +729,13 @@ class Scanner:
 
                 # Return relevant data
                 self.detect_threshold_z = original_threshold
-                return {
-                    "samples": samples,
-                    "standard_deviation": std_dev,
-                    "final_position": initial_position,
-                    "retries": retries,
-                    "success": self.previous_probe_success,
-                }
-            else:
-                return False
+            return {
+                "samples": samples,
+                "standard_deviation": std_dev,
+                "final_position": initial_position,
+                "retries": retries,
+                "success": self.previous_probe_success,
+            }
         except self.printer.command_error:
             self.detect_threshold_z = original_threshold
             self.trigger_method = TriggerMethod.SCAN
