@@ -2244,7 +2244,11 @@ class KatapultInstaller:
                 check=True,
             )
             origin_url = result.stdout.strip().lower()
-            if origin_url != "https://github.com/arksine/katapult".lower():
+            # Normalize URLs by removing '.git' at the end if present
+            normalized_url = origin_url.rstrip(".git")
+            expected_url = "https://github.com/arksine/katapult".rstrip(".git")
+
+            if normalized_url != expected_url:
                 Utils.error_msg(f"Unexpected repository URL: {origin_url}")
                 return False
         except subprocess.CalledProcessError as e:
