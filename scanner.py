@@ -461,7 +461,6 @@ class Scanner:
         manual_z_offset = gcmd.get_float(
             "Z_OFFSET", self.scanner_touch_config["z_offset"], minval=0
         )
-
         # Debugging information
         self.log_debug_info(
             vars["verbose"],
@@ -623,6 +622,13 @@ class Scanner:
             original_position = initial_position[:]
 
             while len(samples) < num_samples:
+                if retries >= max_retries:
+                    self.detect_threshold_z = original_threshold
+                    self.trigger_method = TriggerMethod.SCAN
+                    self._zhop()
+                    raise gcmd.error(
+                        f"Exceeded maximum attempts [{retries}/{int(max_retries)}]"
+                    )
                 if randomize > 0 and new_retry:
                     # Generate random offsets
                     x_offset = random.uniform(-randomize, randomize)
@@ -649,6 +655,7 @@ class Scanner:
                     )
                 except self.printer.command_error as e:
                     if self.printer.is_shutdown():
+                        self.detect_threshold_z = original_threshold
                         self.trigger_method = TriggerMethod.SCAN
                         raise self.printer.command_error(
                             "Touch procedure interrupted due to printer shutdown"
@@ -674,12 +681,6 @@ class Scanner:
 
                 deviation = round(deviation, 4)
                 if deviation > tolerance:
-                    if retries >= max_retries:
-                        self.trigger_method = TriggerMethod.SCAN
-                        self._zhop()
-                        raise gcmd.error(
-                            f"Exceeded maximum attempts [{retries}/{int(max_retries)}]"
-                        )
                     self.log_debug_info(
                         verbose,
                         gcmd,
@@ -697,43 +698,48 @@ class Scanner:
                     gcmd,
                     f"Deviation: {deviation:.4f}\nNew Average: {average:.4f}\nTolerance: {tolerance:.4f}",
                 )
-
             std_dev = np.std(samples)
-            gcmd.respond_info(
-                f"Completed {len(samples)} touches with a standard deviation of {std_dev:.4f}"
-            )
-            position_difference = initial_position[2] - self.toolhead.get_position()[2]
-            adjusted_difference = initial_position[2] - np.mean(samples)
-            self.log_debug_info(
-                verbose,
-                gcmd,
-                f"Position Difference: {position_difference:.4f}\nAdjusted Difference: {adjusted_difference:.4f}",
-            )
+            if retries < max_retries and std_dev <= tolerance:
+                gcmd.respond_info(
+                    f"Completed {len(samples)} touches with a standard deviation of {std_dev:.4f}"
+                )
+                position_difference = (
+                    initial_position[2] - self.toolhead.get_position()[2]
+                )
+                adjusted_difference = initial_position[2] - np.mean(samples)
+                self.log_debug_info(
+                    verbose,
+                    gcmd,
+                    f"Position Difference: {position_difference:.4f}\nAdjusted Difference: {adjusted_difference:.4f}",
+                )
 
-            initial_position[2] = float(adjusted_difference - position_difference)
-            formatted_position = [f"{coord:.2f}" for coord in initial_position]
-            self.log_debug_info(
-                verbose, gcmd, f"Updated Initial Position: {formatted_position}"
-            )
-            if manual_z_offset > 0:
-                gcmd.respond_info(f"Offsetting by {manual_z_offset:.3f}")
-                initial_position[2] = initial_position[2] - manual_z_offset
-            self.toolhead.set_position(initial_position)
-            self.toolhead.wait_moves()
-            self.toolhead.flush_step_generation()
-            self.trigger_method = TriggerMethod.SCAN
-            self.previous_probe_success = 1
+                initial_position[2] = float(adjusted_difference - position_difference)
+                formatted_position = [f"{coord:.2f}" for coord in initial_position]
+                self.log_debug_info(
+                    verbose, gcmd, f"Updated Initial Position: {formatted_position}"
+                )
+                if manual_z_offset > 0:
+                    gcmd.respond_info(f"Offsetting by {manual_z_offset:.3f}")
+                    initial_position[2] = initial_position[2] - manual_z_offset
+                self.toolhead.set_position(initial_position)
+                self.toolhead.wait_moves()
+                self.toolhead.flush_step_generation()
+                self.trigger_method = TriggerMethod.SCAN
+                self.previous_probe_success = 1
 
-            # Return relevant data
-            self.detect_threshold_z = original_threshold
-            return {
-                "samples": samples,
-                "standard_deviation": std_dev,
-                "final_position": initial_position,
-                "retries": retries,
-                "success": self.previous_probe_success,
-            }
+                # Return relevant data
+                self.detect_threshold_z = original_threshold
+                return {
+                    "samples": samples,
+                    "standard_deviation": std_dev,
+                    "final_position": initial_position,
+                    "retries": retries,
+                    "success": self.previous_probe_success,
+                }
+            else:
+                return False
         except self.printer.command_error:
+            self.detect_threshold_z = original_threshold
             self.trigger_method = TriggerMethod.SCAN
             if hasattr(kinematics, "note_z_not_homed"):
                 kinematics.note_z_not_homed()
