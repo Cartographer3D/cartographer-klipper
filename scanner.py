@@ -309,9 +309,6 @@ class Scanner:
         self.printer.lookup_object("pins").register_chip("probe", self)
         # Register event handlers
         self.printer.register_event_handler("klippy:connect", self._handle_connect)
-        self.printer.register_event_handler(
-            "klippy:mcu_identify", self._handle_mcu_identify
-        )
         self._mcu.register_config_callback(self._build_config)
         self._mcu.register_response(
             self._handle_scanner_data, self.sensor.lower() + "_data"
@@ -1255,18 +1252,32 @@ class Scanner:
                     return temp[2] - pos[2]
 
                 self.mod_axis_twist_comp = get_z_compensation_value
-        # Ensure streaming mode is stopped
-        self.scanner_stream_cmd.send([0])
+        if self.model is None:
+            self.model = self.models.get(self.default_model_name, None)
 
-        self.model_temp = self.model_temp_builder.build_with_base(self)
-        if self.model_temp:
-            self.fmin = self.model_temp.fmin
-        self.model = self.models.get(self.default_model_name, None)
-        if self.model:
-            self._apply_threshold()
-
-    def _handle_mcu_identify(self):
+    def _build_config(self):
         try:
+            self.scanner_stream_cmd = self._mcu.lookup_command(
+                self.sensor.lower() + "_stream en=%u", cq=self.cmd_queue
+            )
+            self.scanner_set_threshold = self._mcu.lookup_command(
+                self.sensor.lower() + "_set_threshold trigger=%u untrigger=%u",
+                cq=self.cmd_queue,
+            )
+            self.scanner_home_cmd = self._mcu.lookup_command(
+                self.sensor.lower()
+                + "_home trsync_oid=%c trigger_reason=%c trigger_invert=%c threshold=%u trigger_method=%u",
+                cq=self.cmd_queue,
+            )
+            self.scanner_stop_home = self._mcu.lookup_command(
+                self.sensor.lower() + "_stop_home", cq=self.cmd_queue
+            )
+            self.scanner_base_read_cmd = self._mcu.lookup_query_command(
+                self.sensor.lower() + "_base_read len=%c offset=%hu",
+                self.sensor.lower() + "_base_data bytes=%*s offset=%hu",
+                cq=self.cmd_queue,
+            )
+
             if self._mcu._mcu_freq < 20000000:
                 self.sensor_freq = self._mcu._mcu_freq
             elif self._mcu._mcu_freq < 100000000:
@@ -1283,32 +1294,36 @@ class Scanner:
             self.toolhead = self.printer.lookup_object("toolhead")
             self.trapq = self.toolhead.get_trapq()
             self.fw_version = self._mcu.get_status()["mcu_version"]
+
+            # Ensure streaming mode is stopped
+            if self.scanner_stream_cmd is not None:
+                self.scanner_stream_cmd.send([1 if self._stream_en else 0])
+            if self._stream_en:
+                curtime = self.reactor.monotonic()
+                self.reactor.update_timer(
+                    self._stream_timeout_timer, curtime + STREAM_TIMEOUT
+                )
+            else:
+                self.reactor.update_timer(
+                    self._stream_timeout_timer, self.reactor.NEVER
+                )
+            self.model_temp = self.model_temp_builder.build_with_base(self)
+            if self.model_temp:
+                self.fmin = self.model_temp.fmin
+            self.model = self.models.get(self.default_model_name, None)
+            if self.model:
+                self._apply_threshold()
         except msgproto.error as e:
             raise msgproto.error(
                 f"Error during probe mcu identification, check connection:\n{e}"
             )
 
-    def _build_config(self):
-        self.scanner_stream_cmd = self._mcu.lookup_command(
-            self.sensor.lower() + "_stream en=%u", cq=self.cmd_queue
-        )
-        self.scanner_set_threshold = self._mcu.lookup_command(
-            self.sensor.lower() + "_set_threshold trigger=%u untrigger=%u",
-            cq=self.cmd_queue,
-        )
-        self.scanner_home_cmd = self._mcu.lookup_command(
-            self.sensor.lower()
-            + "_home trsync_oid=%c trigger_reason=%c trigger_invert=%c threshold=%u trigger_method=%u",
-            cq=self.cmd_queue,
-        )
-        self.scanner_stop_home = self._mcu.lookup_command(
-            self.sensor.lower() + "_stop_home", cq=self.cmd_queue
-        )
-        self.scanner_base_read_cmd = self._mcu.lookup_query_command(
-            self.sensor.lower() + "_base_read len=%c offset=%hu",
-            self.sensor.lower() + "_base_data bytes=%*s offset=%hu",
-            cq=self.cmd_queue,
-        )
+    def check_connected(self):
+        if self._mcu.non_critical_disconnected:
+            raise self.printer.command_error(
+                f"{self.name} could not connect because mcu: {self._mcu.get_name()} is non_critical_disconnected!"
+            )
+        return True
 
     def stats(self, eventtime):
         return False, "%s: coil_temp=%.1f refs=%s" % (
@@ -1926,6 +1941,7 @@ class Scanner:
 
     def _sample_async(self):
         # TODO: This is only used to get one sample, let's make it clearer.
+        self.check_connected()
         count = 1
         samples = []
 
@@ -2998,6 +3014,7 @@ class ScannerEndstopWrapper:
     def home_start(
         self, print_time, sample_time, sample_count, rest_time, triggered=True
     ):
+        self.scanner.check_connected()
         if self.scanner.model is not None:
             self.scanner.model.validate()
         if (
