@@ -28,7 +28,7 @@ from typing import (
     ClassVar,
 )
 
-FLASHER_VERSION: str = "0.0.4"
+FLASHER_VERSION: str = "0.0.5"
 
 PAGE_WIDTH: int = 89  # Default global width
 
@@ -638,9 +638,16 @@ class Firmware:
     def set_advanced(self):
         global is_advanced
         if is_advanced:
-            is_advanced = args.all = False
+            is_advanced = False
         else:
-            is_advanced = args.all = True
+            is_advanced = True
+        self.main_menu()
+
+    def set_all_fw(self):
+        if self.all:
+            self.all = args.all = False
+        else:
+            self.all = args.all = True
         self.main_menu()
 
     def set_debugging(self):
@@ -769,7 +776,7 @@ class Firmware:
     # Create main menu
     def main_menu(self) -> None:
         # Handle advanced mode and flash settings
-        if is_advanced or self.flash == FlashMethod["DFU"]:
+        if self.flash == FlashMethod["DFU"]:
             self.all = True
 
         Utils.header()
@@ -838,6 +845,13 @@ class Firmware:
             )
             menu_items[len(menu_items) + 1] = Menu.Separator()
 
+            # Debugging toggle
+            self.add_toggle_item(
+                menu_items,
+                "Show All Firmware",
+                self.all,
+                self.set_all_fw,
+            )
             # Debugging toggle
             self.add_toggle_item(
                 menu_items,
