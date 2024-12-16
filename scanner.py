@@ -321,6 +321,7 @@ class Scanner:
         self.printer.lookup_object("pins").register_chip("probe", self)
         # Register event handlers
         self.printer.register_event_handler("klippy:connect", self._handle_connect)
+
         self.printer.register_event_handler(
             "klippy:shutdown", self.force_stop_streaming
         )
@@ -3047,6 +3048,7 @@ class ScannerEndstopWrapper:
         self, print_time, sample_time, sample_count, rest_time, triggered=True
     ):
         self.scanner.check_connected()
+
         if self.scanner.model is not None:
             self.scanner.model.validate()
         if (
@@ -3078,7 +3080,6 @@ class ScannerEndstopWrapper:
         etrsync = self._trsyncs[0]
         ffi_main, ffi_lib = chelper.get_ffi()
         ffi_lib.trdispatch_start(self._trdispatch, etrsync.REASON_HOST_REQUEST)
-
         if self.scanner.trigger_method != TriggerMethod.SCAN:
             return self._trigger_completion
 
