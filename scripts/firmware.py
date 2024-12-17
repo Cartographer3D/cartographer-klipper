@@ -28,7 +28,7 @@ from typing import (
     ClassVar,
 )
 
-FLASHER_VERSION: str = "0.0.3"
+FLASHER_VERSION: str = "0.0.5"
 
 PAGE_WIDTH: int = 89  # Default global width
 
@@ -108,6 +108,7 @@ class Utils:
         "KATAPULT_DIR": os.path.expanduser("~/katapult"),
         "KLIPPER": os.path.expanduser("~/klipper"),
         "KLIPPY_ENV": os.path.expanduser("~/klippy-env"),
+        "DEV_DIR": os.path.expanduser("/dev"),
     }
 
     @classmethod
@@ -637,9 +638,16 @@ class Firmware:
     def set_advanced(self):
         global is_advanced
         if is_advanced:
-            is_advanced = args.all = False
+            is_advanced = False
         else:
-            is_advanced = args.all = True
+            is_advanced = True
+        self.main_menu()
+
+    def set_all_fw(self):
+        if self.all:
+            self.all = args.all = False
+        else:
+            self.all = args.all = True
         self.main_menu()
 
     def set_debugging(self):
@@ -768,7 +776,7 @@ class Firmware:
     # Create main menu
     def main_menu(self) -> None:
         # Handle advanced mode and flash settings
-        if is_advanced or self.flash == FlashMethod["DFU"]:
+        if self.flash == FlashMethod["DFU"]:
             self.all = True
 
         Utils.header()
@@ -821,7 +829,9 @@ class Firmware:
             # Add advanced options
             menu_items[len(menu_items) + 1] = Menu.Separator()
             menu_items[len(menu_items) + 1] = Menu.Item(
-                Utils.colored_text("Flash via DFU", Color.MAGENTA), self.dfu.menu
+                "DFU Menu          "
+                + Utils.colored_text("[For Flashing via DFU]", Color.YELLOW),
+                self.can.menu,
             )
             menu_items[len(menu_items) + 1] = Menu.Separator()
             menu_items[len(menu_items) + 1] = Menu.Item(
@@ -837,6 +847,13 @@ class Firmware:
             )
             menu_items[len(menu_items) + 1] = Menu.Separator()
 
+            # Debugging toggle
+            self.add_toggle_item(
+                menu_items,
+                "Show All Firmware",
+                self.all,
+                self.set_all_fw,
+            )
             # Debugging toggle
             self.add_toggle_item(
                 menu_items,
@@ -938,6 +955,10 @@ class Firmware:
         menu_items[len(menu_items) + 1] = Menu.Item(
             "Katapult",
             lambda: self.edit_config("KATAPULT_DIR"),
+        )
+        menu_items[len(menu_items) + 1] = Menu.Item(
+            "LSUSB (/Dev)",
+            lambda: self.edit_config("DEV_DIR"),
         )
         menu_items[len(menu_items) + 1] = Menu.Separator()
         menu_items[len(menu_items) + 1] = Menu.Item(
@@ -1340,6 +1361,7 @@ class Can:
                 "Flash Selected Firmware",
                 lambda: self.firmware.confirm(type=FlashMethod.CAN),
             )
+
         menu_items[len(menu_items) + 1] = Menu.Separator()
         # Add "Back to main menu" after "Flash Selected Firmware"
         menu_items[len(menu_items) + 1] = Menu.Item(
@@ -1629,7 +1651,7 @@ class Usb:
         detected_devices: List[str] = []
         try:
             # List all devices in /dev/serial/by-id/
-            base_path = "/dev/serial/by-id/"
+            base_path = f"{self.config['DEV_DIR']}/serial/by-id/"
             if not os.path.exists(base_path):
                 Utils.error_msg(f"Path '{base_path}' does not exist.")
                 return
@@ -1680,7 +1702,7 @@ class Usb:
 
     def enter_katapult_bootloader(self, device: str):
         try:
-            device_path = f"/dev/serial/by-id/{device}"
+            device_path = f"{self.config['DEV_DIR']}/serial/by-id/{device}"
             env: str = os.path.join(self.config["KLIPPY_ENV"], "bin", "python")
             bootloader_cmd = [
                 env,
@@ -1774,7 +1796,7 @@ class Usb:
 
             # Check if the device is already a Katapult device
             if "katapult" in device.lower():
-                katapult_device = f"/dev/serial/by-id/{device}"
+                katapult_device = f"{self.config['DEV_DIR']}/serial/by-id/{device}"
             else:
                 # Validate that the device is a valid Cartographer device
                 if not self.validator.validate_device(device, FlashMethod.USB):
@@ -1785,7 +1807,7 @@ class Usb:
                 sleep(5)
 
                 # Perform ls to find Katapult device
-                base_path = "/dev/serial/by-id/"
+                base_path = f"{self.config['DEV_DIR']}/serial/by-id/"
                 katapult_device = None
                 if os.path.exists(base_path):
                     for item in os.listdir(base_path):
@@ -2243,8 +2265,12 @@ class KatapultInstaller:
                 capture_output=True,
                 check=True,
             )
-            origin_url = result.stdout.strip()
-            if origin_url != "https://github.com/arksine/katapult":
+            origin_url = result.stdout.strip().lower()
+            # Normalize URLs by removing '.git' at the end if present
+            normalized_url = origin_url.rstrip(".git")
+            expected_url = "https://github.com/arksine/katapult".rstrip(".git")
+
+            if normalized_url != expected_url:
                 Utils.error_msg(f"Unexpected repository URL: {origin_url}")
                 return False
         except subprocess.CalledProcessError as e:
