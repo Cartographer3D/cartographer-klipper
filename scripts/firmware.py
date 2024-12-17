@@ -107,7 +107,7 @@ class Utils:
         "KLIPPY_LOG": os.path.expanduser("~/printer_data/logs/klippy.log"),
         "KATAPULT_DIR": os.path.expanduser("~/katapult"),
         "KLIPPER": os.path.expanduser("~/klipper"),
-        "KLIPPY_ENV": os.path.expanduser("~/klippy_env"),
+        "KLIPPY_ENV": os.path.expanduser("~/klippy-env"),
     }
 
     @classmethod
