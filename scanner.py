@@ -1714,22 +1714,36 @@ class Scanner:
         # Streaming mode
 
     def _check_hardware(self, sample):
+        # Validate sample input
+        if "data" not in sample or "freq" not in sample:
+            raise ValueError("Sample must contain 'data' and 'freq' keys.")
+    
         if not self.hardware_failure:
+            # Determine hardware failure conditions
             msg = None
             if sample["data"] == 0xFFFFFFF:
-                msg = "coil is shorted or not connected"
+                msg = "Coil is shorted or not connected."
             elif self.fmin is not None and sample["freq"] > 1.35 * self.fmin:
-                msg = "coil expected max frequency exceeded"
+                msg = "Coil expected max frequency exceeded."
+                logging.debug(
+                f"Debug info: freq={sample['freq']}, fmin={self.fmin}, "
+                f"threshold={1.35 * self.fmin} (frequency exceeded)."
+            )
+
             if msg:
-                msg = "Scanner hardware issue: " + msg
-                self.hardware_failure = msg
-                logging.error(msg)
+                # Log and handle hardware failure
+                full_msg = f"Scanner hardware issue: {msg}"
+                self.hardware_failure = full_msg
+                logging.error(full_msg)
+            
                 if self._stream_en:
-                    self.printer.invoke_shutdown(msg)
+                    self.printer.invoke_shutdown(full_msg)
                 else:
-                    self.gcode.respond_raw("!! " + msg + "\n")
+                    self.gcode.respond_raw(f"!! {full_msg}\n")
         elif self._stream_en:
+            # Handle already detected hardware failure
             self.printer.invoke_shutdown(self.hardware_failure)
+
 
     def _enrich_sample_time(self, sample):
         clock = sample["clock"] = self._mcu.clock32_to_clock64(sample["clock"])
