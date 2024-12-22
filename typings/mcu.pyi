@@ -62,7 +62,7 @@ class MCU:
         pass
     def is_fileoutput(self) -> bool:
         pass
-    def error(self, message: str) -> None:
+    def error(self, message: str) -> string:
         pass
 
     @overload
