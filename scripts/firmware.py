@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os
+import os.path
 import re
 import subprocess
 import argparse
@@ -2445,6 +2446,15 @@ if __name__ == "__main__":
         choices=[e.value for e in FlashMethod],  # Use FlashMethod values
         type=lambda s: FlashMethod(s.upper()),  # Convert string to FlashMethod enum
     )
+
+    if os.path.isfile('/etc/os-release'):
+        with open('/etc/os-release') as f:
+            release_info = f.read()
+            if 'ID=buildroot' in release_info:
+                print("\nFlashing is not currently supported on Build Root OS such as Creality OS. Exiting...")
+                print("Please follow this https://github.com/pellcorp/creality/wiki/Flashing-Carto-Firmware-on-Ubuntu")
+                exit(1)
+
     try:
         args = parser.parse_args(namespace=FirmwareNamespace())
         Utils.configure_logging()
