@@ -1,5 +1,10 @@
 #!/bin/bash
 
+if grep -Fqs "ID=buildroot" /etc/os-release; then
+    echo "You cannot flash firmware on creality os printers"
+    exit
+fi
+
 SCRIPT_VERSION="v1.2.1"
 
 while getopts s:t:f:b:ht flag; do
