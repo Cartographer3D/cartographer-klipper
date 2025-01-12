@@ -747,6 +747,8 @@ class Scanner:
             self.trigger_method = TriggerMethod.SCAN
             if hasattr(kinematics, "note_z_not_homed"):
                 kinematics.note_z_not_homed()
+            elif hasattr(kinematics, "clear_homing_state"):
+                kinematics.clear_homing_state((2,))
             raise
 
     cmd_SCANNER_THRESHOLD_SCAN_help = "Scan THRESHOLD in TOUCH mode"
@@ -1140,6 +1142,8 @@ class Scanner:
             self.trigger_method = TriggerMethod.SCAN
             if hasattr(kinematics, "note_z_not_homed"):
                 kinematics.note_z_not_homed()
+            elif hasattr(kinematics, "clear_homing_state"):
+                kinematics.clear_homing_state((2,))
             raise
 
     def touch_probe(self, speed: float, skip: int = 0, verbose: bool = True):
@@ -1243,6 +1247,8 @@ class Scanner:
                 self.toolhead.wait_moves()
                 if hasattr(kin, "note_z_not_homed"):
                     kin.note_z_not_homed()
+                elif hasattr(kin, "clear_homing_state"):
+                    kin.clear_homing_state((2,))
             elif pos[2] < self.z_hop_dist:
                 self.toolhead.manual_move(move, self.z_hop_speed)
                 self.toolhead.wait_moves()
@@ -1588,6 +1594,8 @@ class Scanner:
                 kin = self.toolhead.get_kinematics()
                 if hasattr(kin, "note_z_not_homed"):
                     kin.note_z_not_homed()
+                elif hasattr(kin, "clear_homing_state"):
+                    kin.clear_homing_state((2,))
             return
         gcmd.respond_info("Scanner calibration starting")
         cal_floor = gcmd.get_float("FLOOR", self.cal_config["floor"])

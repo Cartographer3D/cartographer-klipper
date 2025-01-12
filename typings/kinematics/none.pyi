@@ -22,3 +22,5 @@ class NoneKinematics:
         pass
     def note_z_not_homed(self) -> None:
         pass
+    def clear_homing_state(self, axes):
+        pass
