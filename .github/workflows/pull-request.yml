@@ -22,6 +22,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install Python 3.8 apt dependencies
+        if: ${{ matrix.python-version == '3.8' }}
+        run: |
+          # See https://github.com/matplotlib/matplotlib/issues/22113
+          sudo apt install libfreetype-dev
       - name: Set Up Python
         uses: actions/setup-python@v5
         with:
