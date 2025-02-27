@@ -34,7 +34,7 @@ class ToolHead:
         pass
     def get_position(self) -> _Pos:
         pass
-    def set_position(self, newpos: _Pos, homing_axes: Sequence[int] = ()) -> None:
+    def set_position(self, newpos: _Pos, homing_axes: Sequence[int | str] = ()) -> None:
         pass
     def move(self, newpos: _Pos, speed: float) -> None:
         pass

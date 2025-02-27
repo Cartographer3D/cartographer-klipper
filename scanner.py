@@ -1034,7 +1034,7 @@ class Scanner:
                     self.toolhead.set_position(initial_position, homing_axes=["z"])
                 except:
                     self.toolhead.set_position(initial_position, homing_axes=[2])
-            
+
             retries = 0
             new_retry = False
             samples = []
@@ -1255,7 +1255,7 @@ class Scanner:
                         self.toolhead.set_position(pos, homing_axes=["z"])
                     except:
                         self.toolhead.set_position(pos, homing_axes=[2])
-            
+
                 self.toolhead.manual_move(move, self.z_hop_speed)
                 self.toolhead.wait_moves()
                 if hasattr(kin, "note_z_not_homed"):
@@ -1523,7 +1523,7 @@ class Scanner:
                     self.toolhead.set_position(pos, homing_axes=["x", "y", "z"])
                 except:
                     self.toolhead.set_position(pos, homing_axes=[0, 1, 2])
-            
+
             self.touch_probe(self.probe_speed)
             self.toolhead.set_position(pos)
             self._move([None, None, 0], self.lift_speed)
