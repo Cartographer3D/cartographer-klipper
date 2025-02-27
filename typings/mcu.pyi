@@ -16,9 +16,6 @@ class MCUStatus(TypedDict):
 class _CommandQueue:
     pass
 
-class error(Exception):
-    pass
-
 class MCU:
     _mcu_freq: float
     _clocksync: ClockSync
@@ -61,8 +58,6 @@ class MCU:
     def get_status(self) -> MCUStatus:
         pass
     def is_fileoutput(self) -> bool:
-        pass
-    def error(self, message: str) -> string:
         pass
 
     @overload
