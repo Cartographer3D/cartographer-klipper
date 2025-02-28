@@ -1,4 +1,4 @@
-# IDM, Cartographer 3D, and OpenBedScanner Script v3.0.0 w/ Temperature Compensation and Cartgorapher Survey
+# IDM, Cartographer 3D, and OpenBedScanner Script v4.0.0 w/ Temperature Compensation and Cartgorapher Survey
 #
 # To buy affordable bed scanners, check out https://cartographer3d.com
 #
@@ -461,7 +461,6 @@ class Scanner:
         manual_z_offset = gcmd.get_float(
             "Z_OFFSET", self.scanner_touch_config["z_offset"], minval=0
         )
-
         # Debugging information
         self.log_debug_info(
             vars["verbose"],
@@ -561,7 +560,7 @@ class Scanner:
 
             result = self.start_touch(gcmd, touch_settings, vars["verbose"])
 
-            standard_deviation = result["standard_deviation"]
+            max_deviation = result["max_deviation"]
             final_position = result["final_position"]
             retries = result["retries"]
             success = result["success"]
@@ -577,7 +576,7 @@ class Scanner:
                 self.log_debug_info(
                     vars["verbose"],
                     gcmd,
-                    f"Standard Deviation: {standard_deviation:.4f}",
+                    f"Maximum Deviation: {max_deviation:.4f}",
                 )
                 if calibrate == 1:
                     self._calibrate(
@@ -610,6 +609,7 @@ class Scanner:
         randomize = touch_settings.randomize
 
         original_threshold = self.detect_threshold_z
+        deviation = None
         try:
             self.detect_threshold_z = test_threshold
             # Set the initial position for the toolhead
@@ -617,9 +617,10 @@ class Scanner:
                 self.toolhead.set_position(initial_position, homing_axes=[2, "z"])
             except:
                 try:
-                    self.toolhead.set_position(initial_position, homing_axes=["z"])
+                    self.toolhead.set_position(initial_position, homing_axes=["z"]) 
                 except:
                     self.toolhead.set_position(initial_position, homing_axes=[2])
+
             retries = 0
 
             new_retry = False
@@ -628,6 +629,13 @@ class Scanner:
             original_position = initial_position[:]
 
             while len(samples) < num_samples:
+                if retries >= max_retries:
+                    self.detect_threshold_z = original_threshold
+                    self.trigger_method = TriggerMethod.SCAN
+                    self._zhop()
+                    raise gcmd.error(
+                        f"Exceeded maximum attempts [{retries}/{int(max_retries)}]"
+                    )
                 if randomize > 0 and new_retry:
                     # Generate random offsets
                     x_offset = random.uniform(-randomize, randomize)
@@ -654,6 +662,7 @@ class Scanner:
                     )
                 except self.printer.command_error as e:
                     if self.printer.is_shutdown():
+                        self.detect_threshold_z = original_threshold
                         self.trigger_method = TriggerMethod.SCAN
                         raise self.printer.command_error(
                             "Touch procedure interrupted due to printer shutdown"
@@ -679,12 +688,6 @@ class Scanner:
 
                 deviation = round(deviation, 4)
                 if deviation > tolerance:
-                    if retries >= max_retries:
-                        self.trigger_method = TriggerMethod.SCAN
-                        self._zhop()
-                        raise gcmd.error(
-                            f"Exceeded maximum attempts [{retries}/{int(max_retries)}]"
-                        )
                     self.log_debug_info(
                         verbose,
                         gcmd,
@@ -703,42 +706,45 @@ class Scanner:
                     f"Deviation: {deviation:.4f}\nNew Average: {average:.4f}\nTolerance: {tolerance:.4f}",
                 )
 
-            std_dev = np.std(samples)
-            gcmd.respond_info(
-                f"Completed {len(samples)} touches with a standard deviation of {std_dev:.4f}"
-            )
-            position_difference = initial_position[2] - self.toolhead.get_position()[2]
-            adjusted_difference = initial_position[2] - np.mean(samples)
-            self.log_debug_info(
-                verbose,
-                gcmd,
-                f"Position Difference: {position_difference:.4f}\nAdjusted Difference: {adjusted_difference:.4f}",
-            )
+            if len(samples) == num_samples and deviation <= tolerance:
+                gcmd.respond_info(
+                    f"Completed {len(samples)} touches with a max deviation of {deviation:.4f}"
+                )
+                position_difference = (
+                    initial_position[2] - self.toolhead.get_position()[2]
+                )
+                adjusted_difference = initial_position[2] - np.mean(samples)
+                self.log_debug_info(
+                    verbose,
+                    gcmd,
+                    f"Position Difference: {position_difference:.4f}\nAdjusted Difference: {adjusted_difference:.4f}",
+                )
 
-            initial_position[2] = float(adjusted_difference - position_difference)
-            formatted_position = [f"{coord:.2f}" for coord in initial_position]
-            self.log_debug_info(
-                verbose, gcmd, f"Updated Initial Position: {formatted_position}"
-            )
-            if manual_z_offset > 0:
-                gcmd.respond_info(f"Offsetting by {manual_z_offset:.3f}")
-                initial_position[2] = initial_position[2] - manual_z_offset
-            self.toolhead.set_position(initial_position)
-            self.toolhead.wait_moves()
-            self.toolhead.flush_step_generation()
-            self.trigger_method = TriggerMethod.SCAN
-            self.previous_probe_success = 1
+                initial_position[2] = float(adjusted_difference - position_difference)
+                formatted_position = [f"{coord:.2f}" for coord in initial_position]
+                self.log_debug_info(
+                    verbose, gcmd, f"Updated Initial Position: {formatted_position}"
+                )
+                if manual_z_offset > 0:
+                    gcmd.respond_info(f"Offsetting by {manual_z_offset:.3f}")
+                    initial_position[2] = initial_position[2] - manual_z_offset
+                self.toolhead.set_position(initial_position)
+                self.toolhead.wait_moves()
+                self.toolhead.flush_step_generation()
+                self.trigger_method = TriggerMethod.SCAN
+                self.previous_probe_success = 1
 
-            # Return relevant data
-            self.detect_threshold_z = original_threshold
+                # Return relevant data
+                self.detect_threshold_z = original_threshold
             return {
                 "samples": samples,
-                "standard_deviation": std_dev,
+                "max_deviation": deviation,
                 "final_position": initial_position,
                 "retries": retries,
                 "success": self.previous_probe_success,
             }
         except self.printer.command_error:
+            self.detect_threshold_z = original_threshold
             self.trigger_method = TriggerMethod.SCAN
             if hasattr(kinematics, "note_z_not_homed"):
                 kinematics.note_z_not_homed()
@@ -798,7 +804,7 @@ class Scanner:
         max_acceptable_retries = round(
             confirmation_retries * THRESHOLD_ACCEPTANCE_FACTOR
         )
-        max_acceptable_std_dev = vars["target"]
+        max_acceptable_max_dev = vars["target"]
 
         verbose = vars["verbose"]
 
@@ -883,8 +889,8 @@ class Scanner:
                 if result["success"]:
                     # Check if this result meets "good" criteria
                     if result["retries"] <= max_acceptable_retries and (
-                        result["standard_deviation"] is not None
-                        and result["standard_deviation"] <= max_acceptable_std_dev
+                        result["max_deviation"] is not None
+                        and result["max_deviation"] <= max_acceptable_max_dev
                     ):
                         # Increase threshold_max by 3 steps above the current threshold, only if it hasn't been increased before
                         if not has_increased_threshold_max:
@@ -905,8 +911,7 @@ class Scanner:
                                 gcmd, touch_settings, verbose
                             )
                             if not repeat_result["success"] or (
-                                repeat_result["standard_deviation"]
-                                > max_acceptable_std_dev
+                                repeat_result["max_deviation"] > max_acceptable_max_dev
                             ):
                                 gcmd.respond_info(
                                     f"Qualify attempt {attempt + 1} failed for threshold {current_threshold}"
@@ -914,15 +919,15 @@ class Scanner:
                                 consistent_results = False
                                 break
                             gcmd.respond_info(
-                                f"Qualify attempt {attempt + 1} successful with std dev: {repeat_result['standard_deviation']:.5f}"
+                                f"Qualify attempt {attempt + 1} successful with max dev: {repeat_result['max_deviation']:.5f}"
                             )
 
                         # Save only successful repeat attempts in results
                         result["consistent_results"] = (
                             consistent_results  # Mark if it passed repeatability checks
                         )
-                        result["standard_deviation"] = (
-                            repeat_result["standard_deviation"]
+                        result["max_deviation"] = (
+                            repeat_result["max_deviation"]
                             if consistent_results
                             else None
                         )
@@ -953,13 +958,13 @@ class Scanner:
                 return  # Exit as there's no best threshold to save
 
             if consistent_results:
-                # Find the best consistent result based on minimum retries and standard deviation
+                # Find the best consistent result based on minimum retries and max deviation
                 best_result = min(
                     consistent_results,
                     key=lambda x: (
                         x["retries"],
-                        x["standard_deviation"]
-                        if x["standard_deviation"] is not None
+                        x["max_deviation"]
+                        if x["max_deviation"] is not None
                         else float("inf"),
                     ),
                 )
@@ -971,8 +976,8 @@ class Scanner:
                     results,
                     key=lambda x: (
                         x["retries"],
-                        x["standard_deviation"]
-                        if x["standard_deviation"] is not None
+                        x["max_deviation"]
+                        if x["max_deviation"] is not None
                         else float("inf"),
                     ),
                 )
@@ -983,21 +988,21 @@ class Scanner:
             self.detect_threshold_z = best_threshold
             self._save_threshold(best_threshold, vars["speed"])
 
-            # Handle None for standard deviation by using a default message
-            std_dev_display = (
-                f"{best_result['standard_deviation']:.5f}"
-                if best_result["standard_deviation"] is not None
+            # Handle None for max deviation by using a default message
+            max_dev_display = (
+                f"{best_result['max_deviation']:.5f}"
+                if best_result["max_deviation"] is not None
                 else "N/A"
             )
 
             # Inform the user about the result
             if optimal_found:
                 gcmd.respond_info(
-                    f"Optimal Threshold Determined: {best_threshold} with standard deviation of {std_dev_display}"
+                    f"Optimal Threshold Determined: {best_threshold} with max deviation of {max_dev_display}"
                 )
             else:
                 gcmd.respond_info(
-                    f"No fully optimal threshold found. Best attempt: {best_threshold} with standard deviation of {std_dev_display}"
+                    f"No fully optimal threshold found. Best attempt: {best_threshold} with max deviation of {max_dev_display}"
                 )
             gcmd.respond_info(
                 f"You can now {format_macro('SAVE_CONFIG')} to save your threshold."
@@ -1027,10 +1032,10 @@ class Scanner:
                 self.toolhead.set_position(initial_position, homing_axes=[2, "z"])
             except:
                 try:
-                    self.toolhead.set_position(initial_position, homing_axes=["z"])
+                    self.toolhead.set_position(initial_position, homing_axes=["z"]) 
                 except:
                     self.toolhead.set_position(initial_position, homing_axes=[2])
-            
+
             retries = 0
             new_retry = False
             samples = []
@@ -1111,7 +1116,7 @@ class Scanner:
                     f"Deviation: {deviation:.4f}\nNew Average: {average:.4f}\nTolerance: {tolerance:.4f}",
                 )
 
-            std_dev = np.std(samples) if samples else None
+            max_dev = np.std(samples) if samples else None
             if len(samples) == num_samples:
                 success = True
                 position_difference = (
@@ -1124,7 +1129,7 @@ class Scanner:
                     f"Position Difference: {position_difference:.4f}\nAdjusted Difference: {adjusted_difference:.4f}",
                 )
             else:
-                std_dev = None
+                max_dev = None
                 success = False
 
             self.toolhead.wait_moves()
@@ -1134,7 +1139,7 @@ class Scanner:
             # Return relevant data
             return {
                 "samples": samples,
-                "standard_deviation": std_dev,
+                "max_deviation": max_dev,
                 "final_position": initial_position,
                 "retries": retries,
                 "success": success,
@@ -1248,10 +1253,9 @@ class Scanner:
                     self.toolhead.set_position(pos, homing_axes=[2, "z"])
                 except:
                     try:
-                        self.toolhead.set_position(pos, homing_axes=["z"])
+                        self.toolhead.set_position(pos, homing_axes=["z"]) 
                     except:
                         self.toolhead.set_position(pos, homing_axes=[2])
-            
                 self.toolhead.manual_move(move, self.z_hop_speed)
                 self.toolhead.wait_moves()
                 if hasattr(kin, "note_z_not_homed"):
@@ -1513,13 +1517,12 @@ class Scanner:
             status = self.toolhead.get_kinematics().get_status(curtime)
             pos[2] = status["axis_maximum"][2]
             try:
-                self.toolhead.set_position(pos, homing_axes=[0, 1, 2, "x", "y", "z"])
+                self.toolhead.set_position(pos, homing_axes=[1, 2, 3, "x", "y", "z"])
             except:
                 try:
-                    self.toolhead.set_position(pos, homing_axes=["x", "y", "z"])
+                    self.toolhead.set_position(pos, homing_axes=["x", "y", "z"]) 
                 except:
-                    self.toolhead.set_position(pos, homing_axes=[0, 1, 2])
-            
+                    self.toolhead.set_position(pos, homing_axes=[1, 2, 3])
             self.touch_probe(self.probe_speed)
             self.toolhead.set_position(pos)
             self._move([None, None, 0], self.lift_speed)
@@ -1581,7 +1584,7 @@ class Scanner:
                     self.toolhead.set_position(pos, homing_axes=[2, "z"])
                 except:
                     try:
-                        self.toolhead.set_position(pos, homing_axes=["z"])
+                        self.toolhead.set_position(pos, homing_axes=["z"]) 
                     except:
                         self.toolhead.set_position(pos, homing_axes=[2])
                 forced_z = True
