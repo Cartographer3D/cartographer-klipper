@@ -1,4 +1,4 @@
-# IDM, Cartographer 3D, and OpenBedScanner Script v3.0.0 w/ Temperature Compensation and Cartgorapher Survey
+# IDM, Cartographer 3D, and OpenBedScanner Script v4.1.0 w/ Temperature Compensation and Cartgorapher Survey
 #
 # To buy affordable bed scanners, check out https://cartographer3d.com
 #
@@ -613,8 +613,13 @@ class Scanner:
         try:
             self.detect_threshold_z = test_threshold
             # Set the initial position for the toolhead
-            self.toolhead.set_position(initial_position, homing_axes=[2])
-
+            try:
+                self.toolhead.set_position(initial_position, homing_axes=[2, "z"])
+            except Exception:
+                try:
+                    self.toolhead.set_position(initial_position, homing_axes="z")
+                except Exception:
+                    self.toolhead.set_position(initial_position, homing_axes=[2])
             retries = 0
 
             new_retry = False
@@ -742,6 +747,8 @@ class Scanner:
             self.trigger_method = TriggerMethod.SCAN
             if hasattr(kinematics, "note_z_not_homed"):
                 kinematics.note_z_not_homed()
+            elif hasattr(kinematics, "clear_homing_state"):
+                kinematics.clear_homing_state("z")
             raise
 
     cmd_SCANNER_THRESHOLD_SCAN_help = "Scan THRESHOLD in TOUCH mode"
@@ -1020,7 +1027,13 @@ class Scanner:
         try:
             self.detect_threshold_z = test_threshold
             # Set the initial position for the toolhead
-            self.toolhead.set_position(initial_position, homing_axes=[2])
+            try:
+                self.toolhead.set_position(initial_position, homing_axes=[2, "z"])
+            except Exception:
+                try:
+                    self.toolhead.set_position(initial_position, homing_axes="z")
+                except Exception:
+                    self.toolhead.set_position(initial_position, homing_axes=[2])
 
             retries = 0
             new_retry = False
@@ -1135,6 +1148,8 @@ class Scanner:
             self.trigger_method = TriggerMethod.SCAN
             if hasattr(kinematics, "note_z_not_homed"):
                 kinematics.note_z_not_homed()
+            elif hasattr(kinematics, "clear_homing_state"):
+                kinematics.clear_homing_state("z")
             raise
 
     def touch_probe(self, speed: float, skip: int = 0, verbose: bool = True):
@@ -1233,11 +1248,20 @@ class Scanner:
             move = [None, None, self.z_hop_dist]
             if "z" not in kin_status["homed_axes"]:
                 pos[2] = 0
-                self.toolhead.set_position(pos, homing_axes=[2])
+                try:
+                    self.toolhead.set_position(pos, homing_axes=[2, "z"])
+                except Exception:
+                    try:
+                        self.toolhead.set_position(pos, homing_axes="z")
+                    except Exception:
+                        self.toolhead.set_position(pos, homing_axes=[2])
+
                 self.toolhead.manual_move(move, self.z_hop_speed)
                 self.toolhead.wait_moves()
                 if hasattr(kin, "note_z_not_homed"):
                     kin.note_z_not_homed()
+                elif hasattr(kin, "clear_homing_state"):
+                    kin.clear_homing_state("z")
             elif pos[2] < self.z_hop_dist:
                 self.toolhead.manual_move(move, self.z_hop_speed)
                 self.toolhead.wait_moves()
@@ -1492,7 +1516,14 @@ class Scanner:
             curtime = self.printer.get_reactor().monotonic()
             status = self.toolhead.get_kinematics().get_status(curtime)
             pos[2] = status["axis_maximum"][2]
-            self.toolhead.set_position(pos, homing_axes=(0, 1, 2))
+            try:
+                self.toolhead.set_position(pos, homing_axes=[2, "z"])
+            except Exception:
+                try:
+                    self.toolhead.set_position(pos, homing_axes="z")
+                except Exception:
+                    self.toolhead.set_position(pos, homing_axes=[2])
+
             self.touch_probe(self.probe_speed)
             self.toolhead.set_position(pos)
             self._move([None, None, 0], self.lift_speed)
@@ -1550,7 +1581,13 @@ class Scanner:
                     - 2.0
                     - gcmd.get_float("CEIL", self.cal_config["ceil"])
                 )
-                self.toolhead.set_position(pos, homing_axes=[2])
+                try:
+                    self.toolhead.set_position(pos, homing_axes=[2, "z"])
+                except Exception:
+                    try:
+                        self.toolhead.set_position(pos, homing_axes="z")
+                    except Exception:
+                        self.toolhead.set_position(pos, homing_axes=[2])
                 forced_z = True
             self._move([touch_location_x, touch_location_y, None], 40)
             self.toolhead.wait_moves()
@@ -1583,6 +1620,8 @@ class Scanner:
                 kin = self.toolhead.get_kinematics()
                 if hasattr(kin, "note_z_not_homed"):
                     kin.note_z_not_homed()
+                elif hasattr(kin, "clear_homing_state"):
+                    kin.clear_homing_state("z")
             return
         gcmd.respond_info("Scanner calibration starting")
         cal_floor = gcmd.get_float("FLOOR", self.cal_config["floor"])
