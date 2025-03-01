@@ -615,10 +615,10 @@ class Scanner:
             # Set the initial position for the toolhead
             try:
                 self.toolhead.set_position(initial_position, homing_axes=[2, "z"])
-            except:
+            except Exception:
                 try:
-                    self.toolhead.set_position(initial_position, homing_axes=["z"])
-                except:
+                    self.toolhead.set_position(initial_position, homing_axes="z")
+                except Exception:
                     self.toolhead.set_position(initial_position, homing_axes=[2])
             retries = 0
 
@@ -1029,10 +1029,10 @@ class Scanner:
             # Set the initial position for the toolhead
             try:
                 self.toolhead.set_position(initial_position, homing_axes=[2, "z"])
-            except:
+            except Exception:
                 try:
-                    self.toolhead.set_position(initial_position, homing_axes=["z"])
-                except:
+                    self.toolhead.set_position(initial_position, homing_axes="z")
+                except Exception:
                     self.toolhead.set_position(initial_position, homing_axes=[2])
 
             retries = 0
@@ -1250,10 +1250,10 @@ class Scanner:
                 pos[2] = 0
                 try:
                     self.toolhead.set_position(pos, homing_axes=[2, "z"])
-                except:
+                except Exception:
                     try:
-                        self.toolhead.set_position(pos, homing_axes=["z"])
-                    except:
+                        self.toolhead.set_position(pos, homing_axes="z")
+                    except Exception:
                         self.toolhead.set_position(pos, homing_axes=[2])
 
                 self.toolhead.manual_move(move, self.z_hop_speed)
@@ -1517,12 +1517,12 @@ class Scanner:
             status = self.toolhead.get_kinematics().get_status(curtime)
             pos[2] = status["axis_maximum"][2]
             try:
-                self.toolhead.set_position(pos, homing_axes=[0, 1, 2, "x", "y", "z"])
-            except:
+                self.toolhead.set_position(pos, homing_axes=[2, "z"])
+            except Exception:
                 try:
-                    self.toolhead.set_position(pos, homing_axes=["x", "y", "z"])
-                except:
-                    self.toolhead.set_position(pos, homing_axes=[0, 1, 2])
+                    self.toolhead.set_position(pos, homing_axes="z")
+                except Exception:
+                    self.toolhead.set_position(pos, homing_axes=[2])
 
             self.touch_probe(self.probe_speed)
             self.toolhead.set_position(pos)
@@ -1583,10 +1583,10 @@ class Scanner:
                 )
                 try:
                     self.toolhead.set_position(pos, homing_axes=[2, "z"])
-                except:
+                except Exception:
                     try:
-                        self.toolhead.set_position(pos, homing_axes=["z"])
-                    except:
+                        self.toolhead.set_position(pos, homing_axes="z")
+                    except Exception:
                         self.toolhead.set_position(pos, homing_axes=[2])
                 forced_z = True
             self._move([touch_location_x, touch_location_y, None], 40)
