@@ -1,4 +1,4 @@
-# IDM, Cartographer 3D, and OpenBedScanner Script v3.0.0 w/ Temperature Compensation and Cartgorapher Survey
+# IDM, Cartographer 3D, and OpenBedScanner Script v4.1.0 w/ Temperature Compensation and Cartgorapher Survey
 #
 # To buy affordable bed scanners, check out https://cartographer3d.com
 #
@@ -30,7 +30,6 @@ import chelper
 import msgproto
 import numpy as np
 import pins
-from collections import deque
 from clocksync import SecondarySync
 from configfile import ConfigWrapper
 from gcode import GCodeCommand
@@ -61,10 +60,6 @@ THRESHOLD_INCREMENT_MULTIPLIER = 5
 THRESHOLD_STEP_MULTIPLIER = 10
 # Require a qualified threshold to pass at 0.66 of the QUALIFY_SAMPLES
 THRESHOLD_ACCEPTANCE_FACTOR = 0.66
-SLIDING_WINDOW_SIZE = 50
-SIGMA_MULTIPLIER = 3
-THRESHOLD_MULTIPLIER = 1.2
-SHORTED_COIL_VALUE = 0xFFFFFFF
 
 
 class TriggerMethod(IntEnum):
@@ -618,8 +613,13 @@ class Scanner:
         try:
             self.detect_threshold_z = test_threshold
             # Set the initial position for the toolhead
-            self.toolhead.set_position(initial_position, homing_axes=[2])
-
+            try:
+                self.toolhead.set_position(initial_position, homing_axes=[2, "z"])
+            except Exception:
+                try:
+                    self.toolhead.set_position(initial_position, homing_axes="z")
+                except Exception:
+                    self.toolhead.set_position(initial_position, homing_axes=[2])
             retries = 0
 
             new_retry = False
@@ -747,6 +747,8 @@ class Scanner:
             self.trigger_method = TriggerMethod.SCAN
             if hasattr(kinematics, "note_z_not_homed"):
                 kinematics.note_z_not_homed()
+            elif hasattr(kinematics, "clear_homing_state"):
+                kinematics.clear_homing_state("z")
             raise
 
     cmd_SCANNER_THRESHOLD_SCAN_help = "Scan THRESHOLD in TOUCH mode"
@@ -1025,7 +1027,13 @@ class Scanner:
         try:
             self.detect_threshold_z = test_threshold
             # Set the initial position for the toolhead
-            self.toolhead.set_position(initial_position, homing_axes=[2])
+            try:
+                self.toolhead.set_position(initial_position, homing_axes=[2, "z"])
+            except Exception:
+                try:
+                    self.toolhead.set_position(initial_position, homing_axes="z")
+                except Exception:
+                    self.toolhead.set_position(initial_position, homing_axes=[2])
 
             retries = 0
             new_retry = False
@@ -1140,6 +1148,8 @@ class Scanner:
             self.trigger_method = TriggerMethod.SCAN
             if hasattr(kinematics, "note_z_not_homed"):
                 kinematics.note_z_not_homed()
+            elif hasattr(kinematics, "clear_homing_state"):
+                kinematics.clear_homing_state("z")
             raise
 
     def touch_probe(self, speed: float, skip: int = 0, verbose: bool = True):
@@ -1238,11 +1248,20 @@ class Scanner:
             move = [None, None, self.z_hop_dist]
             if "z" not in kin_status["homed_axes"]:
                 pos[2] = 0
-                self.toolhead.set_position(pos, homing_axes=[2])
+                try:
+                    self.toolhead.set_position(pos, homing_axes=[2, "z"])
+                except Exception:
+                    try:
+                        self.toolhead.set_position(pos, homing_axes="z")
+                    except Exception:
+                        self.toolhead.set_position(pos, homing_axes=[2])
+
                 self.toolhead.manual_move(move, self.z_hop_speed)
                 self.toolhead.wait_moves()
                 if hasattr(kin, "note_z_not_homed"):
                     kin.note_z_not_homed()
+                elif hasattr(kin, "clear_homing_state"):
+                    kin.clear_homing_state("z")
             elif pos[2] < self.z_hop_dist:
                 self.toolhead.manual_move(move, self.z_hop_speed)
                 self.toolhead.wait_moves()
@@ -1497,7 +1516,14 @@ class Scanner:
             curtime = self.printer.get_reactor().monotonic()
             status = self.toolhead.get_kinematics().get_status(curtime)
             pos[2] = status["axis_maximum"][2]
-            self.toolhead.set_position(pos, homing_axes=(0, 1, 2))
+            try:
+                self.toolhead.set_position(pos, homing_axes=[2, "z"])
+            except Exception:
+                try:
+                    self.toolhead.set_position(pos, homing_axes="z")
+                except Exception:
+                    self.toolhead.set_position(pos, homing_axes=[2])
+
             self.touch_probe(self.probe_speed)
             self.toolhead.set_position(pos)
             self._move([None, None, 0], self.lift_speed)
@@ -1555,7 +1581,13 @@ class Scanner:
                     - 2.0
                     - gcmd.get_float("CEIL", self.cal_config["ceil"])
                 )
-                self.toolhead.set_position(pos, homing_axes=[2])
+                try:
+                    self.toolhead.set_position(pos, homing_axes=[2, "z"])
+                except Exception:
+                    try:
+                        self.toolhead.set_position(pos, homing_axes="z")
+                    except Exception:
+                        self.toolhead.set_position(pos, homing_axes=[2])
                 forced_z = True
             self._move([touch_location_x, touch_location_y, None], 40)
             self.toolhead.wait_moves()
@@ -1588,6 +1620,8 @@ class Scanner:
                 kin = self.toolhead.get_kinematics()
                 if hasattr(kin, "note_z_not_homed"):
                     kin.note_z_not_homed()
+                elif hasattr(kin, "clear_homing_state"):
+                    kin.clear_homing_state("z")
             return
         gcmd.respond_info("Scanner calibration starting")
         cal_floor = gcmd.get_float("FLOOR", self.cal_config["floor"])
@@ -1719,73 +1753,22 @@ class Scanner:
         # Streaming mode
 
     def _check_hardware(self, sample):
-        # Validate sample input
-        if "data" not in sample or "freq" not in sample:
-            raise self._mcu.error("Sample must contain 'data' and 'freq' keys.")
-
-        # Initialize variables on the first call
-        if not hasattr(self, "freq_window"):
-            self.freq_window = deque(maxlen=SLIDING_WINDOW_SIZE)  # Sliding window
-            self.min_threshold = None  # Minimum frequency threshold
-
-        # Add the current frequency to the sliding window
-        freq = sample["freq"]
-        self.freq_window.append(freq)
-
-        # Calculate statistics from the sliding window
-        if len(self.freq_window) > 1:
-            freq_window_array = np.array(self.freq_window)  # Convert deque to numpy array
-            f_avg = np.mean(freq_window_array)
-            f_std = np.std(freq_window_array)
-            dynamic_threshold = f_avg + SIGMA_MULTIPLIER * f_std  # Dynamic threshold
-        else:
-            # Fallback during initialization
-            f_avg = freq
-            f_std = 0
-            dynamic_threshold = freq * THRESHOLD_MULTIPLIER  # Fallback threshold
-
-
-        # Ensure a minimum threshold is set
-        if self.min_threshold is None:
-            self.min_threshold = freq * THRESHOLD_MULTIPLIER  # Initial minimum threshold
-
-        # Final threshold (whichever is greater: dynamic or minimum)
-        final_threshold = max(dynamic_threshold, self.min_threshold)
-
-        # Debug log for threshold values
-        logging.debug(
-            f"Sliding Window Threshold Debug: freq={freq}, f_avg={f_avg}, "
-            f"f_std={f_std}, dynamic_threshold={dynamic_threshold}, "
-            f"min_threshold={self.min_threshold}, final_threshold={final_threshold}"
-        )
-
-        # Check for hardware issues
         if not self.hardware_failure:
             msg = None
-
-            if sample["data"] == SHORTED_COIL_VALUE:
-                msg = "Coil is shorted or not connected."
-                logging.debug(f"Debug: data={sample['data']} indicates connection issue.")
-            elif freq > final_threshold:
-                msg = "Coil expected max frequency exceeded (sliding window)."
-                logging.debug(
-                    f"Frequency {freq} exceeded final threshold {final_threshold}."
-                )
-
+            if sample["data"] == 0xFFFFFFF:
+                msg = "coil is shorted or not connected"
+            elif self.fmin is not None and sample["freq"] > 1.35 * self.fmin:
+                msg = "coil expected max frequency exceeded"
             if msg:
-                # Log and handle hardware failure
-                full_msg = f"Scanner hardware issue: {msg}"
-                self.hardware_failure = full_msg
-                logging.error(full_msg)
-
+                msg = "Scanner hardware issue: " + msg
+                self.hardware_failure = msg
+                logging.error(msg)
                 if self._stream_en:
-                    self.printer.invoke_shutdown(full_msg)
+                    self.printer.invoke_shutdown(msg)
                 else:
-                    self.gcode.respond_raw(f"!! {full_msg}\n")
+                    self.gcode.respond_raw("!! " + msg + "\n")
         elif self._stream_en:
-            # Handle already detected hardware failure
             self.printer.invoke_shutdown(self.hardware_failure)
-
 
     def _enrich_sample_time(self, sample):
         clock = sample["clock"] = self._mcu.clock32_to_clock64(sample["clock"])
