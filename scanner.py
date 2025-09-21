@@ -285,8 +285,6 @@ class Scanner:
             config.getfloat("filter_alpha", 0.5),
             config.getfloat("filter_beta", 0.000001),
         )
-        self.trapq = None
-        self._last_trapq_move = None
         self.mod_axis_twist_comp: Optional[Callable[[list[float]], float]] = None
         self.raw_axis_twist_comp = None
 
@@ -498,7 +496,7 @@ class Scanner:
         self.toolhead.wait_moves()
 
         curtime = self.printer.get_reactor().monotonic()
-        kinematics = self.toolhead.get_kinematics()
+        kinematics = self.kinematics
         kin_status = kinematics.get_status(curtime)
         if "x" not in kin_status["homed_axes"] or "y" not in kin_status["homed_axes"]:
             self.trigger_method = TriggerMethod.SCAN
@@ -592,7 +590,7 @@ class Scanner:
 
     # Event handlers
     def start_touch(self, gcmd: GCodeCommand, touch_settings, verbose: bool):
-        kinematics = self.toolhead.get_kinematics()
+        kinematics = self.kinematics
         initial_position = touch_settings.initial_position
         homing_position = touch_settings.homing_position
         accel = touch_settings.accel
@@ -816,7 +814,7 @@ class Scanner:
 
         # Ensure XY homing
         curtime = self.printer.get_reactor().monotonic()
-        kinematics = self.toolhead.get_kinematics()
+        kinematics = self.kinematics
         kin_status = kinematics.get_status(curtime)
         if (
             "x" not in kin_status["homed_axes"]
@@ -1010,7 +1008,7 @@ class Scanner:
             self.trigger_method = TriggerMethod.SCAN
 
     def start_threshold_scan(self, gcmd: GCodeCommand, touch_settings, verbose: bool):
-        kinematics = self.toolhead.get_kinematics()
+        kinematics = self.kinematics
         initial_position = touch_settings.initial_position
         homing_position = touch_settings.homing_position
         accel = touch_settings.accel
@@ -1156,7 +1154,7 @@ class Scanner:
         skipped_msg = ""
         toolhead = self.printer.lookup_object("toolhead")
         curtime = self.printer.get_reactor().monotonic()
-        status = self.toolhead.get_kinematics().get_status(curtime)
+        status = self.kinematics.get_status(curtime)
         if "z" not in toolhead.get_status(curtime)["homed_axes"]:
             raise self.printer.command_error("Must home before probe")
         pos = toolhead.get_position()
@@ -1241,7 +1239,7 @@ class Scanner:
     def _zhop(self):
         if self.z_hop_dist != 0:
             curtime = self.printer.get_reactor().monotonic()
-            kin = self.toolhead.get_kinematics()
+            kin = self.kinematics
             kin_status = kin.get_status(curtime)
             pos = self.toolhead.get_position()
 
@@ -1309,7 +1307,7 @@ class Scanner:
             self.thermistor.setup_coefficients_beta(25.0, 47000.0, 4041.0)
 
             self.toolhead = self.printer.lookup_object("toolhead")
-            self.trapq = self.toolhead.get_trapq()
+            self.kinematics = self.toolhead.get_kinematics()
             self.fw_version = self._mcu.get_status()["mcu_version"]
         except msgproto.error as e:
             raise msgproto.error(
@@ -1434,7 +1432,7 @@ class Scanner:
 
     def _probing_move_to_probing_height(self, speed: float):
         curtime = self.reactor.monotonic()
-        status = self.toolhead.get_kinematics().get_status(curtime)
+        status = self.kinematics.get_status(curtime)
         pos = self.toolhead.get_position()
         pos[2] = status["axis_minimum"][2]
         try:
@@ -1514,7 +1512,7 @@ class Scanner:
             pos = self.toolhead.get_position()
             self.toolhead.wait_moves()
             curtime = self.printer.get_reactor().monotonic()
-            status = self.toolhead.get_kinematics().get_status(curtime)
+            status = self.kinematics.get_status(curtime)
             pos[2] = status["axis_maximum"][2]
             try:
                 self.toolhead.set_position(pos, homing_axes=[2, "z"])
@@ -1527,7 +1525,7 @@ class Scanner:
             self.touch_probe(self.probe_speed)
             self.toolhead.set_position(pos)
             self._move([None, None, 0], self.lift_speed)
-            kin = self.toolhead.get_kinematics()
+            kin = self.kinematics
             kin_spos = {
                 s.get_name(): s.get_commanded_position() for s in kin.get_steppers()
             }
@@ -1544,7 +1542,7 @@ class Scanner:
             self.trigger_method = TriggerMethod.SCAN
 
         elif gcmd.get("SKIP_MANUAL_PROBE", None) is not None:
-            kin = self.toolhead.get_kinematics()
+            kin = self.kinematics
             kin_spos = {
                 s.get_name(): s.get_commanded_position() for s in kin.get_steppers()
             }
@@ -1560,7 +1558,7 @@ class Scanner:
             )
         else:
             curtime = self.printer.get_reactor().monotonic()
-            kin_status = self.toolhead.get_kinematics().get_status(curtime)
+            kin_status = self.kinematics.get_status(curtime)
             if "xy" not in kin_status["homed_axes"]:
                 raise self.printer.command_error("Must home X and Y before calibration")
 
@@ -1617,7 +1615,7 @@ class Scanner:
             self.trigger_method = TriggerMethod.SCAN
             self._zhop()
             if forced_z:
-                kin = self.toolhead.get_kinematics()
+                kin = self.kinematics
                 if hasattr(kin, "note_z_not_homed"):
                     kin.note_z_not_homed()
                 elif hasattr(kin, "clear_homing_state"):
@@ -1788,14 +1786,13 @@ class Scanner:
 
     def _enrich_sample(self, sample):
         sample["dist"] = self.freq_to_dist(sample["freq"], sample["temp"])
-        pos, vel = self._get_trapq_position(sample["time"])
+        pos = self._get_position_at_time(sample["time"])
 
         if pos is None:
             return
         if sample["dist"] is not None and self.mod_axis_twist_comp is not None:
             sample["dist"] -= self.mod_axis_twist_comp(pos)
         sample["pos"] = pos
-        sample["vel"] = vel
 
     def _start_streaming(self):
         if self._stream_en == 0:
@@ -1916,30 +1913,18 @@ class Scanner:
         self.reactor.register_async_callback(lambda e: self._stream_flush())
 
     def _handle_scanner_data(self, params):
-        if self.trapq is None:
-            return
-
         self._stream_buffer.append(params.copy())
         self._stream_flush_schedule()
 
-    def _get_trapq_position(
-        self, print_time: float
-    ) -> "tuple[list[float] | None, float | None]":
-        ffi_main, ffi_lib = chelper.get_ffi()
-        data = ffi_main.new("struct pull_move[1]")
-        count = ffi_lib.trapq_extract_old(self.trapq, data, 1, 0.0, print_time)
-        if not count:
-            return None, None
-        move = data[0]
-        move_time = max(0.0, min(move.move_t, print_time - move.print_time))
-        dist = (move.start_v + 0.5 * move.accel * move_time) * move_time
-        pos = [
-            move.start_x + move.x_r * dist,
-            move.start_y + move.y_r * dist,
-            move.start_z + move.z_r * dist,
-        ]
-        velocity = move.start_v + move.accel * move_time
-        return pos, velocity
+    def _get_position_at_time(self, print_time: float) -> "list[float] | None":
+        kin = self.kinematics
+        pos = {
+            s.get_name(): s.mcu_to_commanded_position(
+                s.get_past_mcu_position(print_time)
+            )
+            for s in kin.get_steppers()
+        }
+        return kin.calc_position(pos)
 
     def _sample_printtime_sync(self, skip=0, count=1):
         move_time = self.toolhead.get_last_move_time()
@@ -2163,11 +2148,11 @@ class Scanner:
                 f.close()
 
             completion_cb = close_file
-            f.write("time,data,data_smooth,freq,dist,temp,pos_x,pos_y,pos_z,vel\n")
+            f.write("time,data,data_smooth,freq,dist,temp,pos_x,pos_y,pos_z\n")
 
             def cb(sample):
                 pos = sample.get("pos", None)
-                obj = "%.4f,%d,%.2f,%.5f,%.5f,%.2f,%s,%s,%s,%s\n" % (
+                obj = "%.4f,%d,%.2f,%.5f,%.5f,%.2f,%s,%s,%s\n" % (
                     sample["time"],
                     sample["data"],
                     sample["data_smooth"],
@@ -2177,7 +2162,6 @@ class Scanner:
                     "%.3f" % (pos[0],) if pos is not None else "",
                     "%.3f" % (pos[1],) if pos is not None else "",
                     "%.3f" % (pos[2],) if pos is not None else "",
-                    "%.3f" % (sample["vel"],) if "vel" in sample else "",
                 )
                 f.write(obj)
 
@@ -2825,7 +2809,7 @@ class APIDumpHelper:
         self.clients = {}
         self.stream = None
         self.buffer = []
-        self.fields = ["dist", "temp", "pos", "freq", "vel", "time"]
+        self.fields = ["dist", "temp", "pos", "freq", "time"]
 
     def _start_stop(self):
         if not self.stream and self.clients:

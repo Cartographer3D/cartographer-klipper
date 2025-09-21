@@ -10,7 +10,9 @@ class MCU_stepper:
         pass
     def get_name(self, short: bool = False) -> str:
         pass
-    def get_commanded_position(self) -> _Pos:
+    def get_commanded_position(self) -> int:
         pass
     def is_active_axis(self, axis: Literal["x", "y", "z", "e"]) -> bool:
         pass
+    def mcu_to_commanded_position(self, mcu_pos: int) -> int: ...
+    def get_past_mcu_position(self, print_time: float) -> int: ...
