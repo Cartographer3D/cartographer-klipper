@@ -241,7 +241,7 @@ class Scanner:
             raise self.printer.command_error(
                 "Please change detect_threshold_z to scanner_touch_threshold in printer.cfg"
             )
-        self.detect_threshold_z = self.scanner_touch_config["threshold"]
+        self.detect_threshold_z: int = self.scanner_touch_config["threshold"]  # pyright: ignore[reportUnknownMemberType]
         self.previous_probe_success = None
 
         self.cal_config = {
@@ -1788,9 +1788,9 @@ class Scanner:
 
     def _enrich_sample(self, sample):
         sample["dist"] = self.freq_to_dist(sample["freq"], sample["temp"])
-        pos = self._get_position_by_time(sample["time"])
+        pos = self._get_position_by_time(sample["time"])  # pyright: ignore[reportUnknownArgumentType]
 
-        if pos is None:
+        if pos is None:  # pyright: ignore[reportUnnecessaryComparison]
             return
         if sample["dist"] is not None and self.mod_axis_twist_comp is not None:
             sample["dist"] -= self.mod_axis_twist_comp(pos)
@@ -1923,7 +1923,7 @@ class Scanner:
 
     def _get_position_by_time(self, print_time: float):
         kin = self.toolhead.get_kinematics()
-        pos = {}
+        pos: dict[str, int] = {}
         steppers = kin.get_steppers()
         for stepper in steppers:
             name = stepper.get_name()
@@ -2154,7 +2154,7 @@ class Scanner:
                 f.close()
 
             completion_cb = close_file
-            f.write("time,data,data_smooth,freq,dist,temp,pos_x,pos_y,pos_z\n")
+            _ = f.write("time,data,data_smooth,freq,dist,temp,pos_x,pos_y,pos_z\n")
 
             def cb(sample):
                 pos = sample.get("pos", None)
