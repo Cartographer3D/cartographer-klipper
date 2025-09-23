@@ -498,7 +498,7 @@ class Scanner:
         self.toolhead.wait_moves()
 
         curtime = self.printer.get_reactor().monotonic()
-        kinematics = self.toolhead.get_kinematics()
+        kinematics = self.kinematics
         kin_status = kinematics.get_status(curtime)
         if "x" not in kin_status["homed_axes"] or "y" not in kin_status["homed_axes"]:
             self.trigger_method = TriggerMethod.SCAN
@@ -592,7 +592,7 @@ class Scanner:
 
     # Event handlers
     def start_touch(self, gcmd: GCodeCommand, touch_settings, verbose: bool):
-        kinematics = self.toolhead.get_kinematics()
+        kinematics = self.kinematics
         initial_position = touch_settings.initial_position
         homing_position = touch_settings.homing_position
         accel = touch_settings.accel
@@ -816,7 +816,7 @@ class Scanner:
 
         # Ensure XY homing
         curtime = self.printer.get_reactor().monotonic()
-        kinematics = self.toolhead.get_kinematics()
+        kinematics = self.kinematics
         kin_status = kinematics.get_status(curtime)
         if (
             "x" not in kin_status["homed_axes"]
@@ -1010,7 +1010,7 @@ class Scanner:
             self.trigger_method = TriggerMethod.SCAN
 
     def start_threshold_scan(self, gcmd: GCodeCommand, touch_settings, verbose: bool):
-        kinematics = self.toolhead.get_kinematics()
+        kinematics = self.kinematics
         initial_position = touch_settings.initial_position
         homing_position = touch_settings.homing_position
         accel = touch_settings.accel
@@ -1156,7 +1156,7 @@ class Scanner:
         skipped_msg = ""
         toolhead = self.printer.lookup_object("toolhead")
         curtime = self.printer.get_reactor().monotonic()
-        status = self.toolhead.get_kinematics().get_status(curtime)
+        status = self.kinematics.get_status(curtime)
         if "z" not in toolhead.get_status(curtime)["homed_axes"]:
             raise self.printer.command_error("Must home before probe")
         pos = toolhead.get_position()
@@ -1241,7 +1241,7 @@ class Scanner:
     def _zhop(self):
         if self.z_hop_dist != 0:
             curtime = self.printer.get_reactor().monotonic()
-            kin = self.toolhead.get_kinematics()
+            kin = self.kinematics
             kin_status = kin.get_status(curtime)
             pos = self.toolhead.get_position()
 
@@ -1309,6 +1309,7 @@ class Scanner:
             self.thermistor.setup_coefficients_beta(25.0, 47000.0, 4041.0)
 
             self.toolhead = self.printer.lookup_object("toolhead")
+            self.kinematics = self.toolhead.get_kinematics()
             self.trapq = self.toolhead.get_trapq()
             self.fw_version = self._mcu.get_status()["mcu_version"]
         except msgproto.error as e:
@@ -1434,7 +1435,7 @@ class Scanner:
 
     def _probing_move_to_probing_height(self, speed: float):
         curtime = self.reactor.monotonic()
-        status = self.toolhead.get_kinematics().get_status(curtime)
+        status = self.kinematics.get_status(curtime)
         pos = self.toolhead.get_position()
         pos[2] = status["axis_minimum"][2]
         try:
@@ -1514,7 +1515,7 @@ class Scanner:
             pos = self.toolhead.get_position()
             self.toolhead.wait_moves()
             curtime = self.printer.get_reactor().monotonic()
-            status = self.toolhead.get_kinematics().get_status(curtime)
+            status = self.kinematics.get_status(curtime)
             pos[2] = status["axis_maximum"][2]
             try:
                 self.toolhead.set_position(pos, homing_axes=[2, "z"])
@@ -1527,7 +1528,7 @@ class Scanner:
             self.touch_probe(self.probe_speed)
             self.toolhead.set_position(pos)
             self._move([None, None, 0], self.lift_speed)
-            kin = self.toolhead.get_kinematics()
+            kin = self.kinematics
             kin_spos = {
                 s.get_name(): s.get_commanded_position() for s in kin.get_steppers()
             }
@@ -1544,7 +1545,7 @@ class Scanner:
             self.trigger_method = TriggerMethod.SCAN
 
         elif gcmd.get("SKIP_MANUAL_PROBE", None) is not None:
-            kin = self.toolhead.get_kinematics()
+            kin = self.kinematics
             kin_spos = {
                 s.get_name(): s.get_commanded_position() for s in kin.get_steppers()
             }
@@ -1560,7 +1561,7 @@ class Scanner:
             )
         else:
             curtime = self.printer.get_reactor().monotonic()
-            kin_status = self.toolhead.get_kinematics().get_status(curtime)
+            kin_status = self.kinematics.get_status(curtime)
             if "xy" not in kin_status["homed_axes"]:
                 raise self.printer.command_error("Must home X and Y before calibration")
 
@@ -1617,7 +1618,7 @@ class Scanner:
             self.trigger_method = TriggerMethod.SCAN
             self._zhop()
             if forced_z:
-                kin = self.toolhead.get_kinematics()
+                kin = self.kinematics
                 if hasattr(kin, "note_z_not_homed"):
                     kin.note_z_not_homed()
                 elif hasattr(kin, "clear_homing_state"):
@@ -1922,7 +1923,7 @@ class Scanner:
         self._stream_flush_schedule()
 
     def _get_position_by_time(self, print_time: float):
-        kin = self.toolhead.get_kinematics()
+        kin = self.kinematics
         pos: dict[str, int] = {}
         steppers = kin.get_steppers()
         for stepper in steppers:
