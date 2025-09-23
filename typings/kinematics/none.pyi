@@ -18,7 +18,7 @@ class NoneKinematics:
         pass
     def get_status(self, eventtime: float) -> _Status:
         pass
-    def calc_position(self, stepper_positions: dict[str, _Pos]) -> _Pos:
+    def calc_position(self, stepper_positions: dict[str, int]) -> _Pos:
         pass
     def note_z_not_homed(self) -> None:
         pass
