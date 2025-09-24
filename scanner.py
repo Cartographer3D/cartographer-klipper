@@ -1201,6 +1201,7 @@ class Scanner:
             curtime = self.printer.get_reactor().monotonic()
             cur_temp = hotend.get_heater().get_status(curtime)["temperature"]
             self.extruder_target = hotend.get_heater().get_status(curtime)["target"]
+            extruder_name = hotend.get_heater().name
             max_temp = self.scanner_touch_config["max_temp"]
             wait_temp = max_temp + 5
             if self.extruder_target > max_temp:
@@ -1210,7 +1211,7 @@ class Scanner:
                 )
                 cmd = "M104 S" + str(max_temp)
                 self.gcode.run_script_from_command(cmd)
-                cmd = f"TEMPERATURE_WAIT SENSOR=extruder MAXIMUM={wait_temp}"
+                cmd = f"TEMPERATURE_WAIT SENSOR='{extruder_name}' MAXIMUM={wait_temp}"
                 self.gcode.run_script_from_command(cmd)
             else:
                 if cur_temp > wait_temp:
@@ -1218,7 +1219,7 @@ class Scanner:
                         "Extruder temperature %.1fC is still too high, waiting until below %.1fC"
                         % (cur_temp, wait_temp)
                     )
-                    cmd = f"TEMPERATURE_WAIT SENSOR=extruder MAXIMUM={wait_temp}"
+                    cmd = f"TEMPERATURE_WAIT SENSOR='{extruder_name}' MAXIMUM={wait_temp}"
                     self.gcode.run_script_from_command(cmd)
 
     def set_temp(self, gcmd: GCodeCommand):
@@ -1226,11 +1227,12 @@ class Scanner:
         if hotend is not None:
             curtime = self.printer.get_reactor().monotonic()
             cur_temp = hotend.get_heater().get_status(curtime)["temperature"]
+            extruder_name = hotend.get_heater().name
             if self.extruder_target > cur_temp:
                 gcmd.respond_info("Heating hotend to %.1f" % (self.extruder_target))
                 cmd = "M104 S" + str(self.extruder_target)
                 self.gcode.run_script_from_command(cmd)
-                cmd = "TEMPERATURE_WAIT SENSOR=extruder MINIMUM=" + str(
+                cmd = f"TEMPERATURE_WAIT SENSOR='{extruder_name}' MINIMUM=" + str(
                     self.extruder_target
                 )
                 self.gcode.run_script_from_command(cmd)
