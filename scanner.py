@@ -1,4 +1,4 @@
-# IDM, Cartographer 3D, and OpenBedScanner Script v4.2.0 w/ Temperature Compensation and Cartgorapher Survey
+# IDM, Cartographer 3D, and OpenBedScanner Script v4.3.0 w/ Temperature Compensation and Cartgorapher Survey
 #
 # To buy affordable bed scanners, check out https://cartographer3d.com
 #
@@ -1295,12 +1295,13 @@ class Scanner:
 
     def _handle_mcu_identify(self):
         try:
-            if self._mcu._mcu_freq < 20000000:
-                self.sensor_freq = self._mcu._mcu_freq
-            elif self._mcu._mcu_freq < 100000000:
-                self.sensor_freq = self._mcu._mcu_freq / 2
+            self._mcu_freq = self._mcu.get_constant_float("CLOCK_FREQ")
+            if self._mcu_freq < 20000000:
+                self.sensor_freq = self._mcu_freq
+            elif self._mcu_freq < 100000000:
+                self.sensor_freq = self._mcu_freq / 2
             else:
-                self.sensor_freq = self._mcu._mcu_freq / 6
+                self.sensor_freq = self._mcu_freq / 6
             self.inv_adc_max = 1.0 / self._mcu.get_constant_float("ADC_MAX")
             self.temp_smooth_count = self._mcu.get_constant_float(
                 self.sensor.upper() + "_ADC_SMOOTH_COUNT"
