@@ -3484,7 +3484,7 @@ class ScannerMeshHelper:
             p = path if i % 2 == 0 else reversed(path)
             for x, y in p:
                 self.toolhead.manual_move([x, y, None], speed)
-        self.toolhead.dwell(0.251)
+            self.toolhead.dwell(0.251)
         self.toolhead.wait_moves()
 
     def _collect_zero_ref(self, speed, coord):
