@@ -560,7 +560,7 @@ class Scanner:
 
             result = self.start_touch(gcmd, touch_settings, vars["verbose"])
 
-            max_deviation = result["max_deviation"]
+            standard_deviation = result["standard_deviation"]
             final_position = result["final_position"]
             retries = result["retries"]
             success = result["success"]
@@ -576,7 +576,7 @@ class Scanner:
                 self.log_debug_info(
                     vars["verbose"],
                     gcmd,
-                    f"Maximum Deviation: {max_deviation:.4f}",
+                    f"Standard Deviation: {standard_deviation:.4f}",
                 )
                 if calibrate == 1:
                     self._calibrate(
@@ -707,7 +707,7 @@ class Scanner:
 
             if len(samples) == num_samples and deviation <= tolerance:
                 gcmd.respond_info(
-                    f"Completed {len(samples)} touches with a max deviation of {deviation:.4f}"
+                    f"Completed {len(samples)} touches with a standard deviation of {deviation:.4f}"
                 )
                 position_difference = (
                     initial_position[2] - self.toolhead.get_position()[2]
@@ -737,7 +737,7 @@ class Scanner:
                 self.detect_threshold_z = original_threshold
             return {
                 "samples": samples,
-                "max_deviation": deviation,
+                "standard_deviation": deviation,
                 "final_position": initial_position,
                 "retries": retries,
                 "success": self.previous_probe_success,
@@ -803,7 +803,7 @@ class Scanner:
         max_acceptable_retries = round(
             confirmation_retries * THRESHOLD_ACCEPTANCE_FACTOR
         )
-        max_acceptable_max_dev = vars["target"]
+        max_acceptable_std_dev = vars["target"]
 
         verbose = vars["verbose"]
 
@@ -888,8 +888,8 @@ class Scanner:
                 if result["success"]:
                     # Check if this result meets "good" criteria
                     if result["retries"] <= max_acceptable_retries and (
-                        result["max_deviation"] is not None
-                        and result["max_deviation"] <= max_acceptable_max_dev
+                        result["standard_deviation"] is not None
+                        and result["standard_deviation"] <= max_acceptable_std_dev
                     ):
                         # Increase threshold_max by 3 steps above the current threshold, only if it hasn't been increased before
                         if not has_increased_threshold_max:
@@ -910,7 +910,7 @@ class Scanner:
                                 gcmd, touch_settings, verbose
                             )
                             if not repeat_result["success"] or (
-                                repeat_result["max_deviation"] > max_acceptable_max_dev
+                                repeat_result["standard_deviation"] > max_acceptable_std_dev
                             ):
                                 gcmd.respond_info(
                                     f"Qualify attempt {attempt + 1} failed for threshold {current_threshold}"
@@ -918,15 +918,15 @@ class Scanner:
                                 consistent_results = False
                                 break
                             gcmd.respond_info(
-                                f"Qualify attempt {attempt + 1} successful with max dev: {repeat_result['max_deviation']:.5f}"
+                                f"Qualify attempt {attempt + 1} successful with std dev: {repeat_result['standard_deviation']:.5f}"
                             )
 
                         # Save only successful repeat attempts in results
                         result["consistent_results"] = (
                             consistent_results  # Mark if it passed repeatability checks
                         )
-                        result["max_deviation"] = (
-                            repeat_result["max_deviation"]
+                        result["standard_deviation"] = (
+                            repeat_result["standard_deviation"]
                             if consistent_results
                             else None
                         )
@@ -957,13 +957,13 @@ class Scanner:
                 return  # Exit as there's no best threshold to save
 
             if consistent_results:
-                # Find the best consistent result based on minimum retries and max deviation
+                # Find the best consistent result based on minimum retries and standard deviation
                 best_result = min(
                     consistent_results,
                     key=lambda x: (
                         x["retries"],
-                        x["max_deviation"]
-                        if x["max_deviation"] is not None
+                        x["standard_deviation"]
+                        if x["standard_deviation"] is not None
                         else float("inf"),
                     ),
                 )
@@ -975,8 +975,8 @@ class Scanner:
                     results,
                     key=lambda x: (
                         x["retries"],
-                        x["max_deviation"]
-                        if x["max_deviation"] is not None
+                        x["standard_deviation"]
+                        if x["standard_deviation"] is not None
                         else float("inf"),
                     ),
                 )
@@ -987,21 +987,21 @@ class Scanner:
             self.detect_threshold_z = best_threshold
             self._save_threshold(best_threshold, vars["speed"])
 
-            # Handle None for max deviation by using a default message
-            max_dev_display = (
-                f"{best_result['max_deviation']:.5f}"
-                if best_result["max_deviation"] is not None
+            # Handle None for standard deviation by using a default message
+            std_dev_display = (
+                f"{best_result['standard_deviation']:.5f}"
+                if best_result["standard_deviation"] is not None
                 else "N/A"
             )
 
             # Inform the user about the result
             if optimal_found:
                 gcmd.respond_info(
-                    f"Optimal Threshold Determined: {best_threshold} with max deviation of {max_dev_display}"
+                    f"Optimal Threshold Determined: {best_threshold} with standard deviation of {std_dev_display}"
                 )
             else:
                 gcmd.respond_info(
-                    f"No fully optimal threshold found. Best attempt: {best_threshold} with max deviation of {max_dev_display}"
+                    f"No fully optimal threshold found. Best attempt: {best_threshold} with standard deviation of {std_dev_display}"
                 )
             gcmd.respond_info(
                 f"You can now {format_macro('SAVE_CONFIG')} to save your threshold."
@@ -1115,7 +1115,7 @@ class Scanner:
                     f"Deviation: {deviation:.4f}\nNew Average: {average:.4f}\nTolerance: {tolerance:.4f}",
                 )
 
-            max_dev = np.std(samples) if samples else None
+            std_dev = np.std(samples) if samples else None
             if len(samples) == num_samples:
                 success = True
                 position_difference = (
@@ -1128,7 +1128,7 @@ class Scanner:
                     f"Position Difference: {position_difference:.4f}\nAdjusted Difference: {adjusted_difference:.4f}",
                 )
             else:
-                max_dev = None
+                std_dev = None
                 success = False
 
             self.toolhead.wait_moves()
@@ -1138,7 +1138,7 @@ class Scanner:
             # Return relevant data
             return {
                 "samples": samples,
-                "max_deviation": max_dev,
+                "standard_deviation": std_dev,
                 "final_position": initial_position,
                 "retries": retries,
                 "success": success,
