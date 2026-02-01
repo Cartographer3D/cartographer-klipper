@@ -1,10 +1,10 @@
-# IDM, Cartographer 3D, and OpenBedScanner Script v4.3.0 w/ Temperature Compensation and Cartgorapher Survey
+# IDM, Cartographer 3D, and OpenBedScanner Script v4.4.0 w/ Temperature Compensation and Cartgorapher Survey
 #
 # To buy affordable bed scanners, check out https://cartographer3d.com
 #
 # Based on the outstanding work from the Beacon3D Team, with modifications made by the Cartographer and IDM team.
 #
-# Copyright (C) 2023-2024 Cartographer3D <cartographer3d.com>
+# Copyright (C) 2023-2026 Cartographer3D <cartographer3d.com>
 # Copyright (C) 2020-2023 Matt Baker <baker.matt.j@gmail.com>
 # Copyright (C) 2020-2023 Lasse Dalegaard <dalegaard@gmail.com>
 # Copyright (C) 2023 Beacon <beacon3d.com>
@@ -1277,11 +1277,27 @@ class Scanner:
                 self.mod_axis_twist_comp = axis_twist_comp.get_z_compensation_value
             else:
 
+                self.raw_axis_twist_comp = self.mod_axis_twist_comp
                 def get_z_compensation_value(pos):
                     temp = list(pos)
-                    axis_twist_comp._update_z_compensation_value(temp)
+                    self.raw_axis_twist_comp._update_z_compensation_value(temp)
                     return temp[2] - pos[2]
 
+                self.mod_axis_twist_comp = get_z_compensation_value
+            if hasattr(manual_probe, "ProbeResult"):
+                def get_z_compensation_value(self, pos):
+                    (x, y, z) = self.get_offsets()
+                    temp = [manual_probe.ProbeResult(
+                        pos[0] + x,
+                        pos[1] + y,
+                        pos[2] - z,
+                        pos[0],
+                        pos[1],
+                        pos[2],
+                    )]
+                    bed_z = temp[0].bed_z
+                    self.raw_axis_twist_comp._update_z_compensation_value(temp)
+                    return temp[0].bed_z - bed_z
                 self.mod_axis_twist_comp = get_z_compensation_value
         # Ensure streaming mode is stopped
         self.scanner_stream_cmd.send([0])
@@ -1364,7 +1380,7 @@ class Scanner:
     def multi_probe_end(self):
         self._stop_streaming()
 
-    def get_offsets(self):
+    def get_offsets(self, gcmd=None):
         return self.offset["x"], self.offset["y"], self.trigger_distance
 
     def get_lift_speed(self, gcmd: Optional[GCodeCommand] = None):
@@ -1420,6 +1436,16 @@ class Scanner:
         self._start_streaming()
         try:
             epos = self._probe(speed, skip_samples, allow_faulty=allow_faulty)
+            if hasattr(manual_probe, "ProbeResult"):
+                (x, y, z) = self.get_offsets()
+                epos = manual_probe.ProbeResult(
+                    epos[0] + x,
+                    epos[1] + y,
+                    epos[2] - z,
+                    epos[0],
+                    epos[1],
+                    epos[2],
+                )
             self.results.append(epos)
             return epos
         finally:
@@ -2874,7 +2900,7 @@ class ScannerWrapper:
     def multi_probe_end(self):
         return self.scanner.multi_probe_end()
 
-    def get_offsets(self):
+    def get_offsets(self, gcmd=None):
         return self.scanner.get_offsets()
 
     def get_lift_speed(self, gcmd: Optional[GCodeCommand] = None):
@@ -3523,7 +3549,7 @@ class ScannerMeshHelper:
         def cb(sample):
             total_samples[0] += 1
             d = sample["dist"]
-            (x, y, z) = sample["pos"]
+            (x, y, z) = sample["pos"][:3]
             x += xo
             y += yo
 
