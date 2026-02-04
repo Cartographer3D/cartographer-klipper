@@ -1225,8 +1225,8 @@ class Scanner:
         hotend = self.toolhead.get_extruder()
         if hotend is not None:
             curtime = self.printer.get_reactor().monotonic()
-            cur_temp = hotend.get_heater().get_status(curtime)["temperature"]
-            if self.extruder_target > cur_temp:
+            cur_target = hotend.get_heater().get_status(curtime)["target"]
+            if self.extruder_target > cur_target:
                 gcmd.respond_info("Heating hotend to %.1f" % (self.extruder_target))
                 cmd = "M104 S" + str(self.extruder_target)
                 self.gcode.run_script_from_command(cmd)
