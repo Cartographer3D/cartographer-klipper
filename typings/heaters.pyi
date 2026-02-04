@@ -8,6 +8,7 @@ class _Status(TypedDict):
 
 class Heater:
     pass
+    name: str
     def get_status(self, eventtime: float) -> _Status:
         pass
 
