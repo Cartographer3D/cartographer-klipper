@@ -123,7 +123,7 @@ class CartographerProbe:
         self.printer.register_event_handler("klippy:mcu_identify",
                                             self._handle_mcu_identify)
         self._mcu.register_config_callback(self._build_config)
-        self._mcu.register_response(self._handle_cartographer_data, "cartographer_data")
+        self._mcu.register_serial_response(self._handle_cartographer_data, "cartographer_data clock=%u data=%u temp=%u")
 
         # Probe results
         self.results = []

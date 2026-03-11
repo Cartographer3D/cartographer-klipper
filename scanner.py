@@ -313,8 +313,9 @@ class Scanner:
             "klippy:mcu_identify", self._handle_mcu_identify
         )
         self._mcu.register_config_callback(self._build_config)
-        self._mcu.register_response(
-            self._handle_scanner_data, self.sensor.lower() + "_data"
+        self._mcu.register_serial_response(
+            self._handle_scanner_data,
+            self.sensor.lower() + "_data clock=%u data=%u temp=%u"
         )
         # Register webhooks
         webhooks = self.printer.lookup_object("webhooks")
