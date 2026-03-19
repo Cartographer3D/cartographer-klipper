@@ -142,7 +142,10 @@ class IDMProbe:
         self.printer.register_event_handler("klippy:mcu_identify",
                                             self._handle_mcu_identify)
         self._mcu.register_config_callback(self._build_config)
-        self._mcu.register_serial_response(self._handle_idm_data, "idm_data clock=%u data=%u temp=%u")
+        if hasattr(self._mcu, "register_serial_response"):
+            self._mcu.register_serial_response(self._handle_idm_data, "idm_data clock=%u data=%u temp=%u")
+        else:
+            self._mcu.register_response(self._handle_idm_data, "idm_data")
         # Probe results
         self.results = []
         # Register webhooks
