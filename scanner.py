@@ -1284,15 +1284,17 @@ class Scanner:
                 self.mod_axis_twist_comp = axis_twist_comp.get_z_compensation_value
             else:
 
-                self.raw_axis_twist_comp = self.mod_axis_twist_comp
+                self.raw_axis_twist_comp = axis_twist_comp
                 def get_z_compensation_value(pos):
                     temp = list(pos)
                     self.raw_axis_twist_comp._update_z_compensation_value(temp)
                     return temp[2] - pos[2]
 
                 self.mod_axis_twist_comp = get_z_compensation_value
-            if hasattr(manual_probe, "ProbeResult"):
-                def get_z_compensation_value(self, pos):
+            if hasattr(manual_probe, "ProbeResult") and not hasattr(
+                axis_twist_comp, "get_z_compensation_value"
+            ):
+                def get_z_compensation_value(pos):
                     (x, y, z) = self.get_offsets()
                     temp = [manual_probe.ProbeResult(
                         pos[0] + x,
